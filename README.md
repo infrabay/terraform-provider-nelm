@@ -106,11 +106,13 @@ make testacc     # acceptance tests: TF_ACC=1 NELM_TEST_KUBE_CONTEXT=orbstack, r
 ```
 
 `make test` never touches a cluster (acceptance tests self-skip without
-`TF_ACC=1`). `make testacc` requires a local
-[OrbStack](https://orbstack.dev/) Kubernetes cluster reachable as kubeconfig
-context `orbstack`; test code hard-fails unless that context exists and its
-`cluster.server` resolves to `127.0.0.1`/`localhost`, so acceptance tests can
-never accidentally run against a real (e.g. cloud) cluster.
+`TF_ACC=1`). `make testacc` runs the acceptance suite against a **local**
+Kubernetes cluster named by `NELM_TEST_KUBE_CONTEXT` (default `orbstack`;
+e.g. `make testacc NELM_TEST_KUBE_CONTEXT=kind-mycluster`); test code
+hard-fails unless that kubeconfig context exists and its `cluster.server`
+resolves to `127.0.0.1`/`localhost`, so acceptance tests can never
+accidentally run against a real (e.g. cloud) cluster. CI runs the same suite
+on every pull request against a [kind](https://kind.sigs.k8s.io/) cluster.
 
 ## Releasing
 

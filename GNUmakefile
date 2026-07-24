@@ -6,12 +6,13 @@ ifeq ($(GOBIN),)
 GOBIN := $(shell go env GOPATH)/bin
 endif
 
-# Strictly-orbstack acceptance test guard (design §6): TF_ACC=1 opts into
+# Strictly-local acceptance test guard (design §6): TF_ACC=1 opts into
 # running acceptance tests at all; NELM_TEST_KUBE_CONTEXT pins the ONLY
-# context test code is allowed to touch. testAccPreCheck (Phase C,
-# provider_test.go) additionally asserts the "orbstack" kubeconfig context
-# exists and its cluster.server is 127.0.0.1/localhost — never a remote
-# endpoint — before any test runs.
+# context test code is allowed to touch (default: orbstack; CI overrides it
+# to the kind cluster's context). testAccPreCheck (provider_test.go)
+# additionally asserts that context exists and its cluster.server is
+# 127.0.0.1/localhost — never a cloud endpoint — before any test runs.
+NELM_TEST_KUBE_CONTEXT ?= orbstack
 .PHONY: build
 build:
 	go build -o bin/$(BINARY_NAME) -ldflags "-X main.version=$(VERSION)" .
@@ -27,7 +28,7 @@ test:
 
 .PHONY: testacc
 testacc:
-	TF_ACC=1 NELM_TEST_KUBE_CONTEXT=orbstack \
+	TF_ACC=1 NELM_TEST_KUBE_CONTEXT=$(NELM_TEST_KUBE_CONTEXT) \
 		go test -race -count=1 -timeout 30m ./internal/provider/...
 
 # e2e: manual, dev_overrides workflow against examples/basic — never run

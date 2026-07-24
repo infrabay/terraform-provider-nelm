@@ -10,11 +10,13 @@ package provider_test
 //
 // CLUSTER SAFETY: the machine this runs on may have its kubeconfig
 // current-context pointed at a remote or production cluster. Every helper here
-// that shells out to kubectl passes "--context=orbstack" EXPLICITLY and never
-// relies on the ambient current-context; every Terraform provider block a
-// test config builds sets kube_context = "orbstack" explicitly for the same
-// reason (see providerBlock below). testAccPreCheck is the hard gate in
-// front of all of it.
+// that shells out to kubectl passes "--context=<pinned test context>" EXPLICITLY
+// and never relies on the ambient current-context; every Terraform provider
+// block a test config builds sets kube_context to that same pinned context
+// explicitly (see providerBlock below). The pinned context comes from
+// NELM_TEST_KUBE_CONTEXT ("orbstack" locally via the GNUmakefile default,
+// "kind-nelm-acc" in CI) and testAccPreCheck hard-verifies it resolves to a
+// LOCAL (127.0.0.1/localhost) API server before anything runs.
 
 import (
 	"fmt"
@@ -47,26 +49,34 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 	"nelm": providerserver.NewProtocol6WithError(provider.New("test")()),
 }
 
-// testAccPreCheck is the triple orbstack safety guard (design §6, GNUmakefile
-// testacc target, docs/DEVELOPMENT.md): it MUST hard-fail (t.Fatal, not
-// t.Skip) unless ALL of the following hold, so acceptance tests can never
-// silently no-op against -- or worse, actually run against -- a real
-// cluster:
+// testKubeContext returns the kubeconfig context name this suite is pinned
+// to: the value of NELM_TEST_KUBE_CONTEXT. Empty means "not opted in" and
+// testAccPreCheck hard-fails. "orbstack" locally (the GNUmakefile default),
+// "kind-nelm-acc" in the CI kind job.
+func testKubeContext() string {
+	return os.Getenv("NELM_TEST_KUBE_CONTEXT")
+}
+
+// testAccPreCheck is the triple local-cluster safety guard (design §6,
+// GNUmakefile testacc target, docs/DEVELOPMENT.md): it MUST hard-fail
+// (t.Fatal, not t.Skip) unless ALL of the following hold, so acceptance
+// tests can never silently no-op against -- or worse, actually run against
+// -- a real cluster:
 //
 //  1. TF_ACC is set (resource.Test's own gate already skips before PreCheck
 //     runs when this is unset; checked again here defensively in case this
 //     function is ever invoked outside resource.Test).
-//  2. NELM_TEST_KUBE_CONTEXT=orbstack -- an explicit, separate opt-in pin
+//  2. NELM_TEST_KUBE_CONTEXT is set -- an explicit, separate opt-in pin
 //     (distinct from TF_ACC) naming the ONLY context this suite is allowed
-//     to touch.
-//  3. The kubeconfig context named "orbstack" actually exists AND its
-//     cluster.server looks like a local OrbStack endpoint
-//     (https://127.0.0.1:*/https://localhost:*), resolved via `kubectl
-//     config view` (reads the kubeconfig file only, no cluster I/O) rather
-//     than trusted from a hardcoded assumption.
+//     to touch. There is deliberately no default.
+//  3. That kubeconfig context actually exists AND its cluster.server looks
+//     like a LOCAL endpoint (https://127.0.0.1:* / https://localhost:*),
+//     resolved via `kubectl config view` (reads the kubeconfig file only,
+//     no cluster I/O). This is the real safety net: no managed/cloud
+//     cluster endpoint ever looks like localhost.
 //
 // This is deliberately independent of (and in addition to) every test
-// Config's own explicit `kube_context = "orbstack"` (never current-context).
+// Config's own explicit `kube_context = ...` (never current-context).
 func testAccPreCheck(t *testing.T) {
 	t.Helper()
 
@@ -74,34 +84,36 @@ func testAccPreCheck(t *testing.T) {
 		t.Fatal("nelm_release acceptance tests require TF_ACC=1 (see GNUmakefile's testacc target)")
 	}
 
-	if got := os.Getenv("NELM_TEST_KUBE_CONTEXT"); got != "orbstack" {
-		t.Fatalf(
-			"nelm_release acceptance tests require NELM_TEST_KUBE_CONTEXT=orbstack as an explicit "+
-				"opt-in pin (safety guard against accidentally running against this machine's actual "+
-				"kubeconfig current-context, which may be a production cluster); got %q", got,
+	kubeCtx := testKubeContext()
+	if kubeCtx == "" {
+		t.Fatal(
+			"nelm_release acceptance tests require NELM_TEST_KUBE_CONTEXT=<local kube context> as an " +
+				"explicit opt-in pin (safety guard against accidentally running against this machine's " +
+				"actual kubeconfig current-context, which may be a production cluster); e.g. " +
+				"NELM_TEST_KUBE_CONTEXT=orbstack locally or kind-nelm-acc in CI",
 		)
 	}
 
-	// Resolve the "orbstack" CONTEXT (not just a same-named cluster entry --
-	// a context's cluster reference can differ from its own name) to its
+	// Resolve the pinned CONTEXT (not just a same-named cluster entry -- a
+	// context's cluster reference can differ from its own name) to its
 	// cluster name, then that cluster's server URL. Both steps read the
 	// kubeconfig file only; kubectl config view never touches the network.
 	clusterName, err := kubectl(
 		"config", "view", "-o",
-		`jsonpath={.contexts[?(@.name=="orbstack")].context.cluster}`,
+		fmt.Sprintf(`jsonpath={.contexts[?(@.name==%q)].context.cluster}`, kubeCtx),
 	)
 	if err != nil {
-		t.Fatalf("could not inspect kubeconfig for context %q: %v\n%s", "orbstack", err, clusterName)
+		t.Fatalf("could not inspect kubeconfig for context %q: %v\n%s", kubeCtx, err, clusterName)
 	}
 
 	clusterName = strings.TrimSpace(clusterName)
 	if clusterName == "" {
-		t.Fatal(`kubeconfig context "orbstack" does not exist; refusing to run acceptance tests`)
+		t.Fatalf("kubeconfig context %q does not exist; refusing to run acceptance tests", kubeCtx)
 	}
 
 	server, err := kubectl(
 		"config", "view", "-o",
-		fmt.Sprintf(`jsonpath={.clusters[?(@.name=="%s")].cluster.server}`, clusterName),
+		fmt.Sprintf(`jsonpath={.clusters[?(@.name==%q)].cluster.server}`, clusterName),
 	)
 	if err != nil {
 		t.Fatalf("could not inspect kubeconfig cluster %q: %v\n%s", clusterName, err, server)
@@ -109,15 +121,15 @@ func testAccPreCheck(t *testing.T) {
 
 	server = strings.TrimSpace(server)
 	if server == "" {
-		t.Fatalf("kubeconfig context %q references cluster %q, which has no server URL", "orbstack", clusterName)
+		t.Fatalf("kubeconfig context %q references cluster %q, which has no server URL", kubeCtx, clusterName)
 	}
 
 	if !strings.HasPrefix(server, "https://127.0.0.1") && !strings.HasPrefix(server, "https://localhost") {
 		t.Fatalf(
 			"kubeconfig context %q resolves to cluster %q with server %q, which does not look like a "+
-				"local OrbStack endpoint (expected https://127.0.0.1:* or https://localhost:*); refusing "+
+				"local endpoint (expected https://127.0.0.1:* or https://localhost:*); refusing "+
 				"to run acceptance tests against what may be a real cluster",
-			"orbstack", clusterName, server,
+			kubeCtx, clusterName, server,
 		)
 	}
 }
@@ -126,10 +138,10 @@ func testAccPreCheck(t *testing.T) {
 // embeds. kube_context is always explicit -- never the ambient
 // current-context -- per the cluster safety rule above.
 func providerBlock() string {
-	return `provider "nelm" {
-  kube_context = "orbstack"
+	return fmt.Sprintf(`provider "nelm" {
+  kube_context = %q
 }
-`
+`, testKubeContext())
 }
 
 // chartPath returns the absolute path to testdata/charts/basic. Tests run
@@ -157,12 +169,12 @@ func uniqueNamespace(tag string) string {
 	return fmt.Sprintf("tfnelm-acc-%s-%d", tag, time.Now().UnixNano())
 }
 
-// kubectl runs kubectl against the orbstack context ONLY, explicitly, never
-// relying on the ambient current-context (cluster safety rule). It is a bare
-// function (no *testing.T) so it can be used from resource.TestCheckFunc /
-// CheckDestroy closures, which only receive a *terraform.State.
+// kubectl runs kubectl against the pinned test context ONLY, explicitly,
+// never relying on the ambient current-context (cluster safety rule). It is a
+// bare function (no *testing.T) so it can be used from resource.TestCheckFunc
+// / CheckDestroy closures, which only receive a *terraform.State.
 func kubectl(args ...string) (string, error) {
-	full := append([]string{"--context=orbstack"}, args...)
+	full := append([]string{"--context=" + testKubeContext()}, args...)
 
 	out, err := exec.Command("kubectl", full...).CombinedOutput()
 
@@ -206,7 +218,7 @@ func helmInstallOOB(t *testing.T, namespace, name, chartDir string) {
 	cmd := exec.Command("helm", "install", name, chartDir,
 		"--namespace", namespace,
 		"--create-namespace",
-		"--kube-context", "orbstack",
+		"--kube-context", testKubeContext(),
 		"--wait",
 		"--timeout", "60s",
 	)

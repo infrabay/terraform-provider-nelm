@@ -89,18 +89,24 @@ without `TF_ACC=1`, and live-fixture-capture programs are guarded by the
 `smoke` build tag (`go build -tags smoke ...`), which the default `go test`
 invocation never activates.
 
-## Acceptance tests (`TF_ACC=1`, strictly OrbStack)
+## Acceptance tests (`TF_ACC=1`, strictly local clusters)
 
 ```sh
-make testacc
+make testacc                                      # default: kube context "orbstack"
+make testacc NELM_TEST_KUBE_CONTEXT=kind-nelm-acc # e.g. a kind cluster
 ```
 
-This exports `TF_ACC=1` and `NELM_TEST_KUBE_CONTEXT=orbstack`. Test code
-additionally hard-fails (`t.Fatal`) unless the `orbstack` kubeconfig context
-exists and its `cluster.server` looks like `127.0.0.1`/`localhost` — this is a
-deliberate triple guard (env pin + context existence + explicit
-`kube_context = "orbstack"` in every test's provider config) so acceptance
-tests can never accidentally run against a remote cluster.
+This exports `TF_ACC=1` and `NELM_TEST_KUBE_CONTEXT=<context>`. Test code
+additionally hard-fails (`t.Fatal`) unless that kubeconfig context exists and
+its `cluster.server` looks like `127.0.0.1`/`localhost` — a deliberate triple
+guard (explicit env pin with no default + context existence + explicit
+`kube_context = <context>` in every test's provider config) so acceptance
+tests can never accidentally run against a real cloud cluster.
+
+CI (`.github/workflows/test.yml`, job `acceptance`) runs the same suite on
+every pull request against a [kind](https://kind.sigs.k8s.io/) cluster
+(`kind-nelm-acc` context) with terraform 1.15.8 and the real helm CLI for the
+out-of-band import fixture.
 
 ## Nelm source reference
 

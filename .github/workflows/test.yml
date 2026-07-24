@@ -51,3 +51,34 @@ jobs:
       - uses: golangci/golangci-lint-action@v8
         with:
           version: latest
+
+  acceptance:
+    name: acceptance tests (kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      # terraform-plugin-testing drives a real terraform binary from PATH.
+      # The wrapper MUST be off: it interposes its own stdout/stderr handling,
+      # which breaks the test harness's CLI parsing.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.15.8'
+          terraform_wrapper: false
+      # The import scenario shells out to the real helm CLI to create an
+      # out-of-band release (storage-format compatibility is the point).
+      - uses: azure/setup-helm@v4
+      # A local kind cluster whose kubeconfig context is kind-nelm-acc with
+      # server https://127.0.0.1:<port> — which is exactly what the suite's
+      # local-endpoint safety guard (testAccPreCheck) requires.
+      - uses: helm/kind-action@v1
+        with:
+          cluster_name: nelm-acc
+      - name: Run acceptance tests
+        run: |
+          TF_ACC=1 NELM_TEST_KUBE_CONTEXT=kind-nelm-acc \
+            go test -race -count=1 -timeout 25m ./internal/provider/...
