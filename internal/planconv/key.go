@@ -7,8 +7,10 @@
 package planconv
 
 import (
+	"errors"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
@@ -72,6 +74,35 @@ func Key(ref Ref, releaseNS string, scoper KeyScoper) (string, error) {
 		if ns == "" {
 			ns = releaseNS
 		}
+	}
+
+	return fmt.Sprintf("%s/%s/%s/%s", ref.GroupVersionKind.GroupVersion().String(), ref.GroupVersionKind.Kind, ns, ref.Name), nil
+}
+
+// keyWithScopeFallback is Key, except that a scoper "no matches for kind"
+// failure (the kind is not currently served — its CRD is being installed in
+// this very release, or was removed out-of-band) degrades to a best-guess
+// namespace resolution instead of a hard error: the manifest's own namespace
+// if set, else releaseNS. The PLANNED side must key such resources (nelm
+// tolerates NoSuchKind while planning a chart that ships a CRD plus its CR,
+// and still emits a create change for the CR); the live side never sees them
+// (LiveObjects skips unmapped kinds as absent). If the guess is wrong for a
+// cluster-scoped CR, the next Read rebuilds the map from live refs and the
+// key self-heals in one refresh cycle.
+func keyWithScopeFallback(ref Ref, releaseNS string, scoper KeyScoper) (string, error) {
+	key, err := Key(ref, releaseNS, scoper)
+	if err == nil {
+		return key, nil
+	}
+
+	var noMatch *meta.NoKindMatchError
+	if !errors.As(err, &noMatch) {
+		return "", err
+	}
+
+	ns := ref.Namespace
+	if ns == "" {
+		ns = releaseNS
 	}
 
 	return fmt.Sprintf("%s/%s/%s/%s", ref.GroupVersionKind.GroupVersion().String(), ref.GroupVersionKind.Kind, ns, ref.Name), nil

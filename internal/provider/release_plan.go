@@ -207,6 +207,14 @@ func releaseWillReinstall(plan, priorState releaseModel, planned, prior map[stri
 		!plan.NoInstallCRDs.Equal(priorState.NoInstallCRDs) ||
 		!plan.AutoRollback.Equal(priorState.AutoRollback) ||
 		!plan.ReleaseHistoryLimit.Equal(priorState.ReleaseHistoryLimit) ||
+		// timeouts is the one remaining in-place-updatable attribute: its edit
+		// makes Terraform call Update, and nelm's Install can bump the
+		// revision even for an identical chart (e.g. a chart with an
+		// upgrade-active hook makes the install plan non-useless, so the skip
+		// branch is not taken). Compare the embedded Objects — timeouts.Value
+		// itself is not a types.Object, so Value.Equal(Value) would be
+		// unconditionally false and freeze every plan as a reinstall.
+		!plan.Timeouts.Object.Equal(priorState.Timeouts.Object) ||
 		// Out-of-band drift: the planned resources differ from prior state.
 		!maps.Equal(planned, prior)
 }
@@ -354,7 +362,26 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		}
 	}
 
-	planned, warns, err := planconv.BuildPlannedResources(prior, planRes.Changes, ns, r.client)
+	// 6b. The chart's client render is the authoritative desired shape for
+	// update changes (an update's After is the server dry-run merge, which no
+	// heuristic can reliably un-blend from live state). A render failure here
+	// is a HARD error, deliberately: Plan just succeeded with identical
+	// inputs, so a failing render is exceptional — and silently degrading to
+	// the heuristic at ONE of the two ModifyPlan phases while the other used
+	// the render would itself manufacture an inconsistent-final-plan abort.
+	renderObjs, err := r.client.Render(ctx, spec, readTimeout)
+	if err != nil {
+		resp.Diagnostics.AddError("nelm_release: chart render for the plan diff failed", plan.scrubSensitive(err.Error()))
+		return
+	}
+
+	rendered, err := planconv.BuildRenderedResources(renderObjs, ns, r.client)
+	if err != nil {
+		resp.Diagnostics.AddError("nelm_release: failed to build the rendered resources map", err.Error())
+		return
+	}
+
+	planned, warns, err := planconv.BuildPlannedResources(prior, planRes.Changes, ns, r.client, rendered)
 	if err != nil {
 		resp.Diagnostics.AddError("nelm_release: failed to build the planned resources map", err.Error())
 		return

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/samber/lo"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -18,22 +19,19 @@ import (
 	"github.com/werf/nelm/pkg/kube"
 )
 
+// defaultFactoryBuildTimeout caps a single kube-factory construction attempt (which
+// includes a live connectivity round-trip that client-go performs WITHOUT any
+// caller context). Configurable via Config.RequestTimeout; the default keeps
+// a half-open API server from wedging every Read/plan in the process forever
+// while kubeMu is held.
+const defaultFactoryBuildTimeout = 30 * time.Second
+
 // ensureKubeFactory lazily constructs and caches (once per Client, guarded by
 // kubeMu) the nelm kube.ClientFactory backing both LiveObjects and
-// IsNamespaced. Building it performs a live connectivity check
-// (kube.NewClientFactory dials the API server's /version endpoint, see
-// factory.go and testdata/errors/unreachable_cluster.txt), so the first
-// caller pays that cost; every later call from either method reuses the
-// cached factory and its RESTMapper/dynamic client.
-//
-// Only a SUCCESSFUL construction is cached. A construction error is returned
-// but NOT memoized: the connectivity check can fail transiently (a momentary
-// API-server 503 during a control-plane rollout, or KubeRequestTimeout
-// expiring under load), and nelm's own Plan/Install/Get each build a fresh
-// factory per call and shrug such a blip off. Memoizing the error here would
-// instead poison LiveObjects/IsNamespaced for every resource for the rest of
-// the process even after the cluster recovered, so the next call always
-// retries construction until it succeeds.
+// IsNamespaced. Only a SUCCESSFUL construction is cached; an error is returned
+// but never memoized (a transient blip must not poison later reads), and a
+// single attempt is time-bounded (see below) so a half-open API server cannot
+// wedge every resource in the process behind this mutex.
 func (c *Client) ensureKubeFactory(ctx context.Context) (*kube.ClientFactory, error) {
 	c.kubeMu.Lock()
 	defer c.kubeMu.Unlock()
@@ -42,6 +40,55 @@ func (c *Client) ensureKubeFactory(ctx context.Context) (*kube.ClientFactory, er
 		return c.kubeFactory, nil
 	}
 
+	// The construction includes a ServerVersion() connectivity check that
+	// ignores ctx entirely (client-go discovery has no context parameter), so
+	// a blackholed endpoint would block indefinitely — while this mutex is
+	// held, wedging every resource's Read/plan in the process. Run the build
+	// in a goroutine and give up after a bounded wait; the abandoned worker
+	// finishes (or times out at the OS level) on its own and its result is
+	// discarded — nothing is cached from a stale attempt.
+	timeout := defaultFactoryBuildTimeout
+	if c.cfg.RequestTimeout > 0 {
+		timeout = c.cfg.RequestTimeout
+	}
+
+	type buildResult struct {
+		factory *kube.ClientFactory
+		err     error
+	}
+
+	done := make(chan buildResult, 1)
+
+	go func() {
+		factory, err := c.buildKubeFactory(ctx)
+		done <- buildResult{factory: factory, err: err}
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case res := <-done:
+		if res.err != nil {
+			return nil, res.err
+		}
+
+		c.kubeFactory = res.factory
+
+		return c.kubeFactory, nil
+
+	case <-ctx.Done():
+		return nil, fmt.Errorf("construct kube client factory: %w", ctx.Err())
+
+	case <-timer.C:
+		return nil, fmt.Errorf("construct kube client factory: connectivity check did not complete within %s "+
+			"(the API server may be accepting connections but not responding)", timeout)
+	}
+}
+
+// buildKubeFactory performs the actual (potentially slow) factory
+// construction. Called only from ensureKubeFactory's bounded worker.
+func (c *Client) buildKubeFactory(ctx context.Context) (*kube.ClientFactory, error) {
 	// Nelm's own action entry points (e.g. releasePlanInstall) call
 	// KubeConnectionOptions.ApplyDefaults(homeDir) — which fills in
 	// KubeConfigPaths with ~/.kube/config when both KubeConfigPaths and
@@ -75,9 +122,7 @@ func (c *Client) ensureKubeFactory(ctx context.Context) (*kube.ClientFactory, er
 		return nil, fmt.Errorf("construct kube client factory: %w", err)
 	}
 
-	c.kubeFactory = factory
-
-	return c.kubeFactory, nil
+	return factory, nil
 }
 
 // isNoKindMatch reports whether err is (or wraps) a RESTMapper "no matches

@@ -482,7 +482,10 @@ func (r *releaseResource) Delete(ctx context.Context, req resource.DeleteRequest
 		deleteTimeout,
 	)
 	if err != nil {
-		resp.Diagnostics.AddError("nelm_release uninstall failed", err.Error())
+		// Uninstall-time hooks can echo rendered manifest content in nelm's
+		// error output — scrub set_sensitive values like every other
+		// nelm-output-carrying diagnostic.
+		resp.Diagnostics.AddError("nelm_release uninstall failed", state.scrubSensitive(err.Error()))
 		return
 	}
 

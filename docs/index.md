@@ -123,9 +123,11 @@ from a data source it is refreshed on every `plan`/`apply`.
   Testing only.
 - `tls_server_name` (String) Server name for API TLS validation when it
   differs from the host.
-- `registries` (Block List) Static OCI registry credentials for pulling
-  `oci://` charts (mirrors the `helm` provider's `registries`). Each block
-  takes `url` (only the host is used), `username`, and `password` (Sensitive).
+- `registries` (List of Object, assigned with `=` — HCL block syntax is
+  rejected) Static OCI registry credentials for pulling
+  `oci://` charts (mirrors the `helm` provider's `registries`). Each element
+  takes `url` (only the host is used; one entry per host), `username`, and
+  `password` (Sensitive).
   Required for private registries whose credentials come from a Docker
   credential helper that Nelm's OCI client cannot use (see the GKE example
   above).

@@ -107,7 +107,18 @@ func stripClientBookkeeping(obj *unstructured.Unstructured) {
 	m := obj.Object
 
 	unstructured.RemoveNestedField(m, "metadata", "namespace")
-	unstructured.RemoveNestedField(m, "metadata", "annotations", "kubectl.kubernetes.io/last-applied-configuration")
+
+	// Object-embedding applier annotations: each holds a serialized copy of
+	// the object (kubectl's client-side apply, Carvel kapp, Rancher wrangler),
+	// which both bypasses path-based Secret redaction and is never
+	// chart-rendered.
+	for _, anno := range []string{
+		"kubectl.kubernetes.io/last-applied-configuration",
+		"kapp.k14s.io/original",
+		"objectset.rio.cattle.io/applied",
+	} {
+		unstructured.RemoveNestedField(m, "metadata", "annotations", anno)
+	}
 
 	if annos, found, _ := unstructured.NestedMap(m, "metadata", "annotations"); found && len(annos) == 0 {
 		unstructured.RemoveNestedField(m, "metadata", "annotations")

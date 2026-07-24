@@ -273,6 +273,21 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 		return
 	}
 
+	// The inline path's only authentication method is the bearer token; a
+	// host without one would synthesize an anonymous kubeconfig that surfaces
+	// later as an opaque 401. Fail here with the actionable message instead.
+	if hostSet && (model.Token.IsNull() || model.Token.ValueString() == "") {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("token"),
+			"Inline connection requires token",
+			"host is set but token is empty: the inline connection authenticates ONLY via the "+
+				"bearer token, so this would produce an anonymous client and an opaque 401 at "+
+				"plan time. Set token (e.g. data.google_client_config.default.access_token) or "+
+				"use a kubeconfig instead.",
+		)
+		return
+	}
+
 	// Inline host/token/cluster_ca_certificate is a STANDALONE connection
 	// (like the kubernetes/helm providers): when host is set it fully replaces
 	// the kubeconfig source. We synthesize a complete kubeconfig and hand it to

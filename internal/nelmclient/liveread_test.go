@@ -51,6 +51,56 @@ func TestEnsureKubeFactory_TransientErrorNotMemoized(t *testing.T) {
 	}
 }
 
+// TestEnsureKubeFactory_ConstructionIsBounded is the Fable 5 regression test
+// for the wedged-factory finding: the connectivity check inside factory
+// construction ignores the caller context entirely (client-go discovery has
+// no ctx), so a BLACKHOLED endpoint (accepts nothing, SYN just hangs — RFC
+// 5737 TEST-NET address) used to block ensureKubeFactory forever while
+// holding kubeMu, freezing every resource in the process. The watchdog must
+// cut it at Config.RequestTimeout.
+func TestEnsureKubeFactory_ConstructionIsBounded(t *testing.T) {
+	const cfgYAML = `apiVersion: v1
+kind: Config
+clusters:
+- name: blackhole
+  cluster:
+    server: https://203.0.113.1:6443
+contexts:
+- name: blackhole
+  context:
+    cluster: blackhole
+    user: blackhole
+current-context: blackhole
+users:
+- name: blackhole
+  user: {}
+`
+
+	path := filepath.Join(t.TempDir(), "kubeconfig")
+	if err := os.WriteFile(path, []byte(cfgYAML), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+
+	c := NewClient(Config{
+		KubeConfigPaths: []string{path},
+		RequestTimeout:  2 * time.Second,
+	})
+
+	start := time.Now()
+	_, err := c.ensureKubeFactory(context.Background())
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected an error against a blackholed endpoint")
+	}
+	if elapsed > 20*time.Second {
+		t.Fatalf("factory construction was not bounded: took %s (watchdog should fire at ~2s)", elapsed)
+	}
+	if c.kubeFactory != nil {
+		t.Fatal("nothing must be cached from a timed-out construction attempt")
+	}
+}
+
 // writeUnreachableKubeconfig writes a syntactically valid kubeconfig whose
 // server is an unreachable local port (connection refused, no network needed):
 // kube.NewKubeConfig parses it successfully but kube.NewClientFactory's

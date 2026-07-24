@@ -77,11 +77,13 @@ see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for the full explanation.
 # 1. Build and install the binary.
 make install                       # -> $(go env GOBIN) (or $(go env GOPATH)/bin)
 
-# 2. Point a CLI config file at it.
+# 2. Point a CLI config file at it. (GOBIN is empty on a default Go install,
+#    so fall back to GOPATH/bin — the same fallback `make install` uses.)
+BIN_DIR="$(go env GOBIN)"; BIN_DIR="${BIN_DIR:-$(go env GOPATH)/bin}"
 cat > /tmp/terraformrc.nelm-dev <<EOF
 provider_installation {
   dev_overrides {
-    "registry.terraform.io/infrabay/nelm" = "$(go env GOBIN)"
+    "registry.terraform.io/infrabay/nelm" = "${BIN_DIR}"
   }
   direct {}
 }

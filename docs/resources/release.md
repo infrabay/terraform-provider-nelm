@@ -94,11 +94,13 @@ intentionally skipped — see `docs/DEVELOPMENT.md`).
   kept in storage. Null or `0` uses Nelm's own default (10). Only release
   metadata is pruned; cluster resources are unaffected. Must be `0` or
   greater.
-- `release_storage_driver` (String) Where release metadata is stored:
-  `"secret"`, `"secrets"`, `"configmap"`, or `"configmaps"`. Defaults to
-  `"secret"`. This attribute is enum-validated at plan time — an
-  unrecognized driver string panics inside Nelm, so `"memory"` and
-  `"sql"` are rejected in v1.
+- `release_storage_driver` (String, **Forces replacement**) Where release
+  metadata is stored: `"secret"`, `"secrets"`, `"configmap"`, or
+  `"configmaps"`. Defaults to `"secret"`. Changing it destroys and recreates
+  the whole release (Nelm does not migrate history between backends; the
+  destroy uses the old backend, the create the new one). Enum-validated at
+  plan time — an unrecognized driver string panics inside Nelm, so
+  `"memory"` and `"sql"` are rejected in v1.
 - `timeouts` (Block, Optional) See nested schema below.
 
 ### `set` / `set_sensitive` nested schema

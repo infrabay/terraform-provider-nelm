@@ -35,10 +35,17 @@ type Warning struct {
 //     is treated as a create for the map, plus it emits a Warning naming the
 //     resource and the Reason so the caller can surface it as a plan warning.
 //
+// rendered is the chart-desired shape from BuildRenderedResources (nil when
+// the render was unavailable): for an "update" change the rendered value is
+// authoritative — nelm's update After is the server dry-run merge, and only
+// the actual chart render can say which fields the chart manages. Without a
+// rendered entry the update falls back to the three-way NormalizeUpdateAfter
+// heuristic.
+//
 // changes == nil (a no-change plan; nelm's plan artifact stores this as a
 // JSON null "changes" field) is a no-op: ranging over a nil slice yields
 // zero iterations, so the result is exactly a copy of prior.
-func BuildPlannedResources(prior map[string]string, changes []*plan.ResourceChange, releaseNS string, scoper KeyScoper) (map[string]string, []Warning, error) {
+func BuildPlannedResources(prior map[string]string, changes []*plan.ResourceChange, releaseNS string, scoper KeyScoper, rendered map[string]string) (map[string]string, []Warning, error) {
 	out := make(map[string]string, len(prior))
 	for k, v := range prior {
 		out[k] = v
@@ -61,7 +68,7 @@ func BuildPlannedResources(prior map[string]string, changes []*plan.ResourceChan
 			continue
 		}
 
-		key, err := Key(plannedRef(change), releaseNS, scoper)
+		key, err := keyWithScopeFallback(plannedRef(change), releaseNS, scoper)
 		if err != nil {
 			return nil, nil, fmt.Errorf("planconv: BuildPlannedResources: key for %s %q: %w",
 				change.ResourceMeta.GroupVersionKind, change.ResourceMeta.Name, err)
@@ -77,10 +84,20 @@ func BuildPlannedResources(prior map[string]string, changes []*plan.ResourceChan
 			}
 
 			// An update's After is the server-side dry-run merge, which
-			// carries live fields the chart never set; project it three-way
-			// against the change's own Before (live) and this key's prior
-			// stored desired value so the resulting KNOWN plan value does not
-			// depend on live-mutable cluster state (see NormalizeUpdateAfter).
+			// carries live fields the chart never set. The RENDERED manifest
+			// is the authoritative chart-desired value: a pure function of
+			// configuration, deterministic across the plan->apply window, and
+			// the only source that can distinguish "chart manages this field"
+			// from "this field lives on the cluster" (heuristics over
+			// After/Before/prior provably cannot — see NormalizeUpdateAfter's
+			// doc for the counterexamples). Fall back to the three-way
+			// heuristic only when no rendered entry exists for this key.
+			if r, ok := rendered[key]; ok {
+				out[key] = r
+
+				break
+			}
+
 			normalized, err := NormalizeUpdateAfter(change.After, change.Before, out[key])
 			if err != nil {
 				return nil, nil, fmt.Errorf("planconv: BuildPlannedResources: normalize update %s: %w", key, err)
@@ -159,6 +176,47 @@ func plannedRef(change *plan.ResourceChange) Ref {
 		Namespace:        ns,
 		Name:             change.ResourceMeta.Name,
 	}
+}
+
+// BuildRenderedResources normalizes the chart's client-rendered manifests
+// (nelmclient.Render) into the same key->canonical-JSON shape as the other
+// map builders. It is the authoritative chart-desired side consumed by
+// BuildPlannedResources' update arm. Hook manifests (helm.sh/hook) are
+// skipped, mirroring both the planned side's hook exclusion and Read's live
+// side (which never sees hooks). Keys use the same scope-fallback as the
+// planned side so a CR whose CRD ships in this very release still keys.
+func BuildRenderedResources(objs []*unstructured.Unstructured, releaseNS string, scoper KeyScoper) (map[string]string, error) {
+	out := make(map[string]string, len(objs))
+
+	for _, obj := range objs {
+		if obj == nil {
+			continue
+		}
+
+		if _, hook := obj.GetAnnotations()["helm.sh/hook"]; hook {
+			continue
+		}
+
+		ref := Ref{
+			GroupVersionKind: obj.GroupVersionKind(),
+			Namespace:        obj.GetNamespace(),
+			Name:             obj.GetName(),
+		}
+
+		key, err := keyWithScopeFallback(ref, releaseNS, scoper)
+		if err != nil {
+			return nil, fmt.Errorf("planconv: BuildRenderedResources: key for %s %q: %w", ref.GroupVersionKind, ref.Name, err)
+		}
+
+		normalized, err := NormalizeUnstructured(obj)
+		if err != nil {
+			return nil, fmt.Errorf("planconv: BuildRenderedResources: normalize %s: %w", key, err)
+		}
+
+		out[key] = normalized
+	}
+
+	return out, nil
 }
 
 // BuildLiveResources builds the live side of the "resources" map (design

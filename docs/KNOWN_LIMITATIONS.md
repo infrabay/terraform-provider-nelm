@@ -1,35 +1,32 @@
 # Known limitations
 
 This is a young (v0.x) provider. The items below are known, mostly narrow,
-correctness/UX limitations surfaced by three rounds of adversarial code review
-(two model families, plus an independent CLI-agent pass). Each notes the impact
-and the intended direction for v1.0. Everything the reviews rated
-higher-severity has been fixed in code — including a provider-crashing panic,
-several secret-leak paths (error diagnostics, the
-`last-applied-configuration` annotation, blind-apply warnings), state loss on
-transient refresh failures, a failed release becoming permanently
-un-retryable, live-mutable fields (e.g. HPA-owned `replicas`) breaking saved
-plans, a `repository`-bypassing chart-reference hijack, silently-ignored
-inline connection credentials, and hooks causing a perpetual diff.
+correctness/UX limitations surfaced by five rounds of adversarial code review
+(three model families plus two independent CLI-agent passes). Each notes the
+impact and the intended direction for v1.0. Everything the reviews rated
+higher-severity has been fixed in code. Most notably, the planned side of the
+`resources` diff for *updated* resources is now taken from the chart's own
+client render (`nelm`'s chart-render machinery) rather than reconstructed
+from the server's dry-run merge — after review demonstrated that no heuristic
+over (dry-run result, live object, stored state) can reliably separate
+chart-managed fields from live ones.
 
 ## Diff surface (`resources`)
 
-- **List projection is positional, not merge-key aware.** Both live→desired
-  projection and the update-change three-way projection pair list elements by
-  index (`containers[i]`, `env[i]`, …). Kubernetes strategic-merge pairs them
-  by an identity key (usually `name`). If something injects a list element
-  *before* a chart-managed one (e.g. an admission webhook prepends a sidecar
-  container), positional projection misaligns and can misreport that element
-  or hide drift in the real one. Appended injections are handled correctly. A
-  merge-key-aware projection is planned for v1.0.
+- **List projection is positional, not merge-key aware.** The live→desired
+  projection pairs list elements by index (`containers[i]`, `env[i]`, …).
+  Kubernetes strategic-merge pairs them by an identity key (usually `name`).
+  If something injects a list element *before* a chart-managed one (e.g. an
+  admission webhook prepends a sidecar container), positional projection
+  misaligns and can misreport that element or hide drift in the real one.
+  Appended injections are handled correctly. A merge-key-aware projection is
+  planned for v1.0.
 
-- **Custom resources whose CRD is not yet installed can fail keying at plan
-  time.** The `resources` map key is resolved through a live RESTMapper. A
-  first-install chart that ships both a CRD and a custom resource of that kind
-  can fail to key the CR during `terraform plan` (the CRD is not discoverable
-  yet). Workaround: install CRDs in a separate apply/release first. (The
-  reverse case — a CRD *removed* out-of-band — is handled: the orphaned custom
-  resource reads as absent and surfaces as a re-create diff.)
+- **A resources map seeded from a full live read** (the first `Read` after
+  `terraform import`, or an apply whose plan ran with the cluster unreachable)
+  contains live-only fields until each resource's next chart-driven update
+  replaces its entry with the rendered desired shape. Until then those fields
+  produce state-refresh churn (no spurious plan diffs).
 
 - **A chart-rendered field the API server refuses to persist (dropped via
   `omitempty`/pruning) shows as permanent drift.** The desired side always
@@ -41,15 +38,23 @@ inline connection credentials, and hooks causing a perpetual diff.
   refresh cycle; the next `Read` rebuilds the map from live refs and it
   clears. Cosmetic, self-healing.
 
+- **Secret redaction placeholders embed a truncated unsalted SHA-256 and the
+  value's byte length.** Deterministic placeholders are what make Secret
+  drift visible without cleartext, but they also let someone with plan
+  output/state verify a GUESS of a low-entropy secret offline. Use
+  high-entropy secrets (which are immune); a salted scheme is being
+  considered for v1.0.
+
 ## Release lifecycle
 
 - **A release-only change that renders no manifests produces an empty plan.**
   If you change something that alters the coalesced release config or
   `NOTES.txt` but no rendered resource — while every Terraform attribute
-  (chart path, values, flags) stays identical — the plan can come out empty
-  and `Update` is not invoked. Rare in practice; a fix depends on surfacing
-  nelm's own "release up to date" signal. (A *failed or pending* release is
-  NOT affected: it now always re-plans as an update until deployed.)
+  stays identical — the plan can come out empty and `Update` is not invoked.
+  Rare in practice; a fix depends on surfacing nelm's own "release up to
+  date" signal. (A *failed or pending* release is NOT affected: it always
+  re-plans as an update until deployed. Nor is a `timeouts`-only edit: it
+  marks status/revision/metadata unknown like any other update.)
 
 - **Import assumes the `secret` storage backend.** `terraform import` seeds
   `release_storage_driver = "secret"`. Importing a `configmap`-backed release
@@ -82,7 +87,9 @@ inline connection credentials, and hooks causing a perpetual diff.
 - **`timeouts.read` cannot bound everything inside `ReleaseGet`.** Several
   nelm-internal calls use their own background contexts, so a half-open API
   server can still stall the release-storage read beyond the configured read
-  timeout (the live-object phase of `Read` *is* bounded). Upstream in nelm.
+  timeout. The live-object phase of `Read` *is* bounded, and the shared
+  kube-client construction is capped (at `kube_request_timeout`, default 30s)
+  so a black-holed endpoint cannot wedge the whole process. Upstream in nelm.
 
 - **A timed-out operation's nelm worker is not joined before cleanup.** nelm
   runs an action in a goroutine and returns when its timeout fires without
@@ -95,11 +102,6 @@ inline connection credentials, and hooks causing a perpetual diff.
   error paths clean per-operation directories in the same call frame, but a
   SIGKILL mid-operation can leave values/plan-artifact files (0600, inside a
   0700 root) until the OS temp cleaner runs.
-
-- **First kube-factory construction serializes concurrent reads.** The cached
-  factory is built under a mutex whose critical section includes a
-  connectivity check; parallel refreshes of many resources briefly queue
-  behind the first one on a slow cluster. Performance-only.
 
 - **A nelm global (`loader.NoChartLockWarning`) is written by ReleaseGet
   without synchronization**, so highly-parallel `Read` + chart-loading is a

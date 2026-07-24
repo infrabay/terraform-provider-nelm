@@ -16,8 +16,9 @@ case "${1:-repo}" in
     go build ./...
     # unit tests only: TF_ACC unset => acceptance auto-skipped; smoke excluded by build tag
     go test -race -count=1 -timeout 10m ./...
-    # file-existence gate
-    for f in main.go gates.sh OWNERS.json CONTRACTS.md \
+    # file-existence gate (OWNERS.json is a local-only orchestration aid and
+    # deliberately NOT required — it is gitignored, so fresh clones lack it)
+    for f in main.go gates.sh CONTRACTS.md \
              internal/provider/release_schema.go internal/nelmclient/types.go internal/planconv/key.go; do
       [ -e "$f" ] || { echo "missing required file: $f"; exit 1; }
     done
@@ -30,6 +31,7 @@ case "${1:-repo}" in
     ;;
   own)
     task="$2"; base="$3"
+    [ -e OWNERS.json ] || { echo "gates.sh own: OWNERS.json not present (local orchestration mode only)"; exit 1; }
     mapfile -t globs < <(jq -r --arg t "$task" '.[$t][]' OWNERS.json)
     viol=$(git diff --name-only "$base" -- . | while read -r f; do
       ok=0; for g in "${globs[@]}"; do case "$f" in $g) ok=1;; esac; done
