@@ -1,0 +1,66 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "annotations": {
+      "meta.helm.sh/release-name": "lifecycle",
+      "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+    },
+    "labels": {
+      "app.kubernetes.io/instance": "lifecycle",
+      "app.kubernetes.io/managed-by": "Helm",
+      "app.kubernetes.io/name": "basic"
+    },
+    "name": "lifecycle-basic"
+  },
+  "spec": {
+    "replicas": 1,
+    "selector": {
+      "matchLabels": {
+        "app.kubernetes.io/instance": "lifecycle",
+        "app.kubernetes.io/name": "basic"
+      }
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app.kubernetes.io/instance": "lifecycle",
+          "app.kubernetes.io/name": "basic"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "env": [
+              {
+                "name": "SECRET_PASSWORD",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "password",
+                    "name": "lifecycle-basic"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "lifecycle-basic"
+                }
+              }
+            ],
+            "image": "nginx:1.27-alpine",
+            "imagePullPolicy": "IfNotPresent",
+            "name": "basic",
+            "ports": [
+              {
+                "containerPort": 80,
+                "name": "http"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

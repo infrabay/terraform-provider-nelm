@@ -1,0 +1,230 @@
+{
+  "apiVersion": "apps/v1",
+  "kind": "Deployment",
+  "metadata": {
+    "annotations": {
+      "deployment.kubernetes.io/revision": "1",
+      "meta.helm.sh/release-name": "lifecycle",
+      "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+    },
+    "creationTimestamp": "2026-07-16T23:10:34Z",
+    "generation": 2,
+    "labels": {
+      "app.kubernetes.io/instance": "lifecycle",
+      "app.kubernetes.io/managed-by": "Helm",
+      "app.kubernetes.io/name": "basic"
+    },
+    "managedFields": [
+      {
+        "apiVersion": "apps/v1",
+        "fieldsType": "FieldsV1",
+        "fieldsV1": {
+          "f:metadata": {
+            "f:annotations": {
+              "f:meta.helm.sh/release-name": {},
+              "f:meta.helm.sh/release-namespace": {}
+            },
+            "f:labels": {
+              "f:app.kubernetes.io/instance": {},
+              "f:app.kubernetes.io/managed-by": {},
+              "f:app.kubernetes.io/name": {}
+            }
+          },
+          "f:spec": {
+            "f:selector": {},
+            "f:template": {
+              "f:metadata": {
+                "f:labels": {
+                  "f:app.kubernetes.io/instance": {},
+                  "f:app.kubernetes.io/name": {}
+                }
+              },
+              "f:spec": {
+                "f:containers": {
+                  "k:{\"name\":\"basic\"}": {
+                    ".": {},
+                    "f:env": {
+                      "k:{\"name\":\"SECRET_PASSWORD\"}": {
+                        ".": {},
+                        "f:name": {},
+                        "f:valueFrom": {
+                          "f:secretKeyRef": {}
+                        }
+                      }
+                    },
+                    "f:envFrom": {},
+                    "f:image": {},
+                    "f:imagePullPolicy": {},
+                    "f:name": {},
+                    "f:ports": {
+                      "k:{\"containerPort\":80,\"protocol\":\"TCP\"}": {
+                        ".": {},
+                        "f:containerPort": {},
+                        "f:name": {}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "manager": "helm",
+        "operation": "Apply",
+        "time": "2026-07-16T23:10:34Z"
+      },
+      {
+        "apiVersion": "apps/v1",
+        "fieldsType": "FieldsV1",
+        "fieldsV1": {
+          "f:spec": {
+            "f:replicas": {}
+          }
+        },
+        "manager": "kubectl-patch",
+        "operation": "Update",
+        "time": "2026-07-16T23:10:39Z"
+      },
+      {
+        "apiVersion": "apps/v1",
+        "fieldsType": "FieldsV1",
+        "fieldsV1": {
+          "f:metadata": {
+            "f:annotations": {
+              "f:deployment.kubernetes.io/revision": {}
+            }
+          },
+          "f:status": {
+            "f:availableReplicas": {},
+            "f:conditions": {
+              ".": {},
+              "k:{\"type\":\"Available\"}": {
+                ".": {},
+                "f:lastTransitionTime": {},
+                "f:lastUpdateTime": {},
+                "f:message": {},
+                "f:reason": {},
+                "f:status": {},
+                "f:type": {}
+              },
+              "k:{\"type\":\"Progressing\"}": {
+                ".": {},
+                "f:lastTransitionTime": {},
+                "f:lastUpdateTime": {},
+                "f:message": {},
+                "f:reason": {},
+                "f:status": {},
+                "f:type": {}
+              }
+            },
+            "f:observedGeneration": {},
+            "f:readyReplicas": {},
+            "f:replicas": {},
+            "f:updatedReplicas": {}
+          }
+        },
+        "manager": "k3s",
+        "operation": "Update",
+        "subresource": "status",
+        "time": "2026-07-16T23:10:41Z"
+      }
+    ],
+    "name": "lifecycle-basic",
+    "namespace": "tfnelm-fix-lifecycle-74a6c3",
+    "resourceVersion": "2710",
+    "uid": "a4569f93-d599-4eb3-a149-e58d2ff5a4ce"
+  },
+  "spec": {
+    "progressDeadlineSeconds": 600,
+    "replicas": 3,
+    "revisionHistoryLimit": 10,
+    "selector": {
+      "matchLabels": {
+        "app.kubernetes.io/instance": "lifecycle",
+        "app.kubernetes.io/name": "basic"
+      }
+    },
+    "strategy": {
+      "rollingUpdate": {
+        "maxSurge": "25%",
+        "maxUnavailable": "25%"
+      },
+      "type": "RollingUpdate"
+    },
+    "template": {
+      "metadata": {
+        "labels": {
+          "app.kubernetes.io/instance": "lifecycle",
+          "app.kubernetes.io/name": "basic"
+        }
+      },
+      "spec": {
+        "containers": [
+          {
+            "env": [
+              {
+                "name": "SECRET_PASSWORD",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "key": "password",
+                    "name": "lifecycle-basic"
+                  }
+                }
+              }
+            ],
+            "envFrom": [
+              {
+                "configMapRef": {
+                  "name": "lifecycle-basic"
+                }
+              }
+            ],
+            "image": "nginx:1.27-alpine",
+            "imagePullPolicy": "IfNotPresent",
+            "name": "basic",
+            "ports": [
+              {
+                "containerPort": 80,
+                "name": "http",
+                "protocol": "TCP"
+              }
+            ],
+            "resources": {},
+            "terminationMessagePath": "/dev/termination-log",
+            "terminationMessagePolicy": "File"
+          }
+        ],
+        "dnsPolicy": "ClusterFirst",
+        "restartPolicy": "Always",
+        "schedulerName": "default-scheduler",
+        "securityContext": {},
+        "terminationGracePeriodSeconds": 30
+      }
+    }
+  },
+  "status": {
+    "availableReplicas": 3,
+    "conditions": [
+      {
+        "lastTransitionTime": "2026-07-16T23:10:34Z",
+        "lastUpdateTime": "2026-07-16T23:10:39Z",
+        "message": "ReplicaSet \"lifecycle-basic-7f9d6f88dd\" has successfully progressed.",
+        "reason": "NewReplicaSetAvailable",
+        "status": "True",
+        "type": "Progressing"
+      },
+      {
+        "lastTransitionTime": "2026-07-16T23:10:41Z",
+        "lastUpdateTime": "2026-07-16T23:10:41Z",
+        "message": "Deployment has minimum availability.",
+        "reason": "MinimumReplicasAvailable",
+        "status": "True",
+        "type": "Available"
+      }
+    ],
+    "observedGeneration": 2,
+    "readyReplicas": 3,
+    "replicas": 3,
+    "updatedReplicas": 3
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "apiVersion": "v1",
+  "data": {
+    "message": "hello from the basic test chart"
+  },
+  "kind": "ConfigMap",
+  "metadata": {
+    "annotations": {
+      "meta.helm.sh/release-name": "lifecycle",
+      "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+    },
+    "creationTimestamp": "2026-07-16T23:10:34Z",
+    "labels": {
+      "app.kubernetes.io/instance": "lifecycle",
+      "app.kubernetes.io/managed-by": "Helm",
+      "app.kubernetes.io/name": "basic"
+    },
+    "managedFields": [
+      {
+        "apiVersion": "v1",
+        "fieldsType": "FieldsV1",
+        "fieldsV1": {
+          "f:data": {
+            "f:message": {}
+          },
+          "f:metadata": {
+            "f:annotations": {
+              "f:meta.helm.sh/release-name": {},
+              "f:meta.helm.sh/release-namespace": {}
+            },
+            "f:labels": {
+              "f:app.kubernetes.io/instance": {},
+              "f:app.kubernetes.io/managed-by": {},
+              "f:app.kubernetes.io/name": {}
+            }
+          }
+        },
+        "manager": "helm",
+        "operation": "Apply",
+        "time": "2026-07-16T23:10:34Z"
+      }
+    ],
+    "name": "lifecycle-basic",
+    "namespace": "tfnelm-fix-lifecycle-74a6c3",
+    "resourceVersion": "2644",
+    "uid": "c26cf380-a60a-45cd-8edb-ee58eeb5dc40"
+  }
+}

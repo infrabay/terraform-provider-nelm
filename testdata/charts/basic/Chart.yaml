@@ -1,0 +1,8 @@
+apiVersion: v2
+name: basic
+description: >-
+  Minimal multi-resource chart used as fixture input for terraform-provider-nelm
+  unit tests, live smoke captures, and acceptance tests. Not published anywhere.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

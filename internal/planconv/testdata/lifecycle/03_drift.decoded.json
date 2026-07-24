@@ -1,0 +1,3136 @@
+{
+  "apiVersion": "v1",
+  "deployType": "Upgrade",
+  "encrypted": false,
+  "release": {
+    "name": "lifecycle",
+    "namespace": "tfnelm-fix-lifecycle-74a6c3",
+    "revision": 2
+  },
+  "timestamp": "2026-07-16T23:10:40.585912000Z",
+  "data": {
+    "options": {
+      "noResourceValidation": false,
+      "localResourceValidation": false,
+      "validationKubeVersion": "",
+      "validationSkip": null,
+      "validationSchemaCacheLifetime": 0,
+      "validationSchemas": null,
+      "validationExtraSchemas": null,
+      "defaultDeletePropagation": "Foreground",
+      "extraAnnotations": {},
+      "extraLabels": {},
+      "extraRuntimeAnnotations": {},
+      "extraRuntimeLabels": {},
+      "forceAdoption": false,
+      "noInstallStandaloneCRDs": false,
+      "noRemoveManualChanges": false,
+      "releaseHistoryLimit": 0,
+      "releaseInfoAnnotations": {},
+      "releaseLabels": {},
+      "releaseStorageDriver": "secrets",
+      "releaseStorageSQLConnection": ""
+    },
+    "changes": [
+      {
+        "extraOperations": null,
+        "reason": "",
+        "resourceMeta": {
+          "name": "lifecycle-basic",
+          "namespace": "",
+          "groupVersionKind": {
+            "Group": "apps",
+            "Version": "v1",
+            "Kind": "Deployment"
+          },
+          "filePath": "basic/templates/deployment.yaml",
+          "annotations": {
+            "meta.helm.sh/release-name": "lifecycle",
+            "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+          },
+          "labels": {
+            "app.kubernetes.io/instance": "lifecycle",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "basic"
+          }
+        },
+        "type": "update",
+        "typeStyle": "ASE=",
+        "before": {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "annotations": {
+              "deployment.kubernetes.io/revision": "1",
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "generation": 2,
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "apps/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:spec": {
+                    "f:selector": {},
+                    "f:template": {
+                      "f:metadata": {
+                        "f:labels": {
+                          "f:app.kubernetes.io/instance": {},
+                          "f:app.kubernetes.io/name": {}
+                        }
+                      },
+                      "f:spec": {
+                        "f:containers": {
+                          "k:{\"name\":\"basic\"}": {
+                            ".": {},
+                            "f:env": {
+                              "k:{\"name\":\"SECRET_PASSWORD\"}": {
+                                ".": {},
+                                "f:name": {},
+                                "f:valueFrom": {
+                                  "f:secretKeyRef": {}
+                                }
+                              }
+                            },
+                            "f:envFrom": {},
+                            "f:image": {},
+                            "f:imagePullPolicy": {},
+                            "f:name": {},
+                            "f:ports": {
+                              "k:{\"containerPort\":80,\"protocol\":\"TCP\"}": {
+                                ".": {},
+                                "f:containerPort": {},
+                                "f:name": {}
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              },
+              {
+                "apiVersion": "apps/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:deployment.kubernetes.io/revision": {}
+                    }
+                  },
+                  "f:status": {
+                    "f:availableReplicas": {},
+                    "f:conditions": {
+                      ".": {},
+                      "k:{\"type\":\"Available\"}": {
+                        ".": {},
+                        "f:lastTransitionTime": {},
+                        "f:lastUpdateTime": {},
+                        "f:message": {},
+                        "f:reason": {},
+                        "f:status": {},
+                        "f:type": {}
+                      },
+                      "k:{\"type\":\"Progressing\"}": {
+                        ".": {},
+                        "f:lastTransitionTime": {},
+                        "f:lastUpdateTime": {},
+                        "f:message": {},
+                        "f:reason": {},
+                        "f:status": {},
+                        "f:type": {}
+                      }
+                    },
+                    "f:observedGeneration": {},
+                    "f:readyReplicas": {},
+                    "f:replicas": {},
+                    "f:unavailableReplicas": {},
+                    "f:updatedReplicas": {}
+                  }
+                },
+                "manager": "k3s",
+                "operation": "Update",
+                "subresource": "status",
+                "time": "2026-07-16T23:10:39Z"
+              },
+              {
+                "apiVersion": "apps/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:spec": {
+                    "f:replicas": {}
+                  }
+                },
+                "manager": "kubectl-patch",
+                "operation": "Update",
+                "time": "2026-07-16T23:10:39Z"
+              }
+            ],
+            "name": "lifecycle-basic",
+            "namespace": "tfnelm-fix-lifecycle-74a6c3",
+            "resourceVersion": "2692",
+            "uid": "a4569f93-d599-4eb3-a149-e58d2ff5a4ce"
+          },
+          "spec": {
+            "progressDeadlineSeconds": 600,
+            "replicas": 3,
+            "revisionHistoryLimit": 10,
+            "selector": {
+              "matchLabels": {
+                "app.kubernetes.io/instance": "lifecycle",
+                "app.kubernetes.io/name": "basic"
+              }
+            },
+            "strategy": {
+              "rollingUpdate": {
+                "maxSurge": "25%",
+                "maxUnavailable": "25%"
+              },
+              "type": "RollingUpdate"
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/name": "basic"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "env": [
+                      {
+                        "name": "SECRET_PASSWORD",
+                        "valueFrom": {
+                          "secretKeyRef": {
+                            "key": "password",
+                            "name": "lifecycle-basic"
+                          }
+                        }
+                      }
+                    ],
+                    "envFrom": [
+                      {
+                        "configMapRef": {
+                          "name": "lifecycle-basic"
+                        }
+                      }
+                    ],
+                    "image": "nginx:1.27-alpine",
+                    "imagePullPolicy": "IfNotPresent",
+                    "name": "basic",
+                    "ports": [
+                      {
+                        "containerPort": 80,
+                        "name": "http",
+                        "protocol": "TCP"
+                      }
+                    ],
+                    "resources": {},
+                    "terminationMessagePath": "/dev/termination-log",
+                    "terminationMessagePolicy": "File"
+                  }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "restartPolicy": "Always",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "terminationGracePeriodSeconds": 30
+              }
+            }
+          },
+          "status": {
+            "availableReplicas": 1,
+            "conditions": [
+              {
+                "lastTransitionTime": "2026-07-16T23:10:34Z",
+                "lastUpdateTime": "2026-07-16T23:10:39Z",
+                "message": "ReplicaSet \"lifecycle-basic-7f9d6f88dd\" has successfully progressed.",
+                "reason": "NewReplicaSetAvailable",
+                "status": "True",
+                "type": "Progressing"
+              },
+              {
+                "lastTransitionTime": "2026-07-16T23:10:39Z",
+                "lastUpdateTime": "2026-07-16T23:10:39Z",
+                "message": "Deployment does not have minimum availability.",
+                "reason": "MinimumReplicasUnavailable",
+                "status": "False",
+                "type": "Available"
+              }
+            ],
+            "observedGeneration": 2,
+            "readyReplicas": 1,
+            "replicas": 3,
+            "unavailableReplicas": 2,
+            "updatedReplicas": 3
+          }
+        },
+        "after": {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "annotations": {
+              "deployment.kubernetes.io/revision": "1",
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "generation": 3,
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "apps/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:spec": {
+                    "f:replicas": {},
+                    "f:selector": {},
+                    "f:template": {
+                      "f:metadata": {
+                        "f:labels": {
+                          "f:app.kubernetes.io/instance": {},
+                          "f:app.kubernetes.io/name": {}
+                        }
+                      },
+                      "f:spec": {
+                        "f:containers": {
+                          "k:{\"name\":\"basic\"}": {
+                            ".": {},
+                            "f:env": {
+                              "k:{\"name\":\"SECRET_PASSWORD\"}": {
+                                ".": {},
+                                "f:name": {},
+                                "f:valueFrom": {
+                                  "f:secretKeyRef": {}
+                                }
+                              }
+                            },
+                            "f:envFrom": {},
+                            "f:image": {},
+                            "f:imagePullPolicy": {},
+                            "f:name": {},
+                            "f:ports": {
+                              "k:{\"containerPort\":80,\"protocol\":\"TCP\"}": {
+                                ".": {},
+                                "f:containerPort": {},
+                                "f:name": {}
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:40Z"
+              },
+              {
+                "apiVersion": "apps/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:deployment.kubernetes.io/revision": {}
+                    }
+                  },
+                  "f:status": {
+                    "f:availableReplicas": {},
+                    "f:conditions": {
+                      ".": {},
+                      "k:{\"type\":\"Available\"}": {
+                        ".": {},
+                        "f:lastTransitionTime": {},
+                        "f:lastUpdateTime": {},
+                        "f:message": {},
+                        "f:reason": {},
+                        "f:status": {},
+                        "f:type": {}
+                      },
+                      "k:{\"type\":\"Progressing\"}": {
+                        ".": {},
+                        "f:lastTransitionTime": {},
+                        "f:lastUpdateTime": {},
+                        "f:message": {},
+                        "f:reason": {},
+                        "f:status": {},
+                        "f:type": {}
+                      }
+                    },
+                    "f:observedGeneration": {},
+                    "f:readyReplicas": {},
+                    "f:replicas": {},
+                    "f:unavailableReplicas": {},
+                    "f:updatedReplicas": {}
+                  }
+                },
+                "manager": "k3s",
+                "operation": "Update",
+                "subresource": "status",
+                "time": "2026-07-16T23:10:39Z"
+              }
+            ],
+            "name": "lifecycle-basic",
+            "namespace": "tfnelm-fix-lifecycle-74a6c3",
+            "resourceVersion": "2692",
+            "uid": "a4569f93-d599-4eb3-a149-e58d2ff5a4ce"
+          },
+          "spec": {
+            "progressDeadlineSeconds": 600,
+            "replicas": 1,
+            "revisionHistoryLimit": 10,
+            "selector": {
+              "matchLabels": {
+                "app.kubernetes.io/instance": "lifecycle",
+                "app.kubernetes.io/name": "basic"
+              }
+            },
+            "strategy": {
+              "rollingUpdate": {
+                "maxSurge": "25%",
+                "maxUnavailable": "25%"
+              },
+              "type": "RollingUpdate"
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/name": "basic"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "env": [
+                      {
+                        "name": "SECRET_PASSWORD",
+                        "valueFrom": {
+                          "secretKeyRef": {
+                            "key": "password",
+                            "name": "lifecycle-basic"
+                          }
+                        }
+                      }
+                    ],
+                    "envFrom": [
+                      {
+                        "configMapRef": {
+                          "name": "lifecycle-basic"
+                        }
+                      }
+                    ],
+                    "image": "nginx:1.27-alpine",
+                    "imagePullPolicy": "IfNotPresent",
+                    "name": "basic",
+                    "ports": [
+                      {
+                        "containerPort": 80,
+                        "name": "http",
+                        "protocol": "TCP"
+                      }
+                    ],
+                    "resources": {},
+                    "terminationMessagePath": "/dev/termination-log",
+                    "terminationMessagePolicy": "File"
+                  }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "restartPolicy": "Always",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "terminationGracePeriodSeconds": 30
+              }
+            }
+          },
+          "status": {
+            "availableReplicas": 1,
+            "conditions": [
+              {
+                "lastTransitionTime": "2026-07-16T23:10:34Z",
+                "lastUpdateTime": "2026-07-16T23:10:39Z",
+                "message": "ReplicaSet \"lifecycle-basic-7f9d6f88dd\" has successfully progressed.",
+                "reason": "NewReplicaSetAvailable",
+                "status": "True",
+                "type": "Progressing"
+              },
+              {
+                "lastTransitionTime": "2026-07-16T23:10:39Z",
+                "lastUpdateTime": "2026-07-16T23:10:39Z",
+                "message": "Deployment does not have minimum availability.",
+                "reason": "MinimumReplicasUnavailable",
+                "status": "False",
+                "type": "Available"
+              }
+            ],
+            "observedGeneration": 2,
+            "readyReplicas": 1,
+            "replicas": 3,
+            "unavailableReplicas": 2,
+            "updatedReplicas": 3
+          }
+        }
+      }
+    ],
+    "plan": {
+      "operations": [
+        {
+          "type": "create-release",
+          "version": 1,
+          "category": "release",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "release": {
+              "name": "lifecycle",
+              "info": {
+                "first_deployed": "",
+                "last_deployed": "",
+                "deleted": "",
+                "status": "pending-upgrade"
+              },
+              "chart": {
+                "metadata": {
+                  "name": "basic",
+                  "version": "0.1.0",
+                  "description": "Minimal multi-resource chart used as fixture input for terraform-provider-nelm unit tests, live smoke captures, and acceptance tests. Not published anywhere.",
+                  "apiVersion": "v2",
+                  "appVersion": "1.0.0",
+                  "type": "application"
+                },
+                "lock": null,
+                "templates": [
+                  {
+                    "name": "templates/_helpers.tpl",
+                    "data": "e3svKgpDb21tb24gbGFiZWxzIHNoYXJlZCBieSBldmVyeSBuYW1lc3BhY2VkIHJlc291cmNlIGluIHRoaXMgY2hhcnQuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMubGFiZWxzIiAtfX0KYXBwLmt1YmVybmV0ZXMuaW8vbmFtZTogYmFzaWMKYXBwLmt1YmVybmV0ZXMuaW8vaW5zdGFuY2U6IHt7IC5SZWxlYXNlLk5hbWUgfX0Ke3stIGVuZCAtfX0KCnt7LyoKQ2x1c3Rlci1zY29wZWQgcmVzb3VyY2VzIChDbHVzdGVyUm9sZS9DbHVzdGVyUm9sZUJpbmRpbmcpIG11c3QgYmUgdW5pcXVlCmFjcm9zcyBwYXJhbGxlbCB0ZXN0IHJ1bnMgdGhhdCByZXVzZSB0aGUgc2FtZSByZWxlYXNlIG5hbWUgaW4gZGlmZmVyZW50Cm5hbWVzcGFjZXMsIHNvIHRoZWlyIG5hbWUgaXMgdGVtcGxhdGVkIHdpdGggYm90aCB0aGUgcmVsZWFzZSBuYW1lIEFORApuYW1lc3BhY2UuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC19fQp7eyAuUmVsZWFzZS5OYW1lIH19LXt7IC5SZWxlYXNlLk5hbWVzcGFjZSB9fS1iYXNpYwp7ey0gZW5kIC19fQo="
+                  },
+                  {
+                    "name": "templates/clusterrole.yaml",
+                    "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZQptZXRhZGF0YToKICBuYW1lOiB7eyBpbmNsdWRlICJiYXNpYy5jbHVzdGVyTmFtZSIgLiB9fQogIGxhYmVsczoKICAgIHt7LSBpbmNsdWRlICJiYXNpYy5sYWJlbHMiIC4gfCBuaW5kZW50IDQgfX0KcnVsZXM6CiAge3stIHRvWWFtbCAuVmFsdWVzLmNsdXN0ZXJSb2xlLnJ1bGVzIHwgbmluZGVudCAyIH19Cg=="
+                  },
+                  {
+                    "name": "templates/clusterrolebinding.yaml",
+                    "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZUJpbmRpbmcKbWV0YWRhdGE6CiAgbmFtZToge3sgaW5jbHVkZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC4gfX0KICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnJvbGVSZWY6CiAgYXBpR3JvdXA6IHJiYWMuYXV0aG9yaXphdGlvbi5rOHMuaW8KICBraW5kOiBDbHVzdGVyUm9sZQogIG5hbWU6IHt7IGluY2x1ZGUgImJhc2ljLmNsdXN0ZXJOYW1lIiAuIH19CnN1YmplY3RzOgogIC0ga2luZDogU2VydmljZUFjY291bnQKICAgIG5hbWU6IGRlZmF1bHQKICAgIG5hbWVzcGFjZToge3sgLlJlbGVhc2UuTmFtZXNwYWNlIH19Cg=="
+                  },
+                  {
+                    "name": "templates/configmap.yaml",
+                    "data": "e3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLmVuYWJsZWQgfX0KYXBpVmVyc2lvbjogdjEKa2luZDogQ29uZmlnTWFwCm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CiAge3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLnNlbnNpdGl2ZVBhdGhzQW5ub3RhdGlvbiB9fQogIGFubm90YXRpb25zOgogICAgd2VyZi5pby9zZW5zaXRpdmUtcGF0aHM6ICJkYXRhLm1lc3NhZ2UiCiAge3stIGVuZCB9fQpkYXRhOgogIG1lc3NhZ2U6IHt7IC5WYWx1ZXMuY29uZmlnTWFwLm1lc3NhZ2UgfCBxdW90ZSB9fQp7ey0gZW5kIH19Cg=="
+                  },
+                  {
+                    "name": "templates/deployment.yaml",
+                    "data": "YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnNwZWM6CiAgcmVwbGljYXM6IHt7IC5WYWx1ZXMucmVwbGljYUNvdW50IH19CiAgc2VsZWN0b3I6CiAgICBtYXRjaExhYmVsczoKICAgICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNiB9fQogIHRlbXBsYXRlOgogICAgbWV0YWRhdGE6CiAgICAgIGxhYmVsczoKICAgICAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA4IH19CiAgICBzcGVjOgogICAgICBjb250YWluZXJzOgogICAgICAgIC0gbmFtZTogYmFzaWMKICAgICAgICAgIGltYWdlOiAie3sgLlZhbHVlcy5pbWFnZS5yZXBvc2l0b3J5IH19Ont7IC5WYWx1ZXMuaW1hZ2UudGFnIH19IgogICAgICAgICAgaW1hZ2VQdWxsUG9saWN5OiB7eyAuVmFsdWVzLmltYWdlLnB1bGxQb2xpY3kgfX0KICAgICAgICAgIHBvcnRzOgogICAgICAgICAgICAtIG5hbWU6IGh0dHAKICAgICAgICAgICAgICBjb250YWluZXJQb3J0OiA4MAogICAgICAgICAgZW52RnJvbToKICAgICAgICAgICAgLSBjb25maWdNYXBSZWY6CiAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICBlbnY6CiAgICAgICAgICAgIC0gbmFtZTogU0VDUkVUX1BBU1NXT1JECiAgICAgICAgICAgICAgdmFsdWVGcm9tOgogICAgICAgICAgICAgICAgc2VjcmV0S2V5UmVmOgogICAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICAgICAgICAgIGtleTogcGFzc3dvcmQK"
+                  },
+                  {
+                    "name": "templates/secret.yaml",
+                    "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VjcmV0Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnR5cGU6IE9wYXF1ZQpzdHJpbmdEYXRhOgogIHBhc3N3b3JkOiB7eyAuVmFsdWVzLnNlY3JldC5wYXNzd29yZCB8IHF1b3RlIH19Cg=="
+                  },
+                  {
+                    "name": "templates/service.yaml",
+                    "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VydmljZQptZXRhZGF0YToKICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgbGFiZWxzOgogICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNCB9fQpzcGVjOgogIHR5cGU6IHt7IC5WYWx1ZXMuc2VydmljZS50eXBlIH19CiAgcG9ydHM6CiAgICAtIG5hbWU6IGh0dHAKICAgICAgcG9ydDoge3sgLlZhbHVlcy5zZXJ2aWNlLnBvcnQgfX0KICAgICAgdGFyZ2V0UG9ydDogaHR0cAogICAgICBwcm90b2NvbDogVENQCiAgc2VsZWN0b3I6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19Cg=="
+                  },
+                  {
+                    "name": "templates/_werf_helpers.tpl",
+                    "data": null
+                  }
+                ],
+                "values": {
+                  "clusterRole": {
+                    "rules": [
+                      {
+                        "apiGroups": [
+                          ""
+                        ],
+                        "resources": [
+                          "configmaps"
+                        ],
+                        "verbs": [
+                          "get",
+                          "list"
+                        ]
+                      }
+                    ]
+                  },
+                  "configMap": {
+                    "enabled": true,
+                    "message": "hello from the basic test chart",
+                    "sensitivePathsAnnotation": false
+                  },
+                  "image": {
+                    "pullPolicy": "IfNotPresent",
+                    "repository": "nginx",
+                    "tag": "1.27-alpine"
+                  },
+                  "replicaCount": 1,
+                  "secret": {
+                    "password": "changeme"
+                  },
+                  "service": {
+                    "port": 80,
+                    "type": "ClusterIP"
+                  }
+                },
+                "schema": null,
+                "files": null
+              },
+              "manifest": "# Source: basic/templates/clusterrole.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nrules:\n- apiGroups:\n  - \"\"\n  resources:\n  - configmaps\n  verbs:\n  - get\n  - list\n\n---\n# Source: basic/templates/clusterrolebinding.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nroleRef:\n  apiGroup: rbac.authorization.k8s.io\n  kind: ClusterRole\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nsubjects:\n- kind: ServiceAccount\n  name: default\n  namespace: tfnelm-fix-lifecycle-74a6c3\n\n---\n# Source: basic/templates/configmap.yaml\napiVersion: v1\ndata:\n  message: hello from the basic test chart\nkind: ConfigMap\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\n\n---\n# Source: basic/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/instance: lifecycle\n      app.kubernetes.io/name: basic\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/instance: lifecycle\n        app.kubernetes.io/name: basic\n    spec:\n      containers:\n      - env:\n        - name: SECRET_PASSWORD\n          valueFrom:\n            secretKeyRef:\n              key: password\n              name: lifecycle-basic\n        envFrom:\n        - configMapRef:\n            name: lifecycle-basic\n        image: nginx:1.27-alpine\n        imagePullPolicy: IfNotPresent\n        name: basic\n        ports:\n        - containerPort: 80\n          name: http\n\n---\n# Source: basic/templates/secret.yaml\napiVersion: v1\ndata:\n  password: Y2hhbmdlbWU=\nkind: Secret\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\ntype: Opaque\n\n---\n# Source: basic/templates/service.yaml\napiVersion: v1\nkind: Service\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  ports:\n  - name: http\n    port: 80\n    protocol: TCP\n    targetPort: http\n  selector:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  type: ClusterIP\n",
+              "version": 2,
+              "namespace": "tfnelm-fix-lifecycle-74a6c3"
+            }
+          }
+        },
+        {
+          "type": "noop",
+          "version": 1,
+          "category": "meta",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "opID": "stage/final/end"
+          }
+        },
+        {
+          "type": "noop",
+          "version": 1,
+          "category": "meta",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "opID": "stage/final/start"
+          }
+        },
+        {
+          "type": "noop",
+          "version": 1,
+          "category": "meta",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "opID": "stage/init/end"
+          }
+        },
+        {
+          "type": "noop",
+          "version": 1,
+          "category": "meta",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "opID": "stage/init/start"
+          }
+        },
+        {
+          "type": "noop",
+          "version": 1,
+          "category": "meta",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "opID": "stage/install/end"
+          }
+        },
+        {
+          "type": "noop",
+          "version": 1,
+          "category": "meta",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "opID": "stage/install/start"
+          }
+        },
+        {
+          "type": "noop",
+          "version": 1,
+          "category": "meta",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "opID": "stage/install/weight:0/end"
+          }
+        },
+        {
+          "type": "noop",
+          "version": 1,
+          "category": "meta",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "opID": "stage/install/weight:0/start"
+          }
+        },
+        {
+          "type": "update-release",
+          "version": 1,
+          "category": "release",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "release": {
+              "name": "lifecycle",
+              "info": {
+                "first_deployed": "2026-07-17T01:10:39.375258+02:00",
+                "last_deployed": "2026-07-17T01:10:39.375258+02:00",
+                "deleted": "",
+                "status": "superseded"
+              },
+              "chart": {
+                "metadata": {
+                  "name": "basic",
+                  "version": "0.1.0",
+                  "description": "Minimal multi-resource chart used as fixture input for terraform-provider-nelm unit tests, live smoke captures, and acceptance tests. Not published anywhere.",
+                  "apiVersion": "v2",
+                  "appVersion": "1.0.0",
+                  "type": "application"
+                },
+                "lock": null,
+                "templates": [
+                  {
+                    "name": "templates/_helpers.tpl",
+                    "data": "e3svKgpDb21tb24gbGFiZWxzIHNoYXJlZCBieSBldmVyeSBuYW1lc3BhY2VkIHJlc291cmNlIGluIHRoaXMgY2hhcnQuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMubGFiZWxzIiAtfX0KYXBwLmt1YmVybmV0ZXMuaW8vbmFtZTogYmFzaWMKYXBwLmt1YmVybmV0ZXMuaW8vaW5zdGFuY2U6IHt7IC5SZWxlYXNlLk5hbWUgfX0Ke3stIGVuZCAtfX0KCnt7LyoKQ2x1c3Rlci1zY29wZWQgcmVzb3VyY2VzIChDbHVzdGVyUm9sZS9DbHVzdGVyUm9sZUJpbmRpbmcpIG11c3QgYmUgdW5pcXVlCmFjcm9zcyBwYXJhbGxlbCB0ZXN0IHJ1bnMgdGhhdCByZXVzZSB0aGUgc2FtZSByZWxlYXNlIG5hbWUgaW4gZGlmZmVyZW50Cm5hbWVzcGFjZXMsIHNvIHRoZWlyIG5hbWUgaXMgdGVtcGxhdGVkIHdpdGggYm90aCB0aGUgcmVsZWFzZSBuYW1lIEFORApuYW1lc3BhY2UuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC19fQp7eyAuUmVsZWFzZS5OYW1lIH19LXt7IC5SZWxlYXNlLk5hbWVzcGFjZSB9fS1iYXNpYwp7ey0gZW5kIC19fQo="
+                  },
+                  {
+                    "name": "templates/clusterrole.yaml",
+                    "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZQptZXRhZGF0YToKICBuYW1lOiB7eyBpbmNsdWRlICJiYXNpYy5jbHVzdGVyTmFtZSIgLiB9fQogIGxhYmVsczoKICAgIHt7LSBpbmNsdWRlICJiYXNpYy5sYWJlbHMiIC4gfCBuaW5kZW50IDQgfX0KcnVsZXM6CiAge3stIHRvWWFtbCAuVmFsdWVzLmNsdXN0ZXJSb2xlLnJ1bGVzIHwgbmluZGVudCAyIH19Cg=="
+                  },
+                  {
+                    "name": "templates/clusterrolebinding.yaml",
+                    "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZUJpbmRpbmcKbWV0YWRhdGE6CiAgbmFtZToge3sgaW5jbHVkZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC4gfX0KICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnJvbGVSZWY6CiAgYXBpR3JvdXA6IHJiYWMuYXV0aG9yaXphdGlvbi5rOHMuaW8KICBraW5kOiBDbHVzdGVyUm9sZQogIG5hbWU6IHt7IGluY2x1ZGUgImJhc2ljLmNsdXN0ZXJOYW1lIiAuIH19CnN1YmplY3RzOgogIC0ga2luZDogU2VydmljZUFjY291bnQKICAgIG5hbWU6IGRlZmF1bHQKICAgIG5hbWVzcGFjZToge3sgLlJlbGVhc2UuTmFtZXNwYWNlIH19Cg=="
+                  },
+                  {
+                    "name": "templates/configmap.yaml",
+                    "data": "e3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLmVuYWJsZWQgfX0KYXBpVmVyc2lvbjogdjEKa2luZDogQ29uZmlnTWFwCm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CiAge3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLnNlbnNpdGl2ZVBhdGhzQW5ub3RhdGlvbiB9fQogIGFubm90YXRpb25zOgogICAgd2VyZi5pby9zZW5zaXRpdmUtcGF0aHM6ICJkYXRhLm1lc3NhZ2UiCiAge3stIGVuZCB9fQpkYXRhOgogIG1lc3NhZ2U6IHt7IC5WYWx1ZXMuY29uZmlnTWFwLm1lc3NhZ2UgfCBxdW90ZSB9fQp7ey0gZW5kIH19Cg=="
+                  },
+                  {
+                    "name": "templates/deployment.yaml",
+                    "data": "YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnNwZWM6CiAgcmVwbGljYXM6IHt7IC5WYWx1ZXMucmVwbGljYUNvdW50IH19CiAgc2VsZWN0b3I6CiAgICBtYXRjaExhYmVsczoKICAgICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNiB9fQogIHRlbXBsYXRlOgogICAgbWV0YWRhdGE6CiAgICAgIGxhYmVsczoKICAgICAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA4IH19CiAgICBzcGVjOgogICAgICBjb250YWluZXJzOgogICAgICAgIC0gbmFtZTogYmFzaWMKICAgICAgICAgIGltYWdlOiAie3sgLlZhbHVlcy5pbWFnZS5yZXBvc2l0b3J5IH19Ont7IC5WYWx1ZXMuaW1hZ2UudGFnIH19IgogICAgICAgICAgaW1hZ2VQdWxsUG9saWN5OiB7eyAuVmFsdWVzLmltYWdlLnB1bGxQb2xpY3kgfX0KICAgICAgICAgIHBvcnRzOgogICAgICAgICAgICAtIG5hbWU6IGh0dHAKICAgICAgICAgICAgICBjb250YWluZXJQb3J0OiA4MAogICAgICAgICAgZW52RnJvbToKICAgICAgICAgICAgLSBjb25maWdNYXBSZWY6CiAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICBlbnY6CiAgICAgICAgICAgIC0gbmFtZTogU0VDUkVUX1BBU1NXT1JECiAgICAgICAgICAgICAgdmFsdWVGcm9tOgogICAgICAgICAgICAgICAgc2VjcmV0S2V5UmVmOgogICAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICAgICAgICAgIGtleTogcGFzc3dvcmQK"
+                  },
+                  {
+                    "name": "templates/secret.yaml",
+                    "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VjcmV0Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnR5cGU6IE9wYXF1ZQpzdHJpbmdEYXRhOgogIHBhc3N3b3JkOiB7eyAuVmFsdWVzLnNlY3JldC5wYXNzd29yZCB8IHF1b3RlIH19Cg=="
+                  },
+                  {
+                    "name": "templates/service.yaml",
+                    "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VydmljZQptZXRhZGF0YToKICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgbGFiZWxzOgogICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNCB9fQpzcGVjOgogIHR5cGU6IHt7IC5WYWx1ZXMuc2VydmljZS50eXBlIH19CiAgcG9ydHM6CiAgICAtIG5hbWU6IGh0dHAKICAgICAgcG9ydDoge3sgLlZhbHVlcy5zZXJ2aWNlLnBvcnQgfX0KICAgICAgdGFyZ2V0UG9ydDogaHR0cAogICAgICBwcm90b2NvbDogVENQCiAgc2VsZWN0b3I6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19Cg=="
+                  },
+                  {
+                    "name": "templates/_werf_helpers.tpl",
+                    "data": null
+                  }
+                ],
+                "values": {
+                  "clusterRole": {
+                    "rules": [
+                      {
+                        "apiGroups": [
+                          ""
+                        ],
+                        "resources": [
+                          "configmaps"
+                        ],
+                        "verbs": [
+                          "get",
+                          "list"
+                        ]
+                      }
+                    ]
+                  },
+                  "configMap": {
+                    "enabled": true,
+                    "message": "hello from the basic test chart",
+                    "sensitivePathsAnnotation": false
+                  },
+                  "image": {
+                    "pullPolicy": "IfNotPresent",
+                    "repository": "nginx",
+                    "tag": "1.27-alpine"
+                  },
+                  "replicaCount": 1,
+                  "secret": {
+                    "password": "changeme"
+                  },
+                  "service": {
+                    "port": 80,
+                    "type": "ClusterIP"
+                  }
+                },
+                "schema": null,
+                "files": null
+              },
+              "manifest": "# Source: basic/templates/clusterrole.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nrules:\n- apiGroups:\n  - \"\"\n  resources:\n  - configmaps\n  verbs:\n  - get\n  - list\n\n---\n# Source: basic/templates/clusterrolebinding.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nroleRef:\n  apiGroup: rbac.authorization.k8s.io\n  kind: ClusterRole\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nsubjects:\n- kind: ServiceAccount\n  name: default\n  namespace: tfnelm-fix-lifecycle-74a6c3\n\n---\n# Source: basic/templates/configmap.yaml\napiVersion: v1\ndata:\n  message: hello from the basic test chart\nkind: ConfigMap\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\n\n---\n# Source: basic/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/instance: lifecycle\n      app.kubernetes.io/name: basic\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/instance: lifecycle\n        app.kubernetes.io/name: basic\n    spec:\n      containers:\n      - env:\n        - name: SECRET_PASSWORD\n          valueFrom:\n            secretKeyRef:\n              key: password\n              name: lifecycle-basic\n        envFrom:\n        - configMapRef:\n            name: lifecycle-basic\n        image: nginx:1.27-alpine\n        imagePullPolicy: IfNotPresent\n        name: basic\n        ports:\n        - containerPort: 80\n          name: http\n\n---\n# Source: basic/templates/secret.yaml\napiVersion: v1\ndata:\n  password: Y2hhbmdlbWU=\nkind: Secret\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\ntype: Opaque\n\n---\n# Source: basic/templates/service.yaml\napiVersion: v1\nkind: Service\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  ports:\n  - name: http\n    port: 80\n    protocol: TCP\n    targetPort: http\n  selector:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  type: ClusterIP\n",
+              "version": 1,
+              "namespace": "tfnelm-fix-lifecycle-74a6c3"
+            }
+          }
+        },
+        {
+          "type": "update-release",
+          "version": 1,
+          "category": "release",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "release": {
+              "name": "lifecycle",
+              "info": {
+                "first_deployed": "",
+                "last_deployed": "",
+                "deleted": "",
+                "status": "deployed"
+              },
+              "chart": {
+                "metadata": {
+                  "name": "basic",
+                  "version": "0.1.0",
+                  "description": "Minimal multi-resource chart used as fixture input for terraform-provider-nelm unit tests, live smoke captures, and acceptance tests. Not published anywhere.",
+                  "apiVersion": "v2",
+                  "appVersion": "1.0.0",
+                  "type": "application"
+                },
+                "lock": null,
+                "templates": [
+                  {
+                    "name": "templates/_helpers.tpl",
+                    "data": "e3svKgpDb21tb24gbGFiZWxzIHNoYXJlZCBieSBldmVyeSBuYW1lc3BhY2VkIHJlc291cmNlIGluIHRoaXMgY2hhcnQuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMubGFiZWxzIiAtfX0KYXBwLmt1YmVybmV0ZXMuaW8vbmFtZTogYmFzaWMKYXBwLmt1YmVybmV0ZXMuaW8vaW5zdGFuY2U6IHt7IC5SZWxlYXNlLk5hbWUgfX0Ke3stIGVuZCAtfX0KCnt7LyoKQ2x1c3Rlci1zY29wZWQgcmVzb3VyY2VzIChDbHVzdGVyUm9sZS9DbHVzdGVyUm9sZUJpbmRpbmcpIG11c3QgYmUgdW5pcXVlCmFjcm9zcyBwYXJhbGxlbCB0ZXN0IHJ1bnMgdGhhdCByZXVzZSB0aGUgc2FtZSByZWxlYXNlIG5hbWUgaW4gZGlmZmVyZW50Cm5hbWVzcGFjZXMsIHNvIHRoZWlyIG5hbWUgaXMgdGVtcGxhdGVkIHdpdGggYm90aCB0aGUgcmVsZWFzZSBuYW1lIEFORApuYW1lc3BhY2UuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC19fQp7eyAuUmVsZWFzZS5OYW1lIH19LXt7IC5SZWxlYXNlLk5hbWVzcGFjZSB9fS1iYXNpYwp7ey0gZW5kIC19fQo="
+                  },
+                  {
+                    "name": "templates/clusterrole.yaml",
+                    "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZQptZXRhZGF0YToKICBuYW1lOiB7eyBpbmNsdWRlICJiYXNpYy5jbHVzdGVyTmFtZSIgLiB9fQogIGxhYmVsczoKICAgIHt7LSBpbmNsdWRlICJiYXNpYy5sYWJlbHMiIC4gfCBuaW5kZW50IDQgfX0KcnVsZXM6CiAge3stIHRvWWFtbCAuVmFsdWVzLmNsdXN0ZXJSb2xlLnJ1bGVzIHwgbmluZGVudCAyIH19Cg=="
+                  },
+                  {
+                    "name": "templates/clusterrolebinding.yaml",
+                    "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZUJpbmRpbmcKbWV0YWRhdGE6CiAgbmFtZToge3sgaW5jbHVkZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC4gfX0KICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnJvbGVSZWY6CiAgYXBpR3JvdXA6IHJiYWMuYXV0aG9yaXphdGlvbi5rOHMuaW8KICBraW5kOiBDbHVzdGVyUm9sZQogIG5hbWU6IHt7IGluY2x1ZGUgImJhc2ljLmNsdXN0ZXJOYW1lIiAuIH19CnN1YmplY3RzOgogIC0ga2luZDogU2VydmljZUFjY291bnQKICAgIG5hbWU6IGRlZmF1bHQKICAgIG5hbWVzcGFjZToge3sgLlJlbGVhc2UuTmFtZXNwYWNlIH19Cg=="
+                  },
+                  {
+                    "name": "templates/configmap.yaml",
+                    "data": "e3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLmVuYWJsZWQgfX0KYXBpVmVyc2lvbjogdjEKa2luZDogQ29uZmlnTWFwCm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CiAge3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLnNlbnNpdGl2ZVBhdGhzQW5ub3RhdGlvbiB9fQogIGFubm90YXRpb25zOgogICAgd2VyZi5pby9zZW5zaXRpdmUtcGF0aHM6ICJkYXRhLm1lc3NhZ2UiCiAge3stIGVuZCB9fQpkYXRhOgogIG1lc3NhZ2U6IHt7IC5WYWx1ZXMuY29uZmlnTWFwLm1lc3NhZ2UgfCBxdW90ZSB9fQp7ey0gZW5kIH19Cg=="
+                  },
+                  {
+                    "name": "templates/deployment.yaml",
+                    "data": "YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnNwZWM6CiAgcmVwbGljYXM6IHt7IC5WYWx1ZXMucmVwbGljYUNvdW50IH19CiAgc2VsZWN0b3I6CiAgICBtYXRjaExhYmVsczoKICAgICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNiB9fQogIHRlbXBsYXRlOgogICAgbWV0YWRhdGE6CiAgICAgIGxhYmVsczoKICAgICAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA4IH19CiAgICBzcGVjOgogICAgICBjb250YWluZXJzOgogICAgICAgIC0gbmFtZTogYmFzaWMKICAgICAgICAgIGltYWdlOiAie3sgLlZhbHVlcy5pbWFnZS5yZXBvc2l0b3J5IH19Ont7IC5WYWx1ZXMuaW1hZ2UudGFnIH19IgogICAgICAgICAgaW1hZ2VQdWxsUG9saWN5OiB7eyAuVmFsdWVzLmltYWdlLnB1bGxQb2xpY3kgfX0KICAgICAgICAgIHBvcnRzOgogICAgICAgICAgICAtIG5hbWU6IGh0dHAKICAgICAgICAgICAgICBjb250YWluZXJQb3J0OiA4MAogICAgICAgICAgZW52RnJvbToKICAgICAgICAgICAgLSBjb25maWdNYXBSZWY6CiAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICBlbnY6CiAgICAgICAgICAgIC0gbmFtZTogU0VDUkVUX1BBU1NXT1JECiAgICAgICAgICAgICAgdmFsdWVGcm9tOgogICAgICAgICAgICAgICAgc2VjcmV0S2V5UmVmOgogICAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICAgICAgICAgIGtleTogcGFzc3dvcmQK"
+                  },
+                  {
+                    "name": "templates/secret.yaml",
+                    "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VjcmV0Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnR5cGU6IE9wYXF1ZQpzdHJpbmdEYXRhOgogIHBhc3N3b3JkOiB7eyAuVmFsdWVzLnNlY3JldC5wYXNzd29yZCB8IHF1b3RlIH19Cg=="
+                  },
+                  {
+                    "name": "templates/service.yaml",
+                    "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VydmljZQptZXRhZGF0YToKICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgbGFiZWxzOgogICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNCB9fQpzcGVjOgogIHR5cGU6IHt7IC5WYWx1ZXMuc2VydmljZS50eXBlIH19CiAgcG9ydHM6CiAgICAtIG5hbWU6IGh0dHAKICAgICAgcG9ydDoge3sgLlZhbHVlcy5zZXJ2aWNlLnBvcnQgfX0KICAgICAgdGFyZ2V0UG9ydDogaHR0cAogICAgICBwcm90b2NvbDogVENQCiAgc2VsZWN0b3I6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19Cg=="
+                  },
+                  {
+                    "name": "templates/_werf_helpers.tpl",
+                    "data": null
+                  }
+                ],
+                "values": {
+                  "clusterRole": {
+                    "rules": [
+                      {
+                        "apiGroups": [
+                          ""
+                        ],
+                        "resources": [
+                          "configmaps"
+                        ],
+                        "verbs": [
+                          "get",
+                          "list"
+                        ]
+                      }
+                    ]
+                  },
+                  "configMap": {
+                    "enabled": true,
+                    "message": "hello from the basic test chart",
+                    "sensitivePathsAnnotation": false
+                  },
+                  "image": {
+                    "pullPolicy": "IfNotPresent",
+                    "repository": "nginx",
+                    "tag": "1.27-alpine"
+                  },
+                  "replicaCount": 1,
+                  "secret": {
+                    "password": "changeme"
+                  },
+                  "service": {
+                    "port": 80,
+                    "type": "ClusterIP"
+                  }
+                },
+                "schema": null,
+                "files": null
+              },
+              "manifest": "# Source: basic/templates/clusterrole.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nrules:\n- apiGroups:\n  - \"\"\n  resources:\n  - configmaps\n  verbs:\n  - get\n  - list\n\n---\n# Source: basic/templates/clusterrolebinding.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nroleRef:\n  apiGroup: rbac.authorization.k8s.io\n  kind: ClusterRole\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nsubjects:\n- kind: ServiceAccount\n  name: default\n  namespace: tfnelm-fix-lifecycle-74a6c3\n\n---\n# Source: basic/templates/configmap.yaml\napiVersion: v1\ndata:\n  message: hello from the basic test chart\nkind: ConfigMap\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\n\n---\n# Source: basic/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/instance: lifecycle\n      app.kubernetes.io/name: basic\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/instance: lifecycle\n        app.kubernetes.io/name: basic\n    spec:\n      containers:\n      - env:\n        - name: SECRET_PASSWORD\n          valueFrom:\n            secretKeyRef:\n              key: password\n              name: lifecycle-basic\n        envFrom:\n        - configMapRef:\n            name: lifecycle-basic\n        image: nginx:1.27-alpine\n        imagePullPolicy: IfNotPresent\n        name: basic\n        ports:\n        - containerPort: 80\n          name: http\n\n---\n# Source: basic/templates/secret.yaml\napiVersion: v1\ndata:\n  password: Y2hhbmdlbWU=\nkind: Secret\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\ntype: Opaque\n\n---\n# Source: basic/templates/service.yaml\napiVersion: v1\nkind: Service\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  ports:\n  - name: http\n    port: 80\n    protocol: TCP\n    targetPort: http\n  selector:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  type: ClusterIP\n",
+              "version": 2,
+              "namespace": "tfnelm-fix-lifecycle-74a6c3"
+            }
+          }
+        },
+        {
+          "type": "update",
+          "version": 1,
+          "category": "resource",
+          "iteration": 0,
+          "status": "",
+          "config": {
+            "resourceSpec": {
+              "resourceMeta": {
+                "name": "lifecycle-basic",
+                "namespace": "",
+                "groupVersionKind": {
+                  "Group": "apps",
+                  "Version": "v1",
+                  "Kind": "Deployment"
+                },
+                "filePath": "basic/templates/deployment.yaml",
+                "annotations": {
+                  "meta.helm.sh/release-name": "lifecycle",
+                  "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+                },
+                "labels": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/managed-by": "Helm",
+                  "app.kubernetes.io/name": "basic"
+                }
+              },
+              "unstruct": {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "metadata": {
+                  "annotations": {
+                    "meta.helm.sh/release-name": "lifecycle",
+                    "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+                  },
+                  "labels": {
+                    "app.kubernetes.io/instance": "lifecycle",
+                    "app.kubernetes.io/managed-by": "Helm",
+                    "app.kubernetes.io/name": "basic"
+                  },
+                  "name": "lifecycle-basic"
+                },
+                "spec": {
+                  "replicas": 1,
+                  "selector": {
+                    "matchLabels": {
+                      "app.kubernetes.io/instance": "lifecycle",
+                      "app.kubernetes.io/name": "basic"
+                    }
+                  },
+                  "template": {
+                    "metadata": {
+                      "labels": {
+                        "app.kubernetes.io/instance": "lifecycle",
+                        "app.kubernetes.io/name": "basic"
+                      }
+                    },
+                    "spec": {
+                      "containers": [
+                        {
+                          "env": [
+                            {
+                              "name": "SECRET_PASSWORD",
+                              "valueFrom": {
+                                "secretKeyRef": {
+                                  "key": "password",
+                                  "name": "lifecycle-basic"
+                                }
+                              }
+                            }
+                          ],
+                          "envFrom": [
+                            {
+                              "configMapRef": {
+                                "name": "lifecycle-basic"
+                              }
+                            }
+                          ],
+                          "image": "nginx:1.27-alpine",
+                          "imagePullPolicy": "IfNotPresent",
+                          "name": "basic",
+                          "ports": [
+                            {
+                              "containerPort": 80,
+                              "name": "http"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              },
+              "storeAs": "regular"
+            }
+          }
+        }
+      ],
+      "edges": [
+        {
+          "from": "create-release/1/0/tfnelm-fix-lifecycle-74a6c3:lifecycle:2",
+          "to": "noop/1/0/stage/init/end"
+        },
+        {
+          "from": "noop/1/0/stage/final/start",
+          "to": "update-release/1/0/tfnelm-fix-lifecycle-74a6c3:lifecycle:1"
+        },
+        {
+          "from": "noop/1/0/stage/final/start",
+          "to": "update-release/1/0/tfnelm-fix-lifecycle-74a6c3:lifecycle:2"
+        },
+        {
+          "from": "noop/1/0/stage/init/end",
+          "to": "noop/1/0/stage/install/start"
+        },
+        {
+          "from": "noop/1/0/stage/init/start",
+          "to": "create-release/1/0/tfnelm-fix-lifecycle-74a6c3:lifecycle:2"
+        },
+        {
+          "from": "noop/1/0/stage/install/end",
+          "to": "noop/1/0/stage/final/start"
+        },
+        {
+          "from": "noop/1/0/stage/install/start",
+          "to": "noop/1/0/stage/install/weight:0/start"
+        },
+        {
+          "from": "noop/1/0/stage/install/weight:0/end",
+          "to": "noop/1/0/stage/install/end"
+        },
+        {
+          "from": "noop/1/0/stage/install/weight:0/start",
+          "to": "update/1/0/:apps:Deployment:lifecycle-basic"
+        },
+        {
+          "from": "update-release/1/0/tfnelm-fix-lifecycle-74a6c3:lifecycle:1",
+          "to": "noop/1/0/stage/final/end"
+        },
+        {
+          "from": "update-release/1/0/tfnelm-fix-lifecycle-74a6c3:lifecycle:2",
+          "to": "noop/1/0/stage/final/end"
+        },
+        {
+          "from": "update/1/0/:apps:Deployment:lifecycle-basic",
+          "to": "noop/1/0/stage/install/weight:0/end"
+        }
+      ]
+    },
+    "release": {
+      "name": "lifecycle",
+      "info": {
+        "first_deployed": "",
+        "last_deployed": "",
+        "deleted": "",
+        "status": "pending-upgrade"
+      },
+      "chart": {
+        "metadata": {
+          "name": "basic",
+          "version": "0.1.0",
+          "description": "Minimal multi-resource chart used as fixture input for terraform-provider-nelm unit tests, live smoke captures, and acceptance tests. Not published anywhere.",
+          "apiVersion": "v2",
+          "appVersion": "1.0.0",
+          "type": "application"
+        },
+        "lock": null,
+        "templates": [
+          {
+            "name": "templates/_helpers.tpl",
+            "data": "e3svKgpDb21tb24gbGFiZWxzIHNoYXJlZCBieSBldmVyeSBuYW1lc3BhY2VkIHJlc291cmNlIGluIHRoaXMgY2hhcnQuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMubGFiZWxzIiAtfX0KYXBwLmt1YmVybmV0ZXMuaW8vbmFtZTogYmFzaWMKYXBwLmt1YmVybmV0ZXMuaW8vaW5zdGFuY2U6IHt7IC5SZWxlYXNlLk5hbWUgfX0Ke3stIGVuZCAtfX0KCnt7LyoKQ2x1c3Rlci1zY29wZWQgcmVzb3VyY2VzIChDbHVzdGVyUm9sZS9DbHVzdGVyUm9sZUJpbmRpbmcpIG11c3QgYmUgdW5pcXVlCmFjcm9zcyBwYXJhbGxlbCB0ZXN0IHJ1bnMgdGhhdCByZXVzZSB0aGUgc2FtZSByZWxlYXNlIG5hbWUgaW4gZGlmZmVyZW50Cm5hbWVzcGFjZXMsIHNvIHRoZWlyIG5hbWUgaXMgdGVtcGxhdGVkIHdpdGggYm90aCB0aGUgcmVsZWFzZSBuYW1lIEFORApuYW1lc3BhY2UuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC19fQp7eyAuUmVsZWFzZS5OYW1lIH19LXt7IC5SZWxlYXNlLk5hbWVzcGFjZSB9fS1iYXNpYwp7ey0gZW5kIC19fQo="
+          },
+          {
+            "name": "templates/clusterrole.yaml",
+            "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZQptZXRhZGF0YToKICBuYW1lOiB7eyBpbmNsdWRlICJiYXNpYy5jbHVzdGVyTmFtZSIgLiB9fQogIGxhYmVsczoKICAgIHt7LSBpbmNsdWRlICJiYXNpYy5sYWJlbHMiIC4gfCBuaW5kZW50IDQgfX0KcnVsZXM6CiAge3stIHRvWWFtbCAuVmFsdWVzLmNsdXN0ZXJSb2xlLnJ1bGVzIHwgbmluZGVudCAyIH19Cg=="
+          },
+          {
+            "name": "templates/clusterrolebinding.yaml",
+            "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZUJpbmRpbmcKbWV0YWRhdGE6CiAgbmFtZToge3sgaW5jbHVkZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC4gfX0KICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnJvbGVSZWY6CiAgYXBpR3JvdXA6IHJiYWMuYXV0aG9yaXphdGlvbi5rOHMuaW8KICBraW5kOiBDbHVzdGVyUm9sZQogIG5hbWU6IHt7IGluY2x1ZGUgImJhc2ljLmNsdXN0ZXJOYW1lIiAuIH19CnN1YmplY3RzOgogIC0ga2luZDogU2VydmljZUFjY291bnQKICAgIG5hbWU6IGRlZmF1bHQKICAgIG5hbWVzcGFjZToge3sgLlJlbGVhc2UuTmFtZXNwYWNlIH19Cg=="
+          },
+          {
+            "name": "templates/configmap.yaml",
+            "data": "e3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLmVuYWJsZWQgfX0KYXBpVmVyc2lvbjogdjEKa2luZDogQ29uZmlnTWFwCm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CiAge3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLnNlbnNpdGl2ZVBhdGhzQW5ub3RhdGlvbiB9fQogIGFubm90YXRpb25zOgogICAgd2VyZi5pby9zZW5zaXRpdmUtcGF0aHM6ICJkYXRhLm1lc3NhZ2UiCiAge3stIGVuZCB9fQpkYXRhOgogIG1lc3NhZ2U6IHt7IC5WYWx1ZXMuY29uZmlnTWFwLm1lc3NhZ2UgfCBxdW90ZSB9fQp7ey0gZW5kIH19Cg=="
+          },
+          {
+            "name": "templates/deployment.yaml",
+            "data": "YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnNwZWM6CiAgcmVwbGljYXM6IHt7IC5WYWx1ZXMucmVwbGljYUNvdW50IH19CiAgc2VsZWN0b3I6CiAgICBtYXRjaExhYmVsczoKICAgICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNiB9fQogIHRlbXBsYXRlOgogICAgbWV0YWRhdGE6CiAgICAgIGxhYmVsczoKICAgICAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA4IH19CiAgICBzcGVjOgogICAgICBjb250YWluZXJzOgogICAgICAgIC0gbmFtZTogYmFzaWMKICAgICAgICAgIGltYWdlOiAie3sgLlZhbHVlcy5pbWFnZS5yZXBvc2l0b3J5IH19Ont7IC5WYWx1ZXMuaW1hZ2UudGFnIH19IgogICAgICAgICAgaW1hZ2VQdWxsUG9saWN5OiB7eyAuVmFsdWVzLmltYWdlLnB1bGxQb2xpY3kgfX0KICAgICAgICAgIHBvcnRzOgogICAgICAgICAgICAtIG5hbWU6IGh0dHAKICAgICAgICAgICAgICBjb250YWluZXJQb3J0OiA4MAogICAgICAgICAgZW52RnJvbToKICAgICAgICAgICAgLSBjb25maWdNYXBSZWY6CiAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICBlbnY6CiAgICAgICAgICAgIC0gbmFtZTogU0VDUkVUX1BBU1NXT1JECiAgICAgICAgICAgICAgdmFsdWVGcm9tOgogICAgICAgICAgICAgICAgc2VjcmV0S2V5UmVmOgogICAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICAgICAgICAgIGtleTogcGFzc3dvcmQK"
+          },
+          {
+            "name": "templates/secret.yaml",
+            "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VjcmV0Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnR5cGU6IE9wYXF1ZQpzdHJpbmdEYXRhOgogIHBhc3N3b3JkOiB7eyAuVmFsdWVzLnNlY3JldC5wYXNzd29yZCB8IHF1b3RlIH19Cg=="
+          },
+          {
+            "name": "templates/service.yaml",
+            "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VydmljZQptZXRhZGF0YToKICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgbGFiZWxzOgogICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNCB9fQpzcGVjOgogIHR5cGU6IHt7IC5WYWx1ZXMuc2VydmljZS50eXBlIH19CiAgcG9ydHM6CiAgICAtIG5hbWU6IGh0dHAKICAgICAgcG9ydDoge3sgLlZhbHVlcy5zZXJ2aWNlLnBvcnQgfX0KICAgICAgdGFyZ2V0UG9ydDogaHR0cAogICAgICBwcm90b2NvbDogVENQCiAgc2VsZWN0b3I6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19Cg=="
+          },
+          {
+            "name": "templates/_werf_helpers.tpl",
+            "data": null
+          }
+        ],
+        "values": {
+          "clusterRole": {
+            "rules": [
+              {
+                "apiGroups": [
+                  ""
+                ],
+                "resources": [
+                  "configmaps"
+                ],
+                "verbs": [
+                  "get",
+                  "list"
+                ]
+              }
+            ]
+          },
+          "configMap": {
+            "enabled": true,
+            "message": "hello from the basic test chart",
+            "sensitivePathsAnnotation": false
+          },
+          "image": {
+            "pullPolicy": "IfNotPresent",
+            "repository": "nginx",
+            "tag": "1.27-alpine"
+          },
+          "replicaCount": 1,
+          "secret": {
+            "password": "changeme"
+          },
+          "service": {
+            "port": 80,
+            "type": "ClusterIP"
+          }
+        },
+        "schema": null,
+        "files": null
+      },
+      "manifest": "# Source: basic/templates/clusterrole.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nrules:\n- apiGroups:\n  - \"\"\n  resources:\n  - configmaps\n  verbs:\n  - get\n  - list\n\n---\n# Source: basic/templates/clusterrolebinding.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nroleRef:\n  apiGroup: rbac.authorization.k8s.io\n  kind: ClusterRole\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nsubjects:\n- kind: ServiceAccount\n  name: default\n  namespace: tfnelm-fix-lifecycle-74a6c3\n\n---\n# Source: basic/templates/configmap.yaml\napiVersion: v1\ndata:\n  message: hello from the basic test chart\nkind: ConfigMap\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\n\n---\n# Source: basic/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/instance: lifecycle\n      app.kubernetes.io/name: basic\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/instance: lifecycle\n        app.kubernetes.io/name: basic\n    spec:\n      containers:\n      - env:\n        - name: SECRET_PASSWORD\n          valueFrom:\n            secretKeyRef:\n              key: password\n              name: lifecycle-basic\n        envFrom:\n        - configMapRef:\n            name: lifecycle-basic\n        image: nginx:1.27-alpine\n        imagePullPolicy: IfNotPresent\n        name: basic\n        ports:\n        - containerPort: 80\n          name: http\n\n---\n# Source: basic/templates/secret.yaml\napiVersion: v1\ndata:\n  password: Y2hhbmdlbWU=\nkind: Secret\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\ntype: Opaque\n\n---\n# Source: basic/templates/service.yaml\napiVersion: v1\nkind: Service\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  ports:\n  - name: http\n    port: 80\n    protocol: TCP\n    targetPort: http\n  selector:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  type: ClusterIP\n",
+      "version": 2,
+      "namespace": "tfnelm-fix-lifecycle-74a6c3"
+    },
+    "installableResourceInfos": [
+      {
+        "resourceMeta": {
+          "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic",
+          "namespace": "",
+          "groupVersionKind": {
+            "Group": "rbac.authorization.k8s.io",
+            "Version": "v1",
+            "Kind": "ClusterRole"
+          },
+          "filePath": "basic/templates/clusterrole.yaml",
+          "annotations": {
+            "meta.helm.sh/release-name": "lifecycle",
+            "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+          },
+          "labels": {
+            "app.kubernetes.io/instance": "lifecycle",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "basic"
+          }
+        },
+        "localResource": {
+          "resourceSpec": {
+            "resourceMeta": {
+              "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic",
+              "namespace": "",
+              "groupVersionKind": {
+                "Group": "rbac.authorization.k8s.io",
+                "Version": "v1",
+                "Kind": "ClusterRole"
+              },
+              "filePath": "basic/templates/clusterrole.yaml",
+              "annotations": {
+                "meta.helm.sh/release-name": "lifecycle",
+                "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+              },
+              "labels": {
+                "app.kubernetes.io/instance": "lifecycle",
+                "app.kubernetes.io/managed-by": "Helm",
+                "app.kubernetes.io/name": "basic"
+              }
+            },
+            "unstruct": {
+              "apiVersion": "rbac.authorization.k8s.io/v1",
+              "kind": "ClusterRole",
+              "metadata": {
+                "annotations": {
+                  "meta.helm.sh/release-name": "lifecycle",
+                  "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+                },
+                "labels": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/managed-by": "Helm",
+                  "app.kubernetes.io/name": "basic"
+                },
+                "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic"
+              },
+              "rules": [
+                {
+                  "apiGroups": [
+                    ""
+                  ],
+                  "resources": [
+                    "configmaps"
+                  ],
+                  "verbs": [
+                    "get",
+                    "list"
+                  ]
+                }
+              ]
+            },
+            "storeAs": "regular"
+          },
+          "ownership": "release",
+          "recreate": false,
+          "recreateOnImmutable": false,
+          "resourcePolicies": null,
+          "deleteOnSucceeded": false,
+          "deleteOnFailed": false,
+          "failMode": "FailWholeDeployProcessImmediately",
+          "failuresAllowed": 0,
+          "logRegex": null,
+          "logRegexesForContainers": null,
+          "noActivityTimeout": 240000000000,
+          "showServiceMessages": false,
+          "showLogsOnlyForNumberOfReplicas": 1,
+          "skipLogs": false,
+          "skipLogsRegex": null,
+          "skipLogsRegexForContainers": null,
+          "trackTerminationMode": "WaitUntilResourceReady",
+          "weight": 0,
+          "deployConditions": {
+            "install": [
+              "install"
+            ],
+            "rollback": [
+              "install"
+            ],
+            "upgrade": [
+              "install"
+            ]
+          },
+          "deletePropagation": "Foreground"
+        },
+        "getResult": {
+          "apiVersion": "rbac.authorization.k8s.io/v1",
+          "kind": "ClusterRole",
+          "metadata": {
+            "annotations": {
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "rbac.authorization.k8s.io/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:rules": {}
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              }
+            ],
+            "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic",
+            "resourceVersion": "2643",
+            "uid": "878f9a76-bb33-4c82-9160-be38499e54f6"
+          },
+          "rules": [
+            {
+              "apiGroups": [
+                ""
+              ],
+              "resources": [
+                "configmaps"
+              ],
+              "verbs": [
+                "get",
+                "list"
+              ]
+            }
+          ]
+        },
+        "dryApplyResult": {
+          "apiVersion": "rbac.authorization.k8s.io/v1",
+          "kind": "ClusterRole",
+          "metadata": {
+            "annotations": {
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "rbac.authorization.k8s.io/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:rules": {}
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              }
+            ],
+            "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic",
+            "resourceVersion": "2643",
+            "uid": "878f9a76-bb33-4c82-9160-be38499e54f6"
+          },
+          "rules": [
+            {
+              "apiGroups": [
+                ""
+              ],
+              "resources": [
+                "configmaps"
+              ],
+              "verbs": [
+                "get",
+                "list"
+              ]
+            }
+          ]
+        },
+        "dryApplyErr": null,
+        "mustInstall": "none",
+        "mustDeleteOnSuccessfulInstall": false,
+        "mustDeleteOnFailedInstall": false,
+        "mustTrackReadiness": false,
+        "failMode": "FailWholeDeployProcessImmediately",
+        "stage": "install",
+        "iteration": 0
+      },
+      {
+        "resourceMeta": {
+          "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic",
+          "namespace": "",
+          "groupVersionKind": {
+            "Group": "rbac.authorization.k8s.io",
+            "Version": "v1",
+            "Kind": "ClusterRoleBinding"
+          },
+          "filePath": "basic/templates/clusterrolebinding.yaml",
+          "annotations": {
+            "meta.helm.sh/release-name": "lifecycle",
+            "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+          },
+          "labels": {
+            "app.kubernetes.io/instance": "lifecycle",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "basic"
+          }
+        },
+        "localResource": {
+          "resourceSpec": {
+            "resourceMeta": {
+              "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic",
+              "namespace": "",
+              "groupVersionKind": {
+                "Group": "rbac.authorization.k8s.io",
+                "Version": "v1",
+                "Kind": "ClusterRoleBinding"
+              },
+              "filePath": "basic/templates/clusterrolebinding.yaml",
+              "annotations": {
+                "meta.helm.sh/release-name": "lifecycle",
+                "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+              },
+              "labels": {
+                "app.kubernetes.io/instance": "lifecycle",
+                "app.kubernetes.io/managed-by": "Helm",
+                "app.kubernetes.io/name": "basic"
+              }
+            },
+            "unstruct": {
+              "apiVersion": "rbac.authorization.k8s.io/v1",
+              "kind": "ClusterRoleBinding",
+              "metadata": {
+                "annotations": {
+                  "meta.helm.sh/release-name": "lifecycle",
+                  "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+                },
+                "labels": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/managed-by": "Helm",
+                  "app.kubernetes.io/name": "basic"
+                },
+                "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic"
+              },
+              "roleRef": {
+                "apiGroup": "rbac.authorization.k8s.io",
+                "kind": "ClusterRole",
+                "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic"
+              },
+              "subjects": [
+                {
+                  "kind": "ServiceAccount",
+                  "name": "default",
+                  "namespace": "tfnelm-fix-lifecycle-74a6c3"
+                }
+              ]
+            },
+            "storeAs": "regular"
+          },
+          "ownership": "release",
+          "recreate": false,
+          "recreateOnImmutable": false,
+          "resourcePolicies": null,
+          "deleteOnSucceeded": false,
+          "deleteOnFailed": false,
+          "failMode": "FailWholeDeployProcessImmediately",
+          "failuresAllowed": 0,
+          "logRegex": null,
+          "logRegexesForContainers": null,
+          "noActivityTimeout": 240000000000,
+          "showServiceMessages": false,
+          "showLogsOnlyForNumberOfReplicas": 1,
+          "skipLogs": false,
+          "skipLogsRegex": null,
+          "skipLogsRegexForContainers": null,
+          "trackTerminationMode": "WaitUntilResourceReady",
+          "weight": 0,
+          "autoInternalDependencies": [
+            {
+              "resourceMatcher": {
+                "names": [
+                  "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic"
+                ],
+                "groups": [
+                  "rbac.authorization.k8s.io"
+                ],
+                "kinds": [
+                  "ClusterRole"
+                ]
+              },
+              "resourceState": "present"
+            },
+            {
+              "resourceMatcher": {
+                "names": [
+                  "default"
+                ],
+                "namespaces": [
+                  ""
+                ],
+                "groups": [
+                  ""
+                ],
+                "kinds": [
+                  "ServiceAccount"
+                ]
+              },
+              "resourceState": "present"
+            }
+          ],
+          "deployConditions": {
+            "install": [
+              "install"
+            ],
+            "rollback": [
+              "install"
+            ],
+            "upgrade": [
+              "install"
+            ]
+          },
+          "deletePropagation": "Foreground"
+        },
+        "getResult": {
+          "apiVersion": "rbac.authorization.k8s.io/v1",
+          "kind": "ClusterRoleBinding",
+          "metadata": {
+            "annotations": {
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "rbac.authorization.k8s.io/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:roleRef": {},
+                  "f:subjects": {}
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              }
+            ],
+            "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic",
+            "resourceVersion": "2650",
+            "uid": "103d2fa3-2fa3-4187-9a87-7d92c8885a79"
+          },
+          "roleRef": {
+            "apiGroup": "rbac.authorization.k8s.io",
+            "kind": "ClusterRole",
+            "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic"
+          },
+          "subjects": [
+            {
+              "kind": "ServiceAccount",
+              "name": "default",
+              "namespace": "tfnelm-fix-lifecycle-74a6c3"
+            }
+          ]
+        },
+        "dryApplyResult": {
+          "apiVersion": "rbac.authorization.k8s.io/v1",
+          "kind": "ClusterRoleBinding",
+          "metadata": {
+            "annotations": {
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "rbac.authorization.k8s.io/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:roleRef": {},
+                  "f:subjects": {}
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              }
+            ],
+            "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic",
+            "resourceVersion": "2650",
+            "uid": "103d2fa3-2fa3-4187-9a87-7d92c8885a79"
+          },
+          "roleRef": {
+            "apiGroup": "rbac.authorization.k8s.io",
+            "kind": "ClusterRole",
+            "name": "lifecycle-tfnelm-fix-lifecycle-74a6c3-basic"
+          },
+          "subjects": [
+            {
+              "kind": "ServiceAccount",
+              "name": "default",
+              "namespace": "tfnelm-fix-lifecycle-74a6c3"
+            }
+          ]
+        },
+        "dryApplyErr": null,
+        "mustInstall": "none",
+        "mustDeleteOnSuccessfulInstall": false,
+        "mustDeleteOnFailedInstall": false,
+        "mustTrackReadiness": false,
+        "failMode": "FailWholeDeployProcessImmediately",
+        "stage": "install",
+        "iteration": 0
+      },
+      {
+        "resourceMeta": {
+          "name": "lifecycle-basic",
+          "namespace": "",
+          "groupVersionKind": {
+            "Group": "",
+            "Version": "v1",
+            "Kind": "ConfigMap"
+          },
+          "filePath": "basic/templates/configmap.yaml",
+          "annotations": {
+            "meta.helm.sh/release-name": "lifecycle",
+            "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+          },
+          "labels": {
+            "app.kubernetes.io/instance": "lifecycle",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "basic"
+          }
+        },
+        "localResource": {
+          "resourceSpec": {
+            "resourceMeta": {
+              "name": "lifecycle-basic",
+              "namespace": "",
+              "groupVersionKind": {
+                "Group": "",
+                "Version": "v1",
+                "Kind": "ConfigMap"
+              },
+              "filePath": "basic/templates/configmap.yaml",
+              "annotations": {
+                "meta.helm.sh/release-name": "lifecycle",
+                "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+              },
+              "labels": {
+                "app.kubernetes.io/instance": "lifecycle",
+                "app.kubernetes.io/managed-by": "Helm",
+                "app.kubernetes.io/name": "basic"
+              }
+            },
+            "unstruct": {
+              "apiVersion": "v1",
+              "data": {
+                "message": "hello from the basic test chart"
+              },
+              "kind": "ConfigMap",
+              "metadata": {
+                "annotations": {
+                  "meta.helm.sh/release-name": "lifecycle",
+                  "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+                },
+                "labels": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/managed-by": "Helm",
+                  "app.kubernetes.io/name": "basic"
+                },
+                "name": "lifecycle-basic"
+              }
+            },
+            "storeAs": "regular"
+          },
+          "ownership": "release",
+          "recreate": false,
+          "recreateOnImmutable": false,
+          "resourcePolicies": null,
+          "deleteOnSucceeded": false,
+          "deleteOnFailed": false,
+          "failMode": "FailWholeDeployProcessImmediately",
+          "failuresAllowed": 0,
+          "logRegex": null,
+          "logRegexesForContainers": null,
+          "noActivityTimeout": 240000000000,
+          "showServiceMessages": false,
+          "showLogsOnlyForNumberOfReplicas": 1,
+          "skipLogs": false,
+          "skipLogsRegex": null,
+          "skipLogsRegexForContainers": null,
+          "trackTerminationMode": "WaitUntilResourceReady",
+          "weight": 0,
+          "deployConditions": {
+            "install": [
+              "install"
+            ],
+            "rollback": [
+              "install"
+            ],
+            "upgrade": [
+              "install"
+            ]
+          },
+          "deletePropagation": "Foreground"
+        },
+        "getResult": {
+          "apiVersion": "v1",
+          "data": {
+            "message": "hello from the basic test chart"
+          },
+          "kind": "ConfigMap",
+          "metadata": {
+            "annotations": {
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:data": {
+                    "f:message": {}
+                  },
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  }
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              }
+            ],
+            "name": "lifecycle-basic",
+            "namespace": "tfnelm-fix-lifecycle-74a6c3",
+            "resourceVersion": "2644",
+            "uid": "c26cf380-a60a-45cd-8edb-ee58eeb5dc40"
+          }
+        },
+        "dryApplyResult": {
+          "apiVersion": "v1",
+          "data": {
+            "message": "hello from the basic test chart"
+          },
+          "kind": "ConfigMap",
+          "metadata": {
+            "annotations": {
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:data": {
+                    "f:message": {}
+                  },
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  }
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              }
+            ],
+            "name": "lifecycle-basic",
+            "namespace": "tfnelm-fix-lifecycle-74a6c3",
+            "resourceVersion": "2644",
+            "uid": "c26cf380-a60a-45cd-8edb-ee58eeb5dc40"
+          }
+        },
+        "dryApplyErr": null,
+        "mustInstall": "none",
+        "mustDeleteOnSuccessfulInstall": false,
+        "mustDeleteOnFailedInstall": false,
+        "mustTrackReadiness": false,
+        "failMode": "FailWholeDeployProcessImmediately",
+        "stage": "install",
+        "iteration": 0
+      },
+      {
+        "resourceMeta": {
+          "name": "lifecycle-basic",
+          "namespace": "",
+          "groupVersionKind": {
+            "Group": "apps",
+            "Version": "v1",
+            "Kind": "Deployment"
+          },
+          "filePath": "basic/templates/deployment.yaml",
+          "annotations": {
+            "meta.helm.sh/release-name": "lifecycle",
+            "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+          },
+          "labels": {
+            "app.kubernetes.io/instance": "lifecycle",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "basic"
+          }
+        },
+        "localResource": {
+          "resourceSpec": {
+            "resourceMeta": {
+              "name": "lifecycle-basic",
+              "namespace": "",
+              "groupVersionKind": {
+                "Group": "apps",
+                "Version": "v1",
+                "Kind": "Deployment"
+              },
+              "filePath": "basic/templates/deployment.yaml",
+              "annotations": {
+                "meta.helm.sh/release-name": "lifecycle",
+                "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+              },
+              "labels": {
+                "app.kubernetes.io/instance": "lifecycle",
+                "app.kubernetes.io/managed-by": "Helm",
+                "app.kubernetes.io/name": "basic"
+              }
+            },
+            "unstruct": {
+              "apiVersion": "apps/v1",
+              "kind": "Deployment",
+              "metadata": {
+                "annotations": {
+                  "meta.helm.sh/release-name": "lifecycle",
+                  "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+                },
+                "labels": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/managed-by": "Helm",
+                  "app.kubernetes.io/name": "basic"
+                },
+                "name": "lifecycle-basic"
+              },
+              "spec": {
+                "replicas": 1,
+                "selector": {
+                  "matchLabels": {
+                    "app.kubernetes.io/instance": "lifecycle",
+                    "app.kubernetes.io/name": "basic"
+                  }
+                },
+                "template": {
+                  "metadata": {
+                    "labels": {
+                      "app.kubernetes.io/instance": "lifecycle",
+                      "app.kubernetes.io/name": "basic"
+                    }
+                  },
+                  "spec": {
+                    "containers": [
+                      {
+                        "env": [
+                          {
+                            "name": "SECRET_PASSWORD",
+                            "valueFrom": {
+                              "secretKeyRef": {
+                                "key": "password",
+                                "name": "lifecycle-basic"
+                              }
+                            }
+                          }
+                        ],
+                        "envFrom": [
+                          {
+                            "configMapRef": {
+                              "name": "lifecycle-basic"
+                            }
+                          }
+                        ],
+                        "image": "nginx:1.27-alpine",
+                        "imagePullPolicy": "IfNotPresent",
+                        "name": "basic",
+                        "ports": [
+                          {
+                            "containerPort": 80,
+                            "name": "http"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "storeAs": "regular"
+          },
+          "ownership": "release",
+          "recreate": false,
+          "recreateOnImmutable": false,
+          "resourcePolicies": null,
+          "deleteOnSucceeded": false,
+          "deleteOnFailed": false,
+          "failMode": "FailWholeDeployProcessImmediately",
+          "failuresAllowed": 1,
+          "logRegex": null,
+          "logRegexesForContainers": null,
+          "noActivityTimeout": 240000000000,
+          "showServiceMessages": false,
+          "showLogsOnlyForNumberOfReplicas": 1,
+          "skipLogs": false,
+          "skipLogsRegex": null,
+          "skipLogsRegexForContainers": null,
+          "trackTerminationMode": "WaitUntilResourceReady",
+          "weight": 0,
+          "autoInternalDependencies": [
+            {
+              "resourceMatcher": {
+                "names": [
+                  "lifecycle-basic"
+                ],
+                "namespaces": [
+                  ""
+                ],
+                "groups": [
+                  ""
+                ],
+                "kinds": [
+                  "Secret"
+                ]
+              },
+              "resourceState": "present"
+            }
+          ],
+          "deployConditions": {
+            "install": [
+              "install"
+            ],
+            "rollback": [
+              "install"
+            ],
+            "upgrade": [
+              "install"
+            ]
+          },
+          "deletePropagation": "Foreground"
+        },
+        "getResult": {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "annotations": {
+              "deployment.kubernetes.io/revision": "1",
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "generation": 2,
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "apps/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:spec": {
+                    "f:selector": {},
+                    "f:template": {
+                      "f:metadata": {
+                        "f:labels": {
+                          "f:app.kubernetes.io/instance": {},
+                          "f:app.kubernetes.io/name": {}
+                        }
+                      },
+                      "f:spec": {
+                        "f:containers": {
+                          "k:{\"name\":\"basic\"}": {
+                            ".": {},
+                            "f:env": {
+                              "k:{\"name\":\"SECRET_PASSWORD\"}": {
+                                ".": {},
+                                "f:name": {},
+                                "f:valueFrom": {
+                                  "f:secretKeyRef": {}
+                                }
+                              }
+                            },
+                            "f:envFrom": {},
+                            "f:image": {},
+                            "f:imagePullPolicy": {},
+                            "f:name": {},
+                            "f:ports": {
+                              "k:{\"containerPort\":80,\"protocol\":\"TCP\"}": {
+                                ".": {},
+                                "f:containerPort": {},
+                                "f:name": {}
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              },
+              {
+                "apiVersion": "apps/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:deployment.kubernetes.io/revision": {}
+                    }
+                  },
+                  "f:status": {
+                    "f:availableReplicas": {},
+                    "f:conditions": {
+                      ".": {},
+                      "k:{\"type\":\"Available\"}": {
+                        ".": {},
+                        "f:lastTransitionTime": {},
+                        "f:lastUpdateTime": {},
+                        "f:message": {},
+                        "f:reason": {},
+                        "f:status": {},
+                        "f:type": {}
+                      },
+                      "k:{\"type\":\"Progressing\"}": {
+                        ".": {},
+                        "f:lastTransitionTime": {},
+                        "f:lastUpdateTime": {},
+                        "f:message": {},
+                        "f:reason": {},
+                        "f:status": {},
+                        "f:type": {}
+                      }
+                    },
+                    "f:observedGeneration": {},
+                    "f:readyReplicas": {},
+                    "f:replicas": {},
+                    "f:unavailableReplicas": {},
+                    "f:updatedReplicas": {}
+                  }
+                },
+                "manager": "k3s",
+                "operation": "Update",
+                "subresource": "status",
+                "time": "2026-07-16T23:10:39Z"
+              },
+              {
+                "apiVersion": "apps/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:spec": {
+                    "f:replicas": {}
+                  }
+                },
+                "manager": "kubectl-patch",
+                "operation": "Update",
+                "time": "2026-07-16T23:10:39Z"
+              }
+            ],
+            "name": "lifecycle-basic",
+            "namespace": "tfnelm-fix-lifecycle-74a6c3",
+            "resourceVersion": "2692",
+            "uid": "a4569f93-d599-4eb3-a149-e58d2ff5a4ce"
+          },
+          "spec": {
+            "progressDeadlineSeconds": 600,
+            "replicas": 3,
+            "revisionHistoryLimit": 10,
+            "selector": {
+              "matchLabels": {
+                "app.kubernetes.io/instance": "lifecycle",
+                "app.kubernetes.io/name": "basic"
+              }
+            },
+            "strategy": {
+              "rollingUpdate": {
+                "maxSurge": "25%",
+                "maxUnavailable": "25%"
+              },
+              "type": "RollingUpdate"
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/name": "basic"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "env": [
+                      {
+                        "name": "SECRET_PASSWORD",
+                        "valueFrom": {
+                          "secretKeyRef": {
+                            "key": "password",
+                            "name": "lifecycle-basic"
+                          }
+                        }
+                      }
+                    ],
+                    "envFrom": [
+                      {
+                        "configMapRef": {
+                          "name": "lifecycle-basic"
+                        }
+                      }
+                    ],
+                    "image": "nginx:1.27-alpine",
+                    "imagePullPolicy": "IfNotPresent",
+                    "name": "basic",
+                    "ports": [
+                      {
+                        "containerPort": 80,
+                        "name": "http",
+                        "protocol": "TCP"
+                      }
+                    ],
+                    "resources": {},
+                    "terminationMessagePath": "/dev/termination-log",
+                    "terminationMessagePolicy": "File"
+                  }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "restartPolicy": "Always",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "terminationGracePeriodSeconds": 30
+              }
+            }
+          },
+          "status": {
+            "availableReplicas": 1,
+            "conditions": [
+              {
+                "lastTransitionTime": "2026-07-16T23:10:34Z",
+                "lastUpdateTime": "2026-07-16T23:10:39Z",
+                "message": "ReplicaSet \"lifecycle-basic-7f9d6f88dd\" has successfully progressed.",
+                "reason": "NewReplicaSetAvailable",
+                "status": "True",
+                "type": "Progressing"
+              },
+              {
+                "lastTransitionTime": "2026-07-16T23:10:39Z",
+                "lastUpdateTime": "2026-07-16T23:10:39Z",
+                "message": "Deployment does not have minimum availability.",
+                "reason": "MinimumReplicasUnavailable",
+                "status": "False",
+                "type": "Available"
+              }
+            ],
+            "observedGeneration": 2,
+            "readyReplicas": 1,
+            "replicas": 3,
+            "unavailableReplicas": 2,
+            "updatedReplicas": 3
+          }
+        },
+        "dryApplyResult": {
+          "apiVersion": "apps/v1",
+          "kind": "Deployment",
+          "metadata": {
+            "annotations": {
+              "deployment.kubernetes.io/revision": "1",
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "generation": 3,
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "apps/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:spec": {
+                    "f:replicas": {},
+                    "f:selector": {},
+                    "f:template": {
+                      "f:metadata": {
+                        "f:labels": {
+                          "f:app.kubernetes.io/instance": {},
+                          "f:app.kubernetes.io/name": {}
+                        }
+                      },
+                      "f:spec": {
+                        "f:containers": {
+                          "k:{\"name\":\"basic\"}": {
+                            ".": {},
+                            "f:env": {
+                              "k:{\"name\":\"SECRET_PASSWORD\"}": {
+                                ".": {},
+                                "f:name": {},
+                                "f:valueFrom": {
+                                  "f:secretKeyRef": {}
+                                }
+                              }
+                            },
+                            "f:envFrom": {},
+                            "f:image": {},
+                            "f:imagePullPolicy": {},
+                            "f:name": {},
+                            "f:ports": {
+                              "k:{\"containerPort\":80,\"protocol\":\"TCP\"}": {
+                                ".": {},
+                                "f:containerPort": {},
+                                "f:name": {}
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:40Z"
+              },
+              {
+                "apiVersion": "apps/v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:deployment.kubernetes.io/revision": {}
+                    }
+                  },
+                  "f:status": {
+                    "f:availableReplicas": {},
+                    "f:conditions": {
+                      ".": {},
+                      "k:{\"type\":\"Available\"}": {
+                        ".": {},
+                        "f:lastTransitionTime": {},
+                        "f:lastUpdateTime": {},
+                        "f:message": {},
+                        "f:reason": {},
+                        "f:status": {},
+                        "f:type": {}
+                      },
+                      "k:{\"type\":\"Progressing\"}": {
+                        ".": {},
+                        "f:lastTransitionTime": {},
+                        "f:lastUpdateTime": {},
+                        "f:message": {},
+                        "f:reason": {},
+                        "f:status": {},
+                        "f:type": {}
+                      }
+                    },
+                    "f:observedGeneration": {},
+                    "f:readyReplicas": {},
+                    "f:replicas": {},
+                    "f:unavailableReplicas": {},
+                    "f:updatedReplicas": {}
+                  }
+                },
+                "manager": "k3s",
+                "operation": "Update",
+                "subresource": "status",
+                "time": "2026-07-16T23:10:39Z"
+              }
+            ],
+            "name": "lifecycle-basic",
+            "namespace": "tfnelm-fix-lifecycle-74a6c3",
+            "resourceVersion": "2692",
+            "uid": "a4569f93-d599-4eb3-a149-e58d2ff5a4ce"
+          },
+          "spec": {
+            "progressDeadlineSeconds": 600,
+            "replicas": 1,
+            "revisionHistoryLimit": 10,
+            "selector": {
+              "matchLabels": {
+                "app.kubernetes.io/instance": "lifecycle",
+                "app.kubernetes.io/name": "basic"
+              }
+            },
+            "strategy": {
+              "rollingUpdate": {
+                "maxSurge": "25%",
+                "maxUnavailable": "25%"
+              },
+              "type": "RollingUpdate"
+            },
+            "template": {
+              "metadata": {
+                "labels": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/name": "basic"
+                }
+              },
+              "spec": {
+                "containers": [
+                  {
+                    "env": [
+                      {
+                        "name": "SECRET_PASSWORD",
+                        "valueFrom": {
+                          "secretKeyRef": {
+                            "key": "password",
+                            "name": "lifecycle-basic"
+                          }
+                        }
+                      }
+                    ],
+                    "envFrom": [
+                      {
+                        "configMapRef": {
+                          "name": "lifecycle-basic"
+                        }
+                      }
+                    ],
+                    "image": "nginx:1.27-alpine",
+                    "imagePullPolicy": "IfNotPresent",
+                    "name": "basic",
+                    "ports": [
+                      {
+                        "containerPort": 80,
+                        "name": "http",
+                        "protocol": "TCP"
+                      }
+                    ],
+                    "resources": {},
+                    "terminationMessagePath": "/dev/termination-log",
+                    "terminationMessagePolicy": "File"
+                  }
+                ],
+                "dnsPolicy": "ClusterFirst",
+                "restartPolicy": "Always",
+                "schedulerName": "default-scheduler",
+                "securityContext": {},
+                "terminationGracePeriodSeconds": 30
+              }
+            }
+          },
+          "status": {
+            "availableReplicas": 1,
+            "conditions": [
+              {
+                "lastTransitionTime": "2026-07-16T23:10:34Z",
+                "lastUpdateTime": "2026-07-16T23:10:39Z",
+                "message": "ReplicaSet \"lifecycle-basic-7f9d6f88dd\" has successfully progressed.",
+                "reason": "NewReplicaSetAvailable",
+                "status": "True",
+                "type": "Progressing"
+              },
+              {
+                "lastTransitionTime": "2026-07-16T23:10:39Z",
+                "lastUpdateTime": "2026-07-16T23:10:39Z",
+                "message": "Deployment does not have minimum availability.",
+                "reason": "MinimumReplicasUnavailable",
+                "status": "False",
+                "type": "Available"
+              }
+            ],
+            "observedGeneration": 2,
+            "readyReplicas": 1,
+            "replicas": 3,
+            "unavailableReplicas": 2,
+            "updatedReplicas": 3
+          }
+        },
+        "dryApplyErr": null,
+        "mustInstall": "update",
+        "mustDeleteOnSuccessfulInstall": false,
+        "mustDeleteOnFailedInstall": false,
+        "mustTrackReadiness": true,
+        "failMode": "FailWholeDeployProcessImmediately",
+        "stage": "install",
+        "iteration": 0
+      },
+      {
+        "resourceMeta": {
+          "name": "lifecycle-basic",
+          "namespace": "",
+          "groupVersionKind": {
+            "Group": "",
+            "Version": "v1",
+            "Kind": "Secret"
+          },
+          "filePath": "basic/templates/secret.yaml",
+          "annotations": {
+            "meta.helm.sh/release-name": "lifecycle",
+            "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+          },
+          "labels": {
+            "app.kubernetes.io/instance": "lifecycle",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "basic"
+          }
+        },
+        "localResource": {
+          "resourceSpec": {
+            "resourceMeta": {
+              "name": "lifecycle-basic",
+              "namespace": "",
+              "groupVersionKind": {
+                "Group": "",
+                "Version": "v1",
+                "Kind": "Secret"
+              },
+              "filePath": "basic/templates/secret.yaml",
+              "annotations": {
+                "meta.helm.sh/release-name": "lifecycle",
+                "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+              },
+              "labels": {
+                "app.kubernetes.io/instance": "lifecycle",
+                "app.kubernetes.io/managed-by": "Helm",
+                "app.kubernetes.io/name": "basic"
+              }
+            },
+            "unstruct": {
+              "apiVersion": "v1",
+              "data": {
+                "password": "Y2hhbmdlbWU="
+              },
+              "kind": "Secret",
+              "metadata": {
+                "annotations": {
+                  "meta.helm.sh/release-name": "lifecycle",
+                  "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+                },
+                "labels": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/managed-by": "Helm",
+                  "app.kubernetes.io/name": "basic"
+                },
+                "name": "lifecycle-basic"
+              },
+              "type": "Opaque"
+            },
+            "storeAs": "regular"
+          },
+          "ownership": "release",
+          "recreate": false,
+          "recreateOnImmutable": false,
+          "resourcePolicies": null,
+          "deleteOnSucceeded": false,
+          "deleteOnFailed": false,
+          "failMode": "FailWholeDeployProcessImmediately",
+          "failuresAllowed": 0,
+          "logRegex": null,
+          "logRegexesForContainers": null,
+          "noActivityTimeout": 240000000000,
+          "showServiceMessages": false,
+          "showLogsOnlyForNumberOfReplicas": 1,
+          "skipLogs": false,
+          "skipLogsRegex": null,
+          "skipLogsRegexForContainers": null,
+          "trackTerminationMode": "WaitUntilResourceReady",
+          "weight": 0,
+          "deployConditions": {
+            "install": [
+              "install"
+            ],
+            "rollback": [
+              "install"
+            ],
+            "upgrade": [
+              "install"
+            ]
+          },
+          "deletePropagation": "Foreground"
+        },
+        "getResult": {
+          "apiVersion": "v1",
+          "data": {
+            "password": "Y2hhbmdlbWU="
+          },
+          "kind": "Secret",
+          "metadata": {
+            "annotations": {
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:data": {
+                    "f:password": {}
+                  },
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:type": {}
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              }
+            ],
+            "name": "lifecycle-basic",
+            "namespace": "tfnelm-fix-lifecycle-74a6c3",
+            "resourceVersion": "2645",
+            "uid": "2bf733d6-2ec8-48c5-b441-d785d33c37d2"
+          },
+          "type": "Opaque"
+        },
+        "dryApplyResult": {
+          "apiVersion": "v1",
+          "data": {
+            "password": "Y2hhbmdlbWU="
+          },
+          "kind": "Secret",
+          "metadata": {
+            "annotations": {
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:data": {
+                    "f:password": {}
+                  },
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:type": {}
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              }
+            ],
+            "name": "lifecycle-basic",
+            "namespace": "tfnelm-fix-lifecycle-74a6c3",
+            "resourceVersion": "2645",
+            "uid": "2bf733d6-2ec8-48c5-b441-d785d33c37d2"
+          },
+          "type": "Opaque"
+        },
+        "dryApplyErr": null,
+        "mustInstall": "none",
+        "mustDeleteOnSuccessfulInstall": false,
+        "mustDeleteOnFailedInstall": false,
+        "mustTrackReadiness": false,
+        "failMode": "FailWholeDeployProcessImmediately",
+        "stage": "install",
+        "iteration": 0
+      },
+      {
+        "resourceMeta": {
+          "name": "lifecycle-basic",
+          "namespace": "",
+          "groupVersionKind": {
+            "Group": "",
+            "Version": "v1",
+            "Kind": "Service"
+          },
+          "filePath": "basic/templates/service.yaml",
+          "annotations": {
+            "meta.helm.sh/release-name": "lifecycle",
+            "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+          },
+          "labels": {
+            "app.kubernetes.io/instance": "lifecycle",
+            "app.kubernetes.io/managed-by": "Helm",
+            "app.kubernetes.io/name": "basic"
+          }
+        },
+        "localResource": {
+          "resourceSpec": {
+            "resourceMeta": {
+              "name": "lifecycle-basic",
+              "namespace": "",
+              "groupVersionKind": {
+                "Group": "",
+                "Version": "v1",
+                "Kind": "Service"
+              },
+              "filePath": "basic/templates/service.yaml",
+              "annotations": {
+                "meta.helm.sh/release-name": "lifecycle",
+                "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+              },
+              "labels": {
+                "app.kubernetes.io/instance": "lifecycle",
+                "app.kubernetes.io/managed-by": "Helm",
+                "app.kubernetes.io/name": "basic"
+              }
+            },
+            "unstruct": {
+              "apiVersion": "v1",
+              "kind": "Service",
+              "metadata": {
+                "annotations": {
+                  "meta.helm.sh/release-name": "lifecycle",
+                  "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+                },
+                "labels": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/managed-by": "Helm",
+                  "app.kubernetes.io/name": "basic"
+                },
+                "name": "lifecycle-basic"
+              },
+              "spec": {
+                "ports": [
+                  {
+                    "name": "http",
+                    "port": 80,
+                    "protocol": "TCP",
+                    "targetPort": "http"
+                  }
+                ],
+                "selector": {
+                  "app.kubernetes.io/instance": "lifecycle",
+                  "app.kubernetes.io/name": "basic"
+                },
+                "type": "ClusterIP"
+              }
+            },
+            "storeAs": "regular"
+          },
+          "ownership": "release",
+          "recreate": false,
+          "recreateOnImmutable": false,
+          "resourcePolicies": null,
+          "deleteOnSucceeded": false,
+          "deleteOnFailed": false,
+          "failMode": "FailWholeDeployProcessImmediately",
+          "failuresAllowed": 0,
+          "logRegex": null,
+          "logRegexesForContainers": null,
+          "noActivityTimeout": 240000000000,
+          "showServiceMessages": false,
+          "showLogsOnlyForNumberOfReplicas": 1,
+          "skipLogs": false,
+          "skipLogsRegex": null,
+          "skipLogsRegexForContainers": null,
+          "trackTerminationMode": "WaitUntilResourceReady",
+          "weight": 0,
+          "deployConditions": {
+            "install": [
+              "install"
+            ],
+            "rollback": [
+              "install"
+            ],
+            "upgrade": [
+              "install"
+            ]
+          },
+          "deletePropagation": "Foreground"
+        },
+        "getResult": {
+          "apiVersion": "v1",
+          "kind": "Service",
+          "metadata": {
+            "annotations": {
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:spec": {
+                    "f:ports": {
+                      "k:{\"port\":80,\"protocol\":\"TCP\"}": {
+                        ".": {},
+                        "f:name": {},
+                        "f:port": {},
+                        "f:protocol": {},
+                        "f:targetPort": {}
+                      }
+                    },
+                    "f:selector": {},
+                    "f:type": {}
+                  }
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              }
+            ],
+            "name": "lifecycle-basic",
+            "namespace": "tfnelm-fix-lifecycle-74a6c3",
+            "resourceVersion": "2647",
+            "uid": "a18dae2a-0a84-4aab-a0ca-9cacbdc4da7d"
+          },
+          "spec": {
+            "clusterIP": "192.168.194.209",
+            "clusterIPs": [
+              "192.168.194.209"
+            ],
+            "internalTrafficPolicy": "Cluster",
+            "ipFamilies": [
+              "IPv4"
+            ],
+            "ipFamilyPolicy": "SingleStack",
+            "ports": [
+              {
+                "name": "http",
+                "port": 80,
+                "protocol": "TCP",
+                "targetPort": "http"
+              }
+            ],
+            "selector": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/name": "basic"
+            },
+            "sessionAffinity": "None",
+            "type": "ClusterIP"
+          },
+          "status": {
+            "loadBalancer": {}
+          }
+        },
+        "dryApplyResult": {
+          "apiVersion": "v1",
+          "kind": "Service",
+          "metadata": {
+            "annotations": {
+              "meta.helm.sh/release-name": "lifecycle",
+              "meta.helm.sh/release-namespace": "tfnelm-fix-lifecycle-74a6c3"
+            },
+            "creationTimestamp": "2026-07-16T23:10:34Z",
+            "labels": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/managed-by": "Helm",
+              "app.kubernetes.io/name": "basic"
+            },
+            "managedFields": [
+              {
+                "apiVersion": "v1",
+                "fieldsType": "FieldsV1",
+                "fieldsV1": {
+                  "f:metadata": {
+                    "f:annotations": {
+                      "f:meta.helm.sh/release-name": {},
+                      "f:meta.helm.sh/release-namespace": {}
+                    },
+                    "f:labels": {
+                      "f:app.kubernetes.io/instance": {},
+                      "f:app.kubernetes.io/managed-by": {},
+                      "f:app.kubernetes.io/name": {}
+                    }
+                  },
+                  "f:spec": {
+                    "f:ports": {
+                      "k:{\"port\":80,\"protocol\":\"TCP\"}": {
+                        ".": {},
+                        "f:name": {},
+                        "f:port": {},
+                        "f:protocol": {},
+                        "f:targetPort": {}
+                      }
+                    },
+                    "f:selector": {},
+                    "f:type": {}
+                  }
+                },
+                "manager": "helm",
+                "operation": "Apply",
+                "time": "2026-07-16T23:10:34Z"
+              }
+            ],
+            "name": "lifecycle-basic",
+            "namespace": "tfnelm-fix-lifecycle-74a6c3",
+            "resourceVersion": "2647",
+            "uid": "a18dae2a-0a84-4aab-a0ca-9cacbdc4da7d"
+          },
+          "spec": {
+            "clusterIP": "192.168.194.209",
+            "clusterIPs": [
+              "192.168.194.209"
+            ],
+            "internalTrafficPolicy": "Cluster",
+            "ipFamilies": [
+              "IPv4"
+            ],
+            "ipFamilyPolicy": "SingleStack",
+            "ports": [
+              {
+                "name": "http",
+                "port": 80,
+                "protocol": "TCP",
+                "targetPort": "http"
+              }
+            ],
+            "selector": {
+              "app.kubernetes.io/instance": "lifecycle",
+              "app.kubernetes.io/name": "basic"
+            },
+            "sessionAffinity": "None",
+            "type": "ClusterIP"
+          },
+          "status": {
+            "loadBalancer": {}
+          }
+        },
+        "dryApplyErr": null,
+        "mustInstall": "none",
+        "mustDeleteOnSuccessfulInstall": false,
+        "mustDeleteOnFailedInstall": false,
+        "mustTrackReadiness": false,
+        "failMode": "FailWholeDeployProcessImmediately",
+        "stage": "install",
+        "iteration": 0
+      }
+    ],
+    "releaseInfos": [
+      {
+        "release": {
+          "name": "lifecycle",
+          "info": {
+            "first_deployed": "",
+            "last_deployed": "",
+            "deleted": "",
+            "status": "pending-upgrade"
+          },
+          "chart": {
+            "metadata": {
+              "name": "basic",
+              "version": "0.1.0",
+              "description": "Minimal multi-resource chart used as fixture input for terraform-provider-nelm unit tests, live smoke captures, and acceptance tests. Not published anywhere.",
+              "apiVersion": "v2",
+              "appVersion": "1.0.0",
+              "type": "application"
+            },
+            "lock": null,
+            "templates": [
+              {
+                "name": "templates/_helpers.tpl",
+                "data": "e3svKgpDb21tb24gbGFiZWxzIHNoYXJlZCBieSBldmVyeSBuYW1lc3BhY2VkIHJlc291cmNlIGluIHRoaXMgY2hhcnQuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMubGFiZWxzIiAtfX0KYXBwLmt1YmVybmV0ZXMuaW8vbmFtZTogYmFzaWMKYXBwLmt1YmVybmV0ZXMuaW8vaW5zdGFuY2U6IHt7IC5SZWxlYXNlLk5hbWUgfX0Ke3stIGVuZCAtfX0KCnt7LyoKQ2x1c3Rlci1zY29wZWQgcmVzb3VyY2VzIChDbHVzdGVyUm9sZS9DbHVzdGVyUm9sZUJpbmRpbmcpIG11c3QgYmUgdW5pcXVlCmFjcm9zcyBwYXJhbGxlbCB0ZXN0IHJ1bnMgdGhhdCByZXVzZSB0aGUgc2FtZSByZWxlYXNlIG5hbWUgaW4gZGlmZmVyZW50Cm5hbWVzcGFjZXMsIHNvIHRoZWlyIG5hbWUgaXMgdGVtcGxhdGVkIHdpdGggYm90aCB0aGUgcmVsZWFzZSBuYW1lIEFORApuYW1lc3BhY2UuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC19fQp7eyAuUmVsZWFzZS5OYW1lIH19LXt7IC5SZWxlYXNlLk5hbWVzcGFjZSB9fS1iYXNpYwp7ey0gZW5kIC19fQo="
+              },
+              {
+                "name": "templates/clusterrole.yaml",
+                "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZQptZXRhZGF0YToKICBuYW1lOiB7eyBpbmNsdWRlICJiYXNpYy5jbHVzdGVyTmFtZSIgLiB9fQogIGxhYmVsczoKICAgIHt7LSBpbmNsdWRlICJiYXNpYy5sYWJlbHMiIC4gfCBuaW5kZW50IDQgfX0KcnVsZXM6CiAge3stIHRvWWFtbCAuVmFsdWVzLmNsdXN0ZXJSb2xlLnJ1bGVzIHwgbmluZGVudCAyIH19Cg=="
+              },
+              {
+                "name": "templates/clusterrolebinding.yaml",
+                "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZUJpbmRpbmcKbWV0YWRhdGE6CiAgbmFtZToge3sgaW5jbHVkZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC4gfX0KICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnJvbGVSZWY6CiAgYXBpR3JvdXA6IHJiYWMuYXV0aG9yaXphdGlvbi5rOHMuaW8KICBraW5kOiBDbHVzdGVyUm9sZQogIG5hbWU6IHt7IGluY2x1ZGUgImJhc2ljLmNsdXN0ZXJOYW1lIiAuIH19CnN1YmplY3RzOgogIC0ga2luZDogU2VydmljZUFjY291bnQKICAgIG5hbWU6IGRlZmF1bHQKICAgIG5hbWVzcGFjZToge3sgLlJlbGVhc2UuTmFtZXNwYWNlIH19Cg=="
+              },
+              {
+                "name": "templates/configmap.yaml",
+                "data": "e3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLmVuYWJsZWQgfX0KYXBpVmVyc2lvbjogdjEKa2luZDogQ29uZmlnTWFwCm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CiAge3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLnNlbnNpdGl2ZVBhdGhzQW5ub3RhdGlvbiB9fQogIGFubm90YXRpb25zOgogICAgd2VyZi5pby9zZW5zaXRpdmUtcGF0aHM6ICJkYXRhLm1lc3NhZ2UiCiAge3stIGVuZCB9fQpkYXRhOgogIG1lc3NhZ2U6IHt7IC5WYWx1ZXMuY29uZmlnTWFwLm1lc3NhZ2UgfCBxdW90ZSB9fQp7ey0gZW5kIH19Cg=="
+              },
+              {
+                "name": "templates/deployment.yaml",
+                "data": "YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnNwZWM6CiAgcmVwbGljYXM6IHt7IC5WYWx1ZXMucmVwbGljYUNvdW50IH19CiAgc2VsZWN0b3I6CiAgICBtYXRjaExhYmVsczoKICAgICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNiB9fQogIHRlbXBsYXRlOgogICAgbWV0YWRhdGE6CiAgICAgIGxhYmVsczoKICAgICAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA4IH19CiAgICBzcGVjOgogICAgICBjb250YWluZXJzOgogICAgICAgIC0gbmFtZTogYmFzaWMKICAgICAgICAgIGltYWdlOiAie3sgLlZhbHVlcy5pbWFnZS5yZXBvc2l0b3J5IH19Ont7IC5WYWx1ZXMuaW1hZ2UudGFnIH19IgogICAgICAgICAgaW1hZ2VQdWxsUG9saWN5OiB7eyAuVmFsdWVzLmltYWdlLnB1bGxQb2xpY3kgfX0KICAgICAgICAgIHBvcnRzOgogICAgICAgICAgICAtIG5hbWU6IGh0dHAKICAgICAgICAgICAgICBjb250YWluZXJQb3J0OiA4MAogICAgICAgICAgZW52RnJvbToKICAgICAgICAgICAgLSBjb25maWdNYXBSZWY6CiAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICBlbnY6CiAgICAgICAgICAgIC0gbmFtZTogU0VDUkVUX1BBU1NXT1JECiAgICAgICAgICAgICAgdmFsdWVGcm9tOgogICAgICAgICAgICAgICAgc2VjcmV0S2V5UmVmOgogICAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICAgICAgICAgIGtleTogcGFzc3dvcmQK"
+              },
+              {
+                "name": "templates/secret.yaml",
+                "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VjcmV0Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnR5cGU6IE9wYXF1ZQpzdHJpbmdEYXRhOgogIHBhc3N3b3JkOiB7eyAuVmFsdWVzLnNlY3JldC5wYXNzd29yZCB8IHF1b3RlIH19Cg=="
+              },
+              {
+                "name": "templates/service.yaml",
+                "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VydmljZQptZXRhZGF0YToKICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgbGFiZWxzOgogICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNCB9fQpzcGVjOgogIHR5cGU6IHt7IC5WYWx1ZXMuc2VydmljZS50eXBlIH19CiAgcG9ydHM6CiAgICAtIG5hbWU6IGh0dHAKICAgICAgcG9ydDoge3sgLlZhbHVlcy5zZXJ2aWNlLnBvcnQgfX0KICAgICAgdGFyZ2V0UG9ydDogaHR0cAogICAgICBwcm90b2NvbDogVENQCiAgc2VsZWN0b3I6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19Cg=="
+              },
+              {
+                "name": "templates/_werf_helpers.tpl",
+                "data": null
+              }
+            ],
+            "values": {
+              "clusterRole": {
+                "rules": [
+                  {
+                    "apiGroups": [
+                      ""
+                    ],
+                    "resources": [
+                      "configmaps"
+                    ],
+                    "verbs": [
+                      "get",
+                      "list"
+                    ]
+                  }
+                ]
+              },
+              "configMap": {
+                "enabled": true,
+                "message": "hello from the basic test chart",
+                "sensitivePathsAnnotation": false
+              },
+              "image": {
+                "pullPolicy": "IfNotPresent",
+                "repository": "nginx",
+                "tag": "1.27-alpine"
+              },
+              "replicaCount": 1,
+              "secret": {
+                "password": "changeme"
+              },
+              "service": {
+                "port": 80,
+                "type": "ClusterIP"
+              }
+            },
+            "schema": null,
+            "files": null
+          },
+          "manifest": "# Source: basic/templates/clusterrole.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nrules:\n- apiGroups:\n  - \"\"\n  resources:\n  - configmaps\n  verbs:\n  - get\n  - list\n\n---\n# Source: basic/templates/clusterrolebinding.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nroleRef:\n  apiGroup: rbac.authorization.k8s.io\n  kind: ClusterRole\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nsubjects:\n- kind: ServiceAccount\n  name: default\n  namespace: tfnelm-fix-lifecycle-74a6c3\n\n---\n# Source: basic/templates/configmap.yaml\napiVersion: v1\ndata:\n  message: hello from the basic test chart\nkind: ConfigMap\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\n\n---\n# Source: basic/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/instance: lifecycle\n      app.kubernetes.io/name: basic\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/instance: lifecycle\n        app.kubernetes.io/name: basic\n    spec:\n      containers:\n      - env:\n        - name: SECRET_PASSWORD\n          valueFrom:\n            secretKeyRef:\n              key: password\n              name: lifecycle-basic\n        envFrom:\n        - configMapRef:\n            name: lifecycle-basic\n        image: nginx:1.27-alpine\n        imagePullPolicy: IfNotPresent\n        name: basic\n        ports:\n        - containerPort: 80\n          name: http\n\n---\n# Source: basic/templates/secret.yaml\napiVersion: v1\ndata:\n  password: Y2hhbmdlbWU=\nkind: Secret\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\ntype: Opaque\n\n---\n# Source: basic/templates/service.yaml\napiVersion: v1\nkind: Service\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  ports:\n  - name: http\n    port: 80\n    protocol: TCP\n    targetPort: http\n  selector:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  type: ClusterIP\n",
+          "version": 2,
+          "namespace": "tfnelm-fix-lifecycle-74a6c3"
+        },
+        "must": "upgrade",
+        "mustFailOnFailedDeploy": true
+      },
+      {
+        "release": {
+          "name": "lifecycle",
+          "info": {
+            "first_deployed": "2026-07-17T01:10:39.375258+02:00",
+            "last_deployed": "2026-07-17T01:10:39.375258+02:00",
+            "deleted": "",
+            "status": "deployed"
+          },
+          "chart": {
+            "metadata": {
+              "name": "basic",
+              "version": "0.1.0",
+              "description": "Minimal multi-resource chart used as fixture input for terraform-provider-nelm unit tests, live smoke captures, and acceptance tests. Not published anywhere.",
+              "apiVersion": "v2",
+              "appVersion": "1.0.0",
+              "type": "application"
+            },
+            "lock": null,
+            "templates": [
+              {
+                "name": "templates/_helpers.tpl",
+                "data": "e3svKgpDb21tb24gbGFiZWxzIHNoYXJlZCBieSBldmVyeSBuYW1lc3BhY2VkIHJlc291cmNlIGluIHRoaXMgY2hhcnQuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMubGFiZWxzIiAtfX0KYXBwLmt1YmVybmV0ZXMuaW8vbmFtZTogYmFzaWMKYXBwLmt1YmVybmV0ZXMuaW8vaW5zdGFuY2U6IHt7IC5SZWxlYXNlLk5hbWUgfX0Ke3stIGVuZCAtfX0KCnt7LyoKQ2x1c3Rlci1zY29wZWQgcmVzb3VyY2VzIChDbHVzdGVyUm9sZS9DbHVzdGVyUm9sZUJpbmRpbmcpIG11c3QgYmUgdW5pcXVlCmFjcm9zcyBwYXJhbGxlbCB0ZXN0IHJ1bnMgdGhhdCByZXVzZSB0aGUgc2FtZSByZWxlYXNlIG5hbWUgaW4gZGlmZmVyZW50Cm5hbWVzcGFjZXMsIHNvIHRoZWlyIG5hbWUgaXMgdGVtcGxhdGVkIHdpdGggYm90aCB0aGUgcmVsZWFzZSBuYW1lIEFORApuYW1lc3BhY2UuCiovfX0Ke3stIGRlZmluZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC19fQp7eyAuUmVsZWFzZS5OYW1lIH19LXt7IC5SZWxlYXNlLk5hbWVzcGFjZSB9fS1iYXNpYwp7ey0gZW5kIC19fQo="
+              },
+              {
+                "name": "templates/clusterrole.yaml",
+                "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZQptZXRhZGF0YToKICBuYW1lOiB7eyBpbmNsdWRlICJiYXNpYy5jbHVzdGVyTmFtZSIgLiB9fQogIGxhYmVsczoKICAgIHt7LSBpbmNsdWRlICJiYXNpYy5sYWJlbHMiIC4gfCBuaW5kZW50IDQgfX0KcnVsZXM6CiAge3stIHRvWWFtbCAuVmFsdWVzLmNsdXN0ZXJSb2xlLnJ1bGVzIHwgbmluZGVudCAyIH19Cg=="
+              },
+              {
+                "name": "templates/clusterrolebinding.yaml",
+                "data": "YXBpVmVyc2lvbjogcmJhYy5hdXRob3JpemF0aW9uLms4cy5pby92MQpraW5kOiBDbHVzdGVyUm9sZUJpbmRpbmcKbWV0YWRhdGE6CiAgbmFtZToge3sgaW5jbHVkZSAiYmFzaWMuY2x1c3Rlck5hbWUiIC4gfX0KICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnJvbGVSZWY6CiAgYXBpR3JvdXA6IHJiYWMuYXV0aG9yaXphdGlvbi5rOHMuaW8KICBraW5kOiBDbHVzdGVyUm9sZQogIG5hbWU6IHt7IGluY2x1ZGUgImJhc2ljLmNsdXN0ZXJOYW1lIiAuIH19CnN1YmplY3RzOgogIC0ga2luZDogU2VydmljZUFjY291bnQKICAgIG5hbWU6IGRlZmF1bHQKICAgIG5hbWVzcGFjZToge3sgLlJlbGVhc2UuTmFtZXNwYWNlIH19Cg=="
+              },
+              {
+                "name": "templates/configmap.yaml",
+                "data": "e3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLmVuYWJsZWQgfX0KYXBpVmVyc2lvbjogdjEKa2luZDogQ29uZmlnTWFwCm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CiAge3stIGlmIC5WYWx1ZXMuY29uZmlnTWFwLnNlbnNpdGl2ZVBhdGhzQW5ub3RhdGlvbiB9fQogIGFubm90YXRpb25zOgogICAgd2VyZi5pby9zZW5zaXRpdmUtcGF0aHM6ICJkYXRhLm1lc3NhZ2UiCiAge3stIGVuZCB9fQpkYXRhOgogIG1lc3NhZ2U6IHt7IC5WYWx1ZXMuY29uZmlnTWFwLm1lc3NhZ2UgfCBxdW90ZSB9fQp7ey0gZW5kIH19Cg=="
+              },
+              {
+                "name": "templates/deployment.yaml",
+                "data": "YXBpVmVyc2lvbjogYXBwcy92MQpraW5kOiBEZXBsb3ltZW50Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnNwZWM6CiAgcmVwbGljYXM6IHt7IC5WYWx1ZXMucmVwbGljYUNvdW50IH19CiAgc2VsZWN0b3I6CiAgICBtYXRjaExhYmVsczoKICAgICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNiB9fQogIHRlbXBsYXRlOgogICAgbWV0YWRhdGE6CiAgICAgIGxhYmVsczoKICAgICAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA4IH19CiAgICBzcGVjOgogICAgICBjb250YWluZXJzOgogICAgICAgIC0gbmFtZTogYmFzaWMKICAgICAgICAgIGltYWdlOiAie3sgLlZhbHVlcy5pbWFnZS5yZXBvc2l0b3J5IH19Ont7IC5WYWx1ZXMuaW1hZ2UudGFnIH19IgogICAgICAgICAgaW1hZ2VQdWxsUG9saWN5OiB7eyAuVmFsdWVzLmltYWdlLnB1bGxQb2xpY3kgfX0KICAgICAgICAgIHBvcnRzOgogICAgICAgICAgICAtIG5hbWU6IGh0dHAKICAgICAgICAgICAgICBjb250YWluZXJQb3J0OiA4MAogICAgICAgICAgZW52RnJvbToKICAgICAgICAgICAgLSBjb25maWdNYXBSZWY6CiAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICBlbnY6CiAgICAgICAgICAgIC0gbmFtZTogU0VDUkVUX1BBU1NXT1JECiAgICAgICAgICAgICAgdmFsdWVGcm9tOgogICAgICAgICAgICAgICAgc2VjcmV0S2V5UmVmOgogICAgICAgICAgICAgICAgICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgICAgICAgICAgICAgICAgIGtleTogcGFzc3dvcmQK"
+              },
+              {
+                "name": "templates/secret.yaml",
+                "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VjcmV0Cm1ldGFkYXRhOgogIG5hbWU6IHt7IC5SZWxlYXNlLk5hbWUgfX0tYmFzaWMKICBsYWJlbHM6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19CnR5cGU6IE9wYXF1ZQpzdHJpbmdEYXRhOgogIHBhc3N3b3JkOiB7eyAuVmFsdWVzLnNlY3JldC5wYXNzd29yZCB8IHF1b3RlIH19Cg=="
+              },
+              {
+                "name": "templates/service.yaml",
+                "data": "YXBpVmVyc2lvbjogdjEKa2luZDogU2VydmljZQptZXRhZGF0YToKICBuYW1lOiB7eyAuUmVsZWFzZS5OYW1lIH19LWJhc2ljCiAgbGFiZWxzOgogICAge3stIGluY2x1ZGUgImJhc2ljLmxhYmVscyIgLiB8IG5pbmRlbnQgNCB9fQpzcGVjOgogIHR5cGU6IHt7IC5WYWx1ZXMuc2VydmljZS50eXBlIH19CiAgcG9ydHM6CiAgICAtIG5hbWU6IGh0dHAKICAgICAgcG9ydDoge3sgLlZhbHVlcy5zZXJ2aWNlLnBvcnQgfX0KICAgICAgdGFyZ2V0UG9ydDogaHR0cAogICAgICBwcm90b2NvbDogVENQCiAgc2VsZWN0b3I6CiAgICB7ey0gaW5jbHVkZSAiYmFzaWMubGFiZWxzIiAuIHwgbmluZGVudCA0IH19Cg=="
+              },
+              {
+                "name": "templates/_werf_helpers.tpl",
+                "data": null
+              }
+            ],
+            "values": {
+              "clusterRole": {
+                "rules": [
+                  {
+                    "apiGroups": [
+                      ""
+                    ],
+                    "resources": [
+                      "configmaps"
+                    ],
+                    "verbs": [
+                      "get",
+                      "list"
+                    ]
+                  }
+                ]
+              },
+              "configMap": {
+                "enabled": true,
+                "message": "hello from the basic test chart",
+                "sensitivePathsAnnotation": false
+              },
+              "image": {
+                "pullPolicy": "IfNotPresent",
+                "repository": "nginx",
+                "tag": "1.27-alpine"
+              },
+              "replicaCount": 1,
+              "secret": {
+                "password": "changeme"
+              },
+              "service": {
+                "port": 80,
+                "type": "ClusterIP"
+              }
+            },
+            "schema": null,
+            "files": null
+          },
+          "manifest": "# Source: basic/templates/clusterrole.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRole\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nrules:\n- apiGroups:\n  - \"\"\n  resources:\n  - configmaps\n  verbs:\n  - get\n  - list\n\n---\n# Source: basic/templates/clusterrolebinding.yaml\napiVersion: rbac.authorization.k8s.io/v1\nkind: ClusterRoleBinding\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nroleRef:\n  apiGroup: rbac.authorization.k8s.io\n  kind: ClusterRole\n  name: lifecycle-tfnelm-fix-lifecycle-74a6c3-basic\nsubjects:\n- kind: ServiceAccount\n  name: default\n  namespace: tfnelm-fix-lifecycle-74a6c3\n\n---\n# Source: basic/templates/configmap.yaml\napiVersion: v1\ndata:\n  message: hello from the basic test chart\nkind: ConfigMap\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\n\n---\n# Source: basic/templates/deployment.yaml\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app.kubernetes.io/instance: lifecycle\n      app.kubernetes.io/name: basic\n  template:\n    metadata:\n      labels:\n        app.kubernetes.io/instance: lifecycle\n        app.kubernetes.io/name: basic\n    spec:\n      containers:\n      - env:\n        - name: SECRET_PASSWORD\n          valueFrom:\n            secretKeyRef:\n              key: password\n              name: lifecycle-basic\n        envFrom:\n        - configMapRef:\n            name: lifecycle-basic\n        image: nginx:1.27-alpine\n        imagePullPolicy: IfNotPresent\n        name: basic\n        ports:\n        - containerPort: 80\n          name: http\n\n---\n# Source: basic/templates/secret.yaml\napiVersion: v1\ndata:\n  password: Y2hhbmdlbWU=\nkind: Secret\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\ntype: Opaque\n\n---\n# Source: basic/templates/service.yaml\napiVersion: v1\nkind: Service\nmetadata:\n  annotations: {}\n  labels:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  name: lifecycle-basic\nspec:\n  ports:\n  - name: http\n    port: 80\n    protocol: TCP\n    targetPort: http\n  selector:\n    app.kubernetes.io/instance: lifecycle\n    app.kubernetes.io/name: basic\n  type: ClusterIP\n",
+          "version": 1,
+          "namespace": "tfnelm-fix-lifecycle-74a6c3"
+        },
+        "must": "supersede",
+        "mustFailOnFailedDeploy": false
+      }
+    ]
+  }
+}

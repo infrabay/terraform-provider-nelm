@@ -1,0 +1,154 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+    meta.helm.sh/release-name: helmv4
+    meta.helm.sh/release-namespace: tfnelm-fix-helmv4-b38442
+  creationTimestamp: "2026-07-16T23:22:14Z"
+  generation: 1
+  labels:
+    app.kubernetes.io/instance: helmv4
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: basic
+  managedFields:
+  - apiVersion: apps/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:metadata:
+        f:annotations:
+          f:meta.helm.sh/release-name: {}
+          f:meta.helm.sh/release-namespace: {}
+        f:labels:
+          f:app.kubernetes.io/instance: {}
+          f:app.kubernetes.io/managed-by: {}
+          f:app.kubernetes.io/name: {}
+      f:spec:
+        f:replicas: {}
+        f:selector: {}
+        f:template:
+          f:metadata:
+            f:labels:
+              f:app.kubernetes.io/instance: {}
+              f:app.kubernetes.io/name: {}
+          f:spec:
+            f:containers:
+              k:{"name":"basic"}:
+                .: {}
+                f:env:
+                  k:{"name":"SECRET_PASSWORD"}:
+                    .: {}
+                    f:name: {}
+                    f:valueFrom:
+                      f:secretKeyRef: {}
+                f:envFrom: {}
+                f:image: {}
+                f:imagePullPolicy: {}
+                f:name: {}
+                f:ports:
+                  k:{"containerPort":80,"protocol":"TCP"}:
+                    .: {}
+                    f:containerPort: {}
+                    f:name: {}
+    manager: helm
+    operation: Apply
+    time: "2026-07-16T23:22:14Z"
+  - apiVersion: apps/v1
+    fieldsType: FieldsV1
+    fieldsV1:
+      f:metadata:
+        f:annotations:
+          f:deployment.kubernetes.io/revision: {}
+      f:status:
+        f:conditions:
+          .: {}
+          k:{"type":"Available"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:lastUpdateTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+          k:{"type":"Progressing"}:
+            .: {}
+            f:lastTransitionTime: {}
+            f:lastUpdateTime: {}
+            f:message: {}
+            f:reason: {}
+            f:status: {}
+            f:type: {}
+        f:observedGeneration: {}
+        f:replicas: {}
+        f:unavailableReplicas: {}
+        f:updatedReplicas: {}
+    manager: k3s
+    operation: Update
+    subresource: status
+    time: "2026-07-16T23:22:14Z"
+  name: helmv4-basic
+  namespace: tfnelm-fix-helmv4-b38442
+  resourceVersion: "3135"
+  uid: e90c7f26-02e4-4700-891e-a9101958aab2
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: helmv4
+      app.kubernetes.io/name: basic
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: helmv4
+        app.kubernetes.io/name: basic
+    spec:
+      containers:
+      - env:
+        - name: SECRET_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: helmv4-basic
+        envFrom:
+        - configMapRef:
+            name: helmv4-basic
+        image: nginx:1.27-alpine
+        imagePullPolicy: IfNotPresent
+        name: basic
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+status:
+  conditions:
+  - lastTransitionTime: "2026-07-16T23:22:14Z"
+    lastUpdateTime: "2026-07-16T23:22:14Z"
+    message: Deployment does not have minimum availability.
+    reason: MinimumReplicasUnavailable
+    status: "False"
+    type: Available
+  - lastTransitionTime: "2026-07-16T23:22:14Z"
+    lastUpdateTime: "2026-07-16T23:22:14Z"
+    message: ReplicaSet "helmv4-basic-54854d89db" is progressing.
+    reason: ReplicaSetUpdated
+    status: "True"
+    type: Progressing
+  observedGeneration: 1
+  replicas: 1
+  unavailableReplicas: 1
+  updatedReplicas: 1

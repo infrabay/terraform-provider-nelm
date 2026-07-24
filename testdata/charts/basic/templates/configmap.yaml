@@ -1,0 +1,14 @@
+{{- if .Values.configMap.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-basic
+  labels:
+    {{- include "basic.labels" . | nindent 4 }}
+  {{- if .Values.configMap.sensitivePathsAnnotation }}
+  annotations:
+    werf.io/sensitive-paths: "data.message"
+  {{- end }}
+data:
+  message: {{ .Values.configMap.message | quote }}
+{{- end }}

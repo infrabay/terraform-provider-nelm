@@ -1,0 +1,8 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "basic.clusterName" . }}
+  labels:
+    {{- include "basic.labels" . | nindent 4 }}
+rules:
+  {{- toYaml .Values.clusterRole.rules | nindent 2 }}

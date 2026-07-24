@@ -1,0 +1,9 @@
+command: nelm release plan install --kube-context orbstack ... ./this-relative-chart-path-does-not-exist-anywhere
+exit error: exit status 1
+
+--- combined output ---
+Planning release install "badchart-probe" (namespace: "tfnelm-fix-badchart-e4b2ad")
+Error: release plan install: render chart: load chart at "./this-relative-chart-path-does-not-exist-anywhere": error checking if           ↵
+./this-relative-chart-path-does-not-exist-anywhere is a directory: stat ./this-relative-chart-path-does-not-exist-anywhere: no such file   ↵
+or directory
+

@@ -1,0 +1,8 @@
+command: nelm release plan install --kube-context orbstack ... oci://example.com/charts/does-not-matter (NELM_FEAT_REMOTE_CHARTS unset/false)
+exit error: exit status 1
+
+--- combined output ---
+Planning release install "remotechart-probe" (namespace: "tfnelm-fix-remotechart-0b8227")
+Error: release plan install: render chart: load chart at "oci://example.com/charts/does-not-matter": error checking if                     ↵
+oci://example.com/charts/does-not-matter is a directory: stat oci://example.com/charts/does-not-matter: no such file or directory
+

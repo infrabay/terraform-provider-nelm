@@ -1,0 +1,26 @@
+# Go
+bin/
+*.test
+*.out
+vendor/
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.*
+crash.log
+crash.*.log
+*.tfplan
+
+# Local scratch
+tmp/
+.DS_Store
+# Claude Code session tooling & recovery state (internal; not part of the provider)
+HANDOFF.md
+.claude/
+session-recover.yaml
+OWNERS.json
+
+# JetBrains IDE
+.idea/

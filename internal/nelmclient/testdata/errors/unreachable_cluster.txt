@@ -1,0 +1,7 @@
+command: nelm release plan install --kube-config <synthetic, server=https://127.0.0.1:1> --kube-context unreachable-synthetic --kube-request-timeout 3s ...
+exit error: exit status 1
+
+--- combined output ---
+Error: release plan install: construct kube client factory: check kubernetes cluster version to check kubernetes connectivity: Get         ↵
+"https://127.0.0.1:1/version?timeout=3s": dial tcp 127.0.0.1:1: connect: connection refused
+

@@ -1,0 +1,41 @@
+[
+  {
+    "op": "add",
+    "path": "/metadata/namespace",
+    "value": "tfnelm-fix-lifecycle-74a6c3"
+  },
+  {
+    "op": "add",
+    "path": "/spec/clusterIP",
+    "value": "192.168.194.209"
+  },
+  {
+    "op": "add",
+    "path": "/spec/clusterIPs",
+    "value": [
+      "192.168.194.209"
+    ]
+  },
+  {
+    "op": "add",
+    "path": "/spec/internalTrafficPolicy",
+    "value": "Cluster"
+  },
+  {
+    "op": "add",
+    "path": "/spec/ipFamilies",
+    "value": [
+      "IPv4"
+    ]
+  },
+  {
+    "op": "add",
+    "path": "/spec/ipFamilyPolicy",
+    "value": "SingleStack"
+  },
+  {
+    "op": "add",
+    "path": "/spec/sessionAffinity",
+    "value": "None"
+  }
+]

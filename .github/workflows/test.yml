@@ -1,0 +1,51 @@
+name: test
+
+on:
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - 'README.md'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build & unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - run: go mod download
+      - name: gofmt
+        run: |
+          fmt="$(gofmt -l .)"
+          if [ -n "$fmt" ]; then echo "gofmt needed on:"; echo "$fmt"; exit 1; fi
+      - run: go vet ./...
+      - run: go build -v ./...
+      # Acceptance tests (TF_ACC) need a live cluster and self-skip here.
+      - run: go test -race -count=1 ./...
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest

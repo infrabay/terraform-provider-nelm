@@ -1,0 +1,84 @@
+[
+  {
+    "op": "add",
+    "path": "/metadata/annotations/deployment.kubernetes.io~1revision",
+    "value": "1"
+  },
+  {
+    "op": "add",
+    "path": "/metadata/namespace",
+    "value": "tfnelm-fix-lifecycle-74a6c3"
+  },
+  {
+    "op": "add",
+    "path": "/spec/progressDeadlineSeconds",
+    "value": 600
+  },
+  {
+    "op": "replace",
+    "path": "/spec/replicas",
+    "value": 3,
+    "oldValue": 1
+  },
+  {
+    "op": "add",
+    "path": "/spec/revisionHistoryLimit",
+    "value": 10
+  },
+  {
+    "op": "add",
+    "path": "/spec/strategy",
+    "value": {
+      "rollingUpdate": {
+        "maxSurge": "25%",
+        "maxUnavailable": "25%"
+      },
+      "type": "RollingUpdate"
+    }
+  },
+  {
+    "op": "add",
+    "path": "/spec/template/spec/containers/0/ports/0/protocol",
+    "value": "TCP"
+  },
+  {
+    "op": "add",
+    "path": "/spec/template/spec/containers/0/resources",
+    "value": {}
+  },
+  {
+    "op": "add",
+    "path": "/spec/template/spec/containers/0/terminationMessagePath",
+    "value": "/dev/termination-log"
+  },
+  {
+    "op": "add",
+    "path": "/spec/template/spec/containers/0/terminationMessagePolicy",
+    "value": "File"
+  },
+  {
+    "op": "add",
+    "path": "/spec/template/spec/dnsPolicy",
+    "value": "ClusterFirst"
+  },
+  {
+    "op": "add",
+    "path": "/spec/template/spec/restartPolicy",
+    "value": "Always"
+  },
+  {
+    "op": "add",
+    "path": "/spec/template/spec/schedulerName",
+    "value": "default-scheduler"
+  },
+  {
+    "op": "add",
+    "path": "/spec/template/spec/securityContext",
+    "value": {}
+  },
+  {
+    "op": "add",
+    "path": "/spec/template/spec/terminationGracePeriodSeconds",
+    "value": 30
+  }
+]

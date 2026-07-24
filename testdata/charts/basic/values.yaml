@@ -1,0 +1,34 @@
+replicaCount: 1
+
+image:
+  repository: nginx
+  tag: "1.27-alpine"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+configMap:
+  # enabled is a fixture-capture hook (T-fixtures, Phase B wave 1): setting it
+  # to false via --set/ValuesSet removes this resource from the render while
+  # everything else stays identical, which is what a live "delete from chart"
+  # ReleasePlanInstall fixture needs. Default true means normal `helm
+  # template`/install behavior is completely unaffected.
+  enabled: true
+  message: "hello from the basic test chart"
+  # sensitivePathsAnnotation is a second fixture-capture hook: setting it to
+  # true adds a werf.io/sensitive-paths annotation to THIS resource (a
+  # non-Secret kind), so planconv's path-redaction can be golden-tested
+  # against a resource that isn't sensitive-by-default. Default false leaves
+  # normal behavior untouched.
+  sensitivePathsAnnotation: false
+
+secret:
+  password: "changeme"
+
+clusterRole:
+  rules:
+    - apiGroups: [""]
+      resources: ["configmaps"]
+      verbs: ["get", "list"]
