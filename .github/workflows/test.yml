@@ -46,6 +46,8 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: true
-      - uses: golangci/golangci-lint-action@v6
+      # v8 of the action is required for golangci-lint v2.x (the version this
+      # repo is validated against); v6 only drives the v1.x line.
+      - uses: golangci/golangci-lint-action@v8
         with:
           version: latest
