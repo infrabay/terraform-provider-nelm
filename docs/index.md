@@ -34,7 +34,10 @@ provider "nelm" {
 resource "nelm_release" "example" {
   name      = "example"
   namespace = "example-ns"
-  chart     = "./charts/example"
+  # ${path.module} makes the reference independent of the directory the
+  # terraform CLI is invoked from (a bare relative path would resolve
+  # against the CLI's working directory, not this module's).
+  chart     = "${path.module}/charts/example"
 
   values = [
     file("${path.module}/values.yaml")
@@ -147,8 +150,7 @@ whatever its current context is) is ignored entirely.
 
 ## Local development: `dev_overrides`
 
-This provider is developed and iterated on entirely locally — there is no
-Terraform Registry publish step and no CI. Local iteration uses Terraform's
+Local iteration on the provider itself uses Terraform's
 [`dev_overrides`](https://developer.hashicorp.com/terraform/cli/config/config-file#development-overrides-for-provider-developers)
 mechanism to point a `infrabay/nelm` provider address directly at a
 `go build` binary, bypassing the registry, the provider lock file, and

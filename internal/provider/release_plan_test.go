@@ -392,6 +392,7 @@ func TestReleaseWillReinstall(t *testing.T) {
 	tests := []struct {
 		name           string
 		mutatePlan     func(*releaseModel)
+		mutatePrior    func(*releaseModel)
 		planned, prior map[string]string
 		stateIsNull    bool
 		want           bool
@@ -402,9 +403,26 @@ func TestReleaseWillReinstall(t *testing.T) {
 			want:        true,
 		},
 		{
-			name:    "true no-op: identical config and resources",
+			name:    "true no-op: identical config and resources, prior deployed",
 			planned: sameMap, prior: sameMap,
 			want: false,
+		},
+		{
+			// A failed (or pending-*) prior release is ALWAYS re-installed by
+			// nelm (IsReleaseUpToDate is false on status alone), so leaving
+			// status/revision KNOWN would either freeze it un-retried behind
+			// an empty plan or abort the next apply with "inconsistent result
+			// after apply" when the retry bumps the revision.
+			name:        "prior status failed forces reinstall with identical config",
+			mutatePrior: func(m *releaseModel) { m.Status = types.StringValue("failed") },
+			planned:     sameMap, prior: sameMap,
+			want: true,
+		},
+		{
+			name:        "prior status pending-upgrade forces reinstall",
+			mutatePrior: func(m *releaseModel) { m.Status = types.StringValue("pending-upgrade") },
+			planned:     sameMap, prior: sameMap,
+			want: true,
 		},
 		{
 			// The exact finding #1 repro: a values edit that alters no
@@ -453,6 +471,12 @@ func TestReleaseWillReinstall(t *testing.T) {
 			var prior releaseModel
 			if !tt.stateIsNull {
 				prior = base()
+				// A realistic prior state carries a concrete deployed
+				// status (state never stores Unknown).
+				prior.Status = types.StringValue("deployed")
+				if tt.mutatePrior != nil {
+					tt.mutatePrior(&prior)
+				}
 			}
 
 			got := releaseWillReinstall(plan, prior, tt.planned, tt.prior, tt.stateIsNull)

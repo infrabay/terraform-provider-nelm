@@ -70,10 +70,13 @@ intentionally skipped — see `docs/DEVELOPMENT.md`).
   file-path indirection would hide value-content changes from the
   Terraform diff. Use `values = [file("values.yaml")]` to get file-based
   values with the content still visible to `terraform plan`.
-- `set` (Block List) Individual value overrides, applied after `values`
-  and before `set_sensitive`. See nested schema below.
-- `set_sensitive` (Block List) Same shape as `set`, but `value` is marked
-  sensitive. Entries are applied AFTER `set` so they win on key conflicts.
+- `set` (List of Object) Individual value overrides, applied after `values`
+  and before `set_sensitive`. This is a list-nested **attribute** (assigned
+  with `=`, not repeated blocks): `set = [{ name = "image.tag", value = "v2" }]`.
+  See nested schema below.
+- `set_sensitive` (List of Object) Same shape as `set`, but `value` is marked
+  sensitive; on a name conflict the `set_sensitive` entry wins. Also an
+  attribute: `set_sensitive = [{ name = "db.password", value = var.pw }]`.
   See nested schema below.
 - `auto_rollback` (Boolean) Automatically roll back to the previous
   deployed release on install failure. Only works if a previous release
@@ -100,8 +103,8 @@ intentionally skipped — see `docs/DEVELOPMENT.md`).
 
 ### `set` / `set_sensitive` nested schema
 
-Both blocks share the same shape (`set_sensitive.value` is additionally
-marked sensitive):
+Both attributes share the same element shape (`set_sensitive.value` is
+additionally marked sensitive):
 
 - `name` (String, Required) Dotted value path (e.g. `"image.tag"`).
 - `value` (String, Required) Value to set.
@@ -190,9 +193,14 @@ correctly:
   your current configuration and normalizing each resulting resource
   (sensitive-path redaction, then stripping runtime metadata such as
   `status`, `managedFields`, `resourceVersion`, and `uid`) to a
-  deterministic, key-sorted JSON string per resource. Nelm renders these
-  manifests client-side, so they carry none of the Kubernetes API server's
-  defaulting.
+  deterministic, key-sorted JSON string per resource. For *create*d
+  resources this is Nelm's client-side render, free of server defaulting.
+  For *update*d resources Nelm's plan value is the API server's dry-run
+  merge, which carries live fields (server defaults, an HPA-owned
+  `replicas`, controller-written annotations) — the provider projects
+  those away three-ways against the change's live object and the stored
+  desired shape, so the planned value stays a pure function of your
+  configuration and never depends on live-mutable cluster state.
 - The **prior** side of `resources` (what's already in state) is
   refreshed on every `terraform plan`/`apply` by reading the objects
   *live from the cluster* — not from the release's stored chart
@@ -415,8 +423,14 @@ given, later ones win over earlier ones, key by key:
 - A remote reference: an `oci://` registry URL, or a bare `repo/name`
   reference resolved against the `repository` attribute.
 
-Out of scope for v1: authentication against private chart repositories
-(private OCI registries or `repository` URLs requiring credentials), and
-werf-specific encrypted "secret values" files (`WERF_SECRET_KEY` /
+Setting `repository` makes the chart reference unambiguously **remote**: it
+is then never resolved against the local filesystem (a same-named local
+directory cannot hijack it), and combining `repository` with a local path
+(`/abs`, `./rel`) is rejected as contradictory.
+
+Private **OCI registries** are supported via the provider-level `registries`
+block (see the provider docs' GKE + Artifact Registry example). Out of scope
+for v1: credentials for classic HTTP `repository` URLs, and werf-specific
+encrypted "secret values" files (`WERF_SECRET_KEY` /
 `.helm/secret-values.yaml`-style workflows) — this provider never sets a
 werf secret key, by design.

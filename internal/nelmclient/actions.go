@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/werf/logboek"
@@ -33,6 +34,31 @@ func newOpDir(prefix string) (dir string, cleanup func(), err error) {
 	return dir, func() { _ = os.RemoveAll(dir) }, nil
 }
 
+// syncBuffer is a mutex-guarded in-memory writer for per-call nelm log
+// capture. The synchronization is REQUIRED, not defensive: on a timeout nelm's
+// action functions return without joining their worker goroutine, which can
+// still be logging into this buffer while tailErr reads it — an unguarded
+// bytes.Buffer would be a data race on every cancelled/timed-out
+// Plan/Install/Uninstall.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.b.String()
+}
+
 // captureCtx returns a ctx carrying a per-call logboek logger that writes
 // into an in-memory buffer instead of the process's real stdout/stderr (nelm
 // actions log via log.Default, which resolves its writer from
@@ -40,15 +66,15 @@ func newOpDir(prefix string) (dir string, cleanup func(), err error) {
 // returned buffer's tail can be folded into an error for diagnostics.
 // bootstrap.go's Init is still the only place log.SetupLogging or any
 // featgate.*.Enable() may be called; this only redirects per-call output.
-func captureCtx(ctx context.Context) (context.Context, *bytes.Buffer) {
-	buf := &bytes.Buffer{}
+func captureCtx(ctx context.Context) (context.Context, *syncBuffer) {
+	buf := &syncBuffer{}
 	return logboek.NewContext(ctx, logboek.NewLogger(buf, buf)), buf
 }
 
 // tailErr folds buf's captured nelm output into err's message, if any was
 // captured, so operators get actionable diagnostics without nelm ever
 // writing to the real process stdout/stderr.
-func tailErr(err error, buf *bytes.Buffer) error {
+func tailErr(err error, buf *syncBuffer) error {
 	if err == nil {
 		return nil
 	}
@@ -125,7 +151,7 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 	}
 	defer cleanup()
 
-	chartRef, err := NormalizeChartRef(spec.Chart)
+	chartRef, err := NormalizeChartRef(spec.Chart, spec.Repository)
 	if err != nil {
 		return nil, fmt.Errorf("normalize chart reference: %w", err)
 	}
@@ -186,7 +212,7 @@ func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Dur
 	}
 	defer cleanup()
 
-	chartRef, err := NormalizeChartRef(spec.Chart)
+	chartRef, err := NormalizeChartRef(spec.Chart, spec.Repository)
 	if err != nil {
 		return fmt.Errorf("normalize chart reference: %w", err)
 	}
@@ -332,6 +358,14 @@ func (c *Client) Get(ctx context.Context, name, namespace, storageDriver string,
 
 			namespaced, err := c.IsNamespaced(gvk)
 			if err != nil {
+				// A kind the cluster no longer serves (CRD removed
+				// out-of-band) cannot be live-read at all: omit the ref —
+				// absence, mirroring LiveObjects' own NoKindMatch handling —
+				// instead of wedging every Read of this release forever.
+				if isNoKindMatch(err) {
+					continue
+				}
+
 				return nil, fmt.Errorf("resolve scope for %s: %w", gvk.String(), err)
 			}
 

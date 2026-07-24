@@ -127,8 +127,17 @@ func applyReleaseInfo(model *releaseModel, info *nelmclient.ReleaseInfo) diag.Di
 // (planconv.NormalizeLiveAgainst). Pass nil when there is no stored desired
 // (e.g. a degraded/Unknown plan) — the live objects are then normalized in
 // full and converge on the next plan.
-func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclient.ResourceRef, releaseNS string, desired map[string]string) (types.Map, diag.Diagnostics) {
+func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclient.ResourceRef, releaseNS string, desired map[string]string, timeout time.Duration) (types.Map, diag.Diagnostics) {
 	var diags diag.Diagnostics
+
+	// Bound the live GET phase: LiveObjects' client-go calls honour ctx, so
+	// this is what makes timeouts.read actually cap a Read against a half-open
+	// API server (a bare RPC ctx has no deadline of its own).
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
 	objsByRef, err := r.client.LiveObjects(ctx, refs)
 	if err != nil {
@@ -324,7 +333,7 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 		// resources (when KNOWN) are the projection template.
 		desired, ddiags := desiredResources(ctx, plan.Resources)
 		diags.Append(ddiags...)
-		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, desired)
+		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, desired, readTimeout)
 		diags.Append(mdiags...)
 		refreshed.Resources = resMap
 
@@ -356,7 +365,7 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 		// Degraded (Unknown) plan: the cluster was unreachable at plan time,
 		// so there is no stored desired to project against — pass nil and let
 		// the map converge on the next plan.
-		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, nil)
+		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, nil, readTimeout)
 		diags.Append(mdiags...)
 		state.Resources = resMap
 	}
@@ -442,7 +451,7 @@ func (r *releaseResource) Read(ctx context.Context, req resource.ReadRequest, re
 		return
 	}
 
-	resMap, rdiags := r.liveResourcesMap(ctx, info.Resources, state.Namespace.ValueString(), desired)
+	resMap, rdiags := r.liveResourcesMap(ctx, info.Resources, state.Namespace.ValueString(), desired, readTimeout)
 	resp.Diagnostics.Append(rdiags...)
 	if resp.Diagnostics.HasError() {
 		return

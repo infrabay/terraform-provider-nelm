@@ -80,12 +80,38 @@ func NormalizeUnstructured(obj *unstructured.Unstructured) (out string, err erro
 		CleanManagedFields: true,
 	})
 
+	stripClientBookkeeping(cleaned)
+
 	canon, err := json.Marshal(cleaned.Object)
 	if err != nil {
 		return "", fmt.Errorf("planconv: NormalizeUnstructured: marshal canonical json: %w", err)
 	}
 
 	return string(canon), nil
+}
+
+// stripClientBookkeeping removes fields that are pure client/CLI bookkeeping
+// and must never participate in the diff:
+//
+//   - metadata.namespace: helm-rendered manifests rarely set it, live GETs
+//     always do, and nelm's HideAll skeleton for fully-sensitive kinds
+//     materializes it explicitly — Key already resolves the namespace
+//     separately, so the compared VALUE must not carry it (or fully-sensitive
+//     kinds would phantom-diff on it forever).
+//   - kubectl.kubernetes.io/last-applied-configuration: written by client-side
+//     `kubectl apply`, it embeds a full serialized copy of the object —
+//     INCLUDING a Secret's cleartext data, which our path-based data.*/
+//     stringData.* redaction does not reach. It is never chart-rendered, so
+//     stripping it both closes that leak and avoids diff noise.
+func stripClientBookkeeping(obj *unstructured.Unstructured) {
+	m := obj.Object
+
+	unstructured.RemoveNestedField(m, "metadata", "namespace")
+	unstructured.RemoveNestedField(m, "metadata", "annotations", "kubectl.kubernetes.io/last-applied-configuration")
+
+	if annos, found, _ := unstructured.NestedMap(m, "metadata", "annotations"); found && len(annos) == 0 {
+		unstructured.RemoveNestedField(m, "metadata", "annotations")
+	}
 }
 
 // NormalizeLiveAgainst normalizes a LIVE cluster object for comparison against
@@ -156,6 +182,139 @@ func unmarshalCanonical(s string) (map[string]interface{}, error) {
 	}
 
 	return m, nil
+}
+
+// NormalizeUpdateAfter normalizes the After object of an "update" plan change.
+// Unlike create/recreate/blind-apply (whose After is nelm's CLIENT-rendered
+// manifest), an update's After is the API server's server-side-apply DRY-RUN
+// merge result: it carries live fields the chart never set — both static
+// server defaulting AND live-mutable, externally-owned values (an HPA-managed
+// spec.replicas, controller-written annotations). Committing those verbatim as
+// a KNOWN plan value breaks Terraform's consistency contract: the apply-phase
+// ModifyPlan re-runs the dry-run against a cluster that may have moved (HPA
+// scaled between plan and apply), and the recomputed value differs — the whole
+// apply aborts with "Provider produced inconsistent final plan".
+//
+// The fix is a THREE-WAY projection using the update change's own Before (the
+// live object) and the prior stored desired value for this resource key:
+//
+//   - a field present in priorDesired is chart-managed: keep After's value
+//     (the chart may have just changed it — that IS the diff);
+//   - a field absent from priorDesired but also absent from Before is newly
+//     introduced by the chart in this update: keep it (it must show in the
+//     diff and enter the stored desired shape);
+//   - a field absent from priorDesired but present in Before is live-carried
+//     (server default or externally-owned): drop it. It is dropped identically
+//     at the plan-phase and apply-phase invocations regardless of how the live
+//     value moved in between, which is exactly what restores determinism.
+//
+// priorDesired == "" (no stored desired for this key) or a nil before degrades
+// to plain NormalizeUnstructured(after).
+func NormalizeUpdateAfter(after, before *unstructured.Unstructured, priorDesired string) (string, error) {
+	afterJSON, err := NormalizeUnstructured(after)
+	if err != nil {
+		return "", err
+	}
+
+	if priorDesired == "" || before == nil {
+		return afterJSON, nil
+	}
+
+	beforeJSON, err := NormalizeUnstructured(before)
+	if err != nil {
+		return "", err
+	}
+
+	afterMap, err := unmarshalCanonical(afterJSON)
+	if err != nil {
+		return "", fmt.Errorf("planconv: NormalizeUpdateAfter: unmarshal after: %w", err)
+	}
+	beforeMap, err := unmarshalCanonical(beforeJSON)
+	if err != nil {
+		return "", fmt.Errorf("planconv: NormalizeUpdateAfter: unmarshal before: %w", err)
+	}
+	priorMap, err := unmarshalCanonical(priorDesired)
+	if err != nil {
+		return "", fmt.Errorf("planconv: NormalizeUpdateAfter: unmarshal prior desired: %w", err)
+	}
+
+	projected := projectUpdate(afterMap, beforeMap, priorMap)
+
+	canon, err := json.Marshal(projected)
+	if err != nil {
+		return "", fmt.Errorf("planconv: NormalizeUpdateAfter: marshal projected json: %w", err)
+	}
+
+	return string(canon), nil
+}
+
+// projectUpdate implements NormalizeUpdateAfter's three-way rule. Arrays are
+// paired positionally (same declared limitation as projectOnto): elements
+// within prior's length are recursed; elements beyond prior's length are kept
+// when Before has no element at that index (chart-new) and dropped when it
+// does (live-carried, e.g. a webhook-appended container).
+func projectUpdate(after, before, prior interface{}) interface{} {
+	switch pv := prior.(type) {
+	case map[string]interface{}:
+		am, ok := after.(map[string]interface{})
+		if !ok {
+			return after
+		}
+
+		bm, _ := before.(map[string]interface{})
+
+		out := make(map[string]interface{}, len(am))
+		for k, av := range am {
+			if p, inPrior := pv[k]; inPrior {
+				var b interface{}
+				if bm != nil {
+					b = bm[k]
+				}
+				out[k] = projectUpdate(av, b, p)
+
+				continue
+			}
+
+			if bm != nil {
+				if _, inBefore := bm[k]; inBefore {
+					continue // live-carried
+				}
+			}
+
+			out[k] = av // chart-new
+		}
+
+		return out
+
+	case []interface{}:
+		aa, ok := after.([]interface{})
+		if !ok {
+			return after
+		}
+
+		ba, _ := before.([]interface{})
+
+		out := make([]interface{}, 0, len(aa))
+		for i, av := range aa {
+			switch {
+			case i < len(pv):
+				var b interface{}
+				if i < len(ba) {
+					b = ba[i]
+				}
+				out = append(out, projectUpdate(av, b, pv[i]))
+			case i < len(ba):
+				// beyond prior, present live at this index: live-carried.
+			default:
+				out = append(out, av) // chart-new element
+			}
+		}
+
+		return out
+
+	default:
+		return after
+	}
 }
 
 // projectOnto returns the subtree of live that structurally matches desired:

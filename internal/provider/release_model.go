@@ -100,7 +100,7 @@ func (m releaseModel) toReleaseSpec(ctx context.Context) (nelmclient.ReleaseSpec
 		spec.HistoryLimit = int(m.ReleaseHistoryLimit.ValueInt64())
 	}
 
-	chart, err := nelmclient.NormalizeChartRef(m.Chart.ValueString())
+	chart, err := nelmclient.NormalizeChartRef(m.Chart.ValueString(), m.Repository.ValueString())
 	if err != nil {
 		diags.AddAttributeError(path.Root("chart"), "Invalid chart reference", err.Error())
 	}

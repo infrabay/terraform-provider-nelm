@@ -180,6 +180,14 @@ func setModelsEqual(a, b []setModel) bool {
 // status/revision/metadata untouched yields the clean, empty no-change plan.
 func releaseWillReinstall(plan, priorState releaseModel, planned, prior map[string]string, stateIsNull bool) bool {
 	return stateIsNull ||
+		// A prior release that is not cleanly deployed (failed, pending-*) is
+		// ALWAYS re-installed by nelm: IsReleaseUpToDate returns false purely
+		// on status != deployed, so Install never takes its skip branch and
+		// cuts a new revision. Without this term a failed release yields an
+		// eternally-empty plan (never retried without -replace), and any
+		// no-op-rendering config edit (e.g. only timeouts) aborts with
+		// "inconsistent result after apply" when the retry bumps the revision.
+		(!stateIsNull && priorState.Status.ValueString() != "deployed") ||
 		// Chart-rendering / values inputs (change the coalesced config).
 		plan.Chart.ValueString() != priorState.Chart.ValueString() ||
 		plan.Repository.ValueString() != priorState.Repository.ValueString() ||
@@ -353,7 +361,10 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 
 	for _, w := range warns {
-		resp.Diagnostics.AddWarning(fmt.Sprintf("nelm_release: blind apply for %s", w.Resource), w.Reason)
+		// w.Reason can embed a raw Kubernetes dry-run apply error, which may
+		// quote rendered manifest content back — including set_sensitive
+		// values. Scrub before it reaches plan output.
+		resp.Diagnostics.AddWarning(fmt.Sprintf("nelm_release: blind apply for %s", w.Resource), plan.scrubSensitive(w.Reason))
 	}
 
 	plannedMap, mdiags := types.MapValueFrom(ctx, types.StringType, planned)

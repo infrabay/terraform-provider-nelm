@@ -51,19 +51,25 @@ type KeyScoper interface {
 // releaseNS (the implicit-namespace case above); cluster-scoped kinds keep
 // the empty segment.
 func Key(ref Ref, releaseNS string, scoper KeyScoper) (string, error) {
-	ns := ref.Namespace
+	if scoper == nil {
+		return "", fmt.Errorf("planconv: Key: nil KeyScoper for %s", ref.GroupVersionKind)
+	}
 
-	if ns == "" {
-		if scoper == nil {
-			return "", fmt.Errorf("planconv: Key: nil KeyScoper for %s", ref.GroupVersionKind)
-		}
+	// The scoper is consulted UNCONDITIONALLY (not only when ref.Namespace is
+	// empty): a manifest may pin metadata.namespace on a cluster-scoped kind,
+	// in which case the planned side would otherwise key with that namespace
+	// while the live side (whose GET returns no namespace for cluster-scoped
+	// objects) keys with an empty segment — a permanent key split. Scope wins
+	// over whatever namespace the manifest claims.
+	namespaced, err := scoper.IsNamespaced(ref.GroupVersionKind)
+	if err != nil {
+		return "", fmt.Errorf("planconv: Key: IsNamespaced(%s): %w", ref.GroupVersionKind, err)
+	}
 
-		namespaced, err := scoper.IsNamespaced(ref.GroupVersionKind)
-		if err != nil {
-			return "", fmt.Errorf("planconv: Key: IsNamespaced(%s): %w", ref.GroupVersionKind, err)
-		}
-
-		if namespaced {
+	ns := ""
+	if namespaced {
+		ns = ref.Namespace
+		if ns == "" {
 			ns = releaseNS
 		}
 	}

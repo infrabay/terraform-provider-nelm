@@ -46,6 +46,13 @@ func dockerConfigJSON(registries []RegistryAuth) ([]byte, error) {
 			return nil, fmt.Errorf("registry URL %q has no host", r.URL)
 		}
 
+		// Docker config auths are keyed by host, so a second entry for the
+		// same host would silently overwrite the first — surface the
+		// ambiguity instead of guessing which credential the user meant.
+		if _, dup := auths[host]; dup {
+			return nil, fmt.Errorf("duplicate registries entry for host %q (only one credential per registry host is allowed)", host)
+		}
+
 		token := base64.StdEncoding.EncodeToString([]byte(r.Username + ":" + r.Password))
 		auths[host] = map[string]string{"auth": token}
 	}

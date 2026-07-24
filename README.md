@@ -52,7 +52,7 @@ provider "nelm" {
 resource "nelm_release" "example" {
   name      = "example"
   namespace = "example-ns"
-  chart     = "./charts/example"
+  chart     = "${path.module}/charts/example"
   values    = [file("${path.module}/values.yaml")]
 }
 ```

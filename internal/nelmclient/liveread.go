@@ -2,6 +2,7 @@ package nelmclient
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -79,6 +80,14 @@ func (c *Client) ensureKubeFactory(ctx context.Context) (*kube.ClientFactory, er
 	return c.kubeFactory, nil
 }
 
+// isNoKindMatch reports whether err is (or wraps) a RESTMapper "no matches
+// for kind" error — the shape produced when a GVK is not served by the
+// cluster (e.g. its CRD was deleted, or the API version was retired).
+func isNoKindMatch(err error) bool {
+	var noMatch *meta.NoKindMatchError
+	return errors.As(err, &noMatch)
+}
+
 // IsNamespaced reports whether gvk is a namespaced kind, resolved via the
 // cached RESTMapper. This is nelmclient's structural implementation of
 // internal/planconv.KeyScoper (see key.go's KeyScoper interface) — it is
@@ -123,6 +132,17 @@ func (c *Client) LiveObjects(ctx context.Context, refs []ResourceRef) (map[Resou
 
 		mapping, err := factory.Mapper().RESTMapping(gvk.GroupKind(), gvk.Version)
 		if err != nil {
+			// A kind the cluster no longer serves (its CRD was removed
+			// out-of-band, or an API version was retired) means the object
+			// cannot exist live: treat it as absent — like a NotFound below —
+			// rather than a hard error that would permanently wedge every
+			// Read/refresh of a release still holding such a resource in its
+			// stored manifest. Absence surfaces as a re-create diff at the
+			// next plan, which is the correct drift signal.
+			if isNoKindMatch(err) {
+				continue
+			}
+
 			return nil, fmt.Errorf("rest mapping for %s: %w", gvk.String(), err)
 		}
 

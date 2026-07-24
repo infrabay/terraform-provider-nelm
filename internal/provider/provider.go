@@ -247,13 +247,39 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 		cfg.RequestTimeout = d
 	}
 
+	// The inline connection attributes are ONLY consumed together with host.
+	// If any of them is set while host is null or empty, failing hard is
+	// mandatory: silently ignoring them would make the provider fall back to
+	// the ambient ~/.kube/config current-context — i.e. plan/apply against
+	// whatever cluster the operator's kubectl happens to point at, with zero
+	// warning. An empty-string host (e.g. an unset variable with a ""
+	// default, or a private GKE cluster whose public_endpoint is "") is the
+	// dangerous real-world shape of this, so it is called out explicitly.
+	inlineAuxSet := (!model.Token.IsNull() && model.Token.ValueString() != "") ||
+		(!model.ClusterCACertificate.IsNull() && model.ClusterCACertificate.ValueString() != "") ||
+		(!model.Insecure.IsNull() && model.Insecure.ValueBool()) ||
+		(!model.TLSServerName.IsNull() && model.TLSServerName.ValueString() != "")
+	hostSet := !model.Host.IsNull() && model.Host.ValueString() != ""
+
+	if inlineAuxSet && !hostSet {
+		resp.Diagnostics.AddAttributeError(
+			path.Root("host"),
+			"Inline connection attributes require host",
+			"token/cluster_ca_certificate/insecure/tls_server_name are only used together with a "+
+				"non-empty host; without it the provider would silently fall back to the ambient "+
+				"~/.kube/config current-context and could target an unintended cluster. Set host "+
+				"(check that it does not evaluate to an empty string) or remove the inline attributes.",
+		)
+		return
+	}
+
 	// Inline host/token/cluster_ca_certificate is a STANDALONE connection
 	// (like the kubernetes/helm providers): when host is set it fully replaces
 	// the kubeconfig source. We synthesize a complete kubeconfig and hand it to
 	// nelm as base64, so nelm never merges the ambient ~/.kube/config (whose
 	// current-context could otherwise collide — e.g. a client-cert context vs
 	// this bearer token).
-	if !model.Host.IsNull() && model.Host.ValueString() != "" {
+	if hostSet {
 		kubeconfig, err := nelmclient.BuildInlineKubeconfig(
 			normalizeHost(model.Host.ValueString()),
 			model.Token.ValueString(),

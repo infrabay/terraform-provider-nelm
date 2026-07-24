@@ -78,6 +78,16 @@ func TestWriteRegistryConfig(t *testing.T) {
 	}
 }
 
+func TestWriteRegistryConfig_DuplicateHostRejected(t *testing.T) {
+	_, err := writeRegistryConfig(t.TempDir(), []RegistryAuth{
+		{URL: "oci://registry.example.com", Username: "a", Password: "1"},
+		{URL: "https://registry.example.com/other/path", Username: "b", Password: "2"},
+	})
+	if err == nil {
+		t.Fatal("expected an error for two registries entries resolving to the same host")
+	}
+}
+
 func TestWriteRegistryConfig_EmptyIsNoop(t *testing.T) {
 	path, err := writeRegistryConfig(t.TempDir(), nil)
 	if err != nil {

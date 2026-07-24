@@ -71,7 +71,24 @@ func BuildPlannedResources(prior map[string]string, changes []*plan.ResourceChan
 		case "delete":
 			delete(out, key)
 
-		case "create", "recreate", "update", "blind apply":
+		case "update":
+			if change.After == nil {
+				return nil, nil, fmt.Errorf("planconv: BuildPlannedResources: change type %q for %s has nil After", change.Type, key)
+			}
+
+			// An update's After is the server-side dry-run merge, which
+			// carries live fields the chart never set; project it three-way
+			// against the change's own Before (live) and this key's prior
+			// stored desired value so the resulting KNOWN plan value does not
+			// depend on live-mutable cluster state (see NormalizeUpdateAfter).
+			normalized, err := NormalizeUpdateAfter(change.After, change.Before, out[key])
+			if err != nil {
+				return nil, nil, fmt.Errorf("planconv: BuildPlannedResources: normalize update %s: %w", key, err)
+			}
+
+			out[key] = normalized
+
+		case "create", "recreate", "blind apply":
 			if change.After == nil {
 				return nil, nil, fmt.Errorf("planconv: BuildPlannedResources: change type %q for %s has nil After", change.Type, key)
 			}

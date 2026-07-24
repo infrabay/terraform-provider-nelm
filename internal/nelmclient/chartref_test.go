@@ -20,12 +20,43 @@ func TestNormalizeChartRef(t *testing.T) {
 	t.Chdir(tmpDir)
 
 	tests := []struct {
-		name    string
-		chart   string
-		want    string
-		wantAbs bool // want is relative to tmpDir; resolve via filepath.Join
-		wantErr bool
+		name       string
+		chart      string
+		repository string
+		want       string
+		wantAbs    bool // want is relative to tmpDir; resolve via filepath.Join
+		wantErr    bool
 	}{
+		{
+			// The repository-bypass regression (Opus 5 review): a bare name
+			// that HAPPENS to exist as a local directory must stay remote
+			// when a repository is set, or the repo would be silently
+			// defeated by an unrelated same-named directory on disk.
+			name:       "bare name that exists on disk stays remote when repository is set",
+			chart:      "mychart",
+			repository: "https://charts.example.com",
+			want:       "mychart",
+			wantAbs:    false,
+		},
+		{
+			name:       "repo/chart with repository set passes through",
+			chart:      "myrepo/mychart",
+			repository: "https://charts.example.com",
+			want:       "myrepo/mychart",
+			wantAbs:    false,
+		},
+		{
+			name:       "local absolute path with repository set is a contradiction error",
+			chart:      localChartDir,
+			repository: "https://charts.example.com",
+			wantErr:    true,
+		},
+		{
+			name:       "explicit relative path with repository set is a contradiction error",
+			chart:      "./mychart",
+			repository: "https://charts.example.com",
+			wantErr:    true,
+		},
 		{
 			name:    "already absolute path is kept as-is",
 			chart:   localChartDir,
@@ -77,7 +108,7 @@ func TestNormalizeChartRef(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NormalizeChartRef(tt.chart)
+			got, err := NormalizeChartRef(tt.chart, tt.repository)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("NormalizeChartRef(%q) = %q, nil; want error", tt.chart, got)
