@@ -17,6 +17,13 @@ updates:
       # standalone.
       - dependency-name: "k8s.io/*"
       - dependency-name: "sigs.k8s.io/*"
+      # github.com/werf/nelm follows its own trdl STABILITY CHANNELS
+      # (trdl_channels.yml in the nelm repo: alpha/beta/ea/stable/rock-solid).
+      # The Go module proxy's "latest" is typically the ALPHA channel, which
+      # Dependabot cannot know — this provider pins the version the *stable*
+      # channel points to, and nelm bumps are made manually (or by a channel
+      # watcher), reviewed against docs/KNOWN_LIMITATIONS.md.
+      - dependency-name: "github.com/werf/nelm"
     groups:
       # Routine minor/patch bumps arrive as one grouped PR to keep noise low.
       go-minor-patch:

@@ -115,5 +115,5 @@ the orchestrator's plan notes) for looking up exact `pkg/action` option
 struct fields when implementing `internal/nelmclient`. **Never** add a
 `replace github.com/werf/nelm => ../nelm` directive to a *committed*
 `go.mod` — it's fine as a temporary, uncommitted local edit while iterating,
-but the module must always resolve `github.com/werf/nelm v1.26.2` from the
+but the module must always resolve the pinned stable-channel `github.com/werf/nelm` version from the
 public proxy in version control.
