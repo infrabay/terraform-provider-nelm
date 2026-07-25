@@ -21,8 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
           cache: true
@@ -41,14 +41,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
           cache: true
       # v8 of the action is required for golangci-lint v2.x (the version this
       # repo is validated against); v6 only drives the v1.x line.
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: latest
 
@@ -57,21 +57,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
           cache: true
       # terraform-plugin-testing drives a real terraform binary from PATH.
       # The wrapper MUST be off: it interposes its own stdout/stderr handling,
       # which breaks the test harness's CLI parsing.
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: '1.15.8'
           terraform_wrapper: false
       # The import scenario shells out to the real helm CLI to create an
       # out-of-band release (storage-format compatibility is the point).
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
       # A local kind cluster whose kubeconfig context is kind-nelm-acc with
       # server https://127.0.0.1:<port> — which is exactly what the suite's
       # local-endpoint safety guard (testAccPreCheck) requires.
