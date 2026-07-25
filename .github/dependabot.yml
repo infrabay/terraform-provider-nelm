@@ -9,6 +9,14 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # The k8s.io modules are transitively pinned by github.com/werf/nelm
+      # and must move in LOCKSTEP with it (and each other): bumping one alone
+      # pulls structured-merge-diff/v6 against a client-go still on v4 and
+      # the build fails. They get updated together with a nelm bump, never
+      # standalone.
+      - dependency-name: "k8s.io/*"
+      - dependency-name: "sigs.k8s.io/*"
     groups:
       # Routine minor/patch bumps arrive as one grouped PR to keep noise low.
       go-minor-patch:
