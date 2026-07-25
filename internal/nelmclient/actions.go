@@ -271,7 +271,7 @@ func (c *Client) Uninstall(ctx context.Context, name, namespace, storageDriver s
 		// Mirror Install: silence nelm's ProgressTablesPrinter. Besides keeping
 		// nelm off the provider's stdout, this avoids a data race inside the
 		// printer (Start goroutine vs Stop) that the race detector flags on the
-		// fast uninstall of a small release (nelm v1.26.2 pkg/track).
+		// fast uninstall of a small release (observed at nelm v1.26.2 pkg/track).
 		TrackingOptions: common.TrackingOptions{
 			NoProgressTablePrint: true,
 		},

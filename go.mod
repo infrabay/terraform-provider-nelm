@@ -4,7 +4,7 @@ go 1.25.8
 
 // NOTE for local development only: a `replace github.com/werf/nelm => ../nelm` directive
 // may be added here temporarily to iterate against the local nelm checkout, but it must
-// NEVER be committed — go.mod in version control always pins the released nelm v1.26.2.
+// NEVER be committed — go.mod in version control always pins the released nelm version the STABLE trdl channel points to.
 
 require (
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
@@ -15,7 +15,7 @@ require (
 	github.com/samber/lo v1.49.1
 	github.com/wI2L/jsondiff v0.5.0
 	github.com/werf/logboek v0.6.1
-	github.com/werf/nelm v1.26.2
+	github.com/werf/nelm v1.25.3
 	k8s.io/apimachinery v0.29.3
 	k8s.io/client-go v0.29.3
 )
