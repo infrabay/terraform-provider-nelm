@@ -1,7 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": "Extends config:recommended; adds this repo's specifics: github.com/werf/nelm follows nelm's trdl STABLE channel (not the Go proxy's latest, which is effectively alpha), k8s.io/* move only in lockstep with nelm, and custom-manager go.mod bumps run `go mod tidy`.",
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended"
+  ],
   "customDatasources": {
     "nelm-stable": {
       "defaultRegistryUrlTemplate": "https://raw.githubusercontent.com/werf/nelm/main/trdl_channels.yaml",
@@ -15,8 +17,12 @@
     {
       "customType": "regex",
       "description": "Bump github.com/werf/nelm in go.mod to whatever version nelm's STABLE trdl channel points to",
-      "managerFilePatterns": ["/^go\\.mod$/"],
-      "matchStrings": ["github\\.com/werf/nelm v(?<currentValue>\\S+)"],
+      "managerFilePatterns": [
+        "/^go\\.mod$/"
+      ],
+      "matchStrings": [
+        "github\\.com/werf/nelm v(?<currentValue>\\S+)"
+      ],
       "depNameTemplate": "github.com/werf/nelm",
       "datasourceTemplate": "custom.nelm-stable",
       "versioningTemplate": "semver"
@@ -25,20 +31,39 @@
   "packageRules": [
     {
       "description": "gomod manager must NOT touch nelm (the proxy's latest is the alpha channel; the custom manager above owns it) nor the k8s.io modules (transitively pinned by nelm, lockstep-only)",
-      "matchManagers": ["gomod"],
-      "matchPackageNames": ["github.com/werf/nelm", "k8s.io/**", "sigs.k8s.io/**"],
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchPackageNames": [
+        "github.com/werf/nelm",
+        "k8s.io/**",
+        "sigs.k8s.io/**"
+      ],
       "enabled": false
     },
     {
       "description": "A stable-channel nelm bump edits go.mod outside the gomod artifact updater, so regenerate go.sum; the PR still needs a human semantic review against docs/KNOWN_LIMITATIONS.md — never automerge",
-      "matchDatasources": ["custom.nelm-stable"],
-      "labels": ["dependencies", "nelm-channel"],
+      "matchDatasources": [
+        "custom.nelm-stable"
+      ],
+      "labels": [
+        "dependencies",
+        "nelm-channel"
+      ],
       "automerge": false,
       "postUpgradeTasks": {
-        "commands": ["go mod tidy"],
-        "fileFilters": ["go.mod", "go.sum"],
+        "commands": [
+          "go mod tidy"
+        ],
+        "fileFilters": [
+          "go.mod",
+          "go.sum"
+        ],
         "executionMode": "branch"
       }
     }
+  ],
+  "ignorePaths": [
+    "testdata/**"
   ]
 }
