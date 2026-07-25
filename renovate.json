@@ -4,7 +4,7 @@
   "extends": ["config:recommended"],
   "customDatasources": {
     "nelm-stable": {
-      "defaultRegistryUrlTemplate": "https://raw.githubusercontent.com/werf/nelm/main/trdl_channels.yml",
+      "defaultRegistryUrlTemplate": "https://raw.githubusercontent.com/werf/nelm/main/trdl_channels.yaml",
       "format": "yaml",
       "transformTemplates": [
         "{ \"releases\": [ { \"version\": groups[name=\"1\"].channels[name=\"stable\"].version } ] }"
