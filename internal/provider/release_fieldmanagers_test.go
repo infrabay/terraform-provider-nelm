@@ -181,7 +181,9 @@ func (c configMapView) hasManagerPrefix(prefix string) bool {
 
 // liveConfigMap reads a ConfigMap from the pinned test context in the suite's
 // kubeconfig file (explicitly, like kubectl()). Only stdout is decoded, so a
-// kubectl warning on stderr cannot corrupt the JSON.
+// kubectl warning on stderr cannot corrupt the JSON. --show-managed-fields is
+// required: kubectl >= 1.21 strips metadata.managedFields from -o json output
+// otherwise.
 func liveConfigMap(namespace, name string) (configMapView, error) {
 	var cm configMapView
 
@@ -192,7 +194,7 @@ func liveConfigMap(namespace, name string) (configMapView, error) {
 	}
 
 	cmd := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "--context="+testKubeContext(),
-		"get", "configmap", name, "-n", namespace, "-o", "json")
+		"get", "configmap", name, "-n", namespace, "-o", "json", "--show-managed-fields")
 
 	out, err := cmd.Output()
 	if err != nil {
