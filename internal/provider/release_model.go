@@ -66,17 +66,16 @@ func (m releaseModel) sensitiveValues() []string {
 // scrubs them along with the state's own: after a failed update that rotated
 // a set_sensitive value, the state keeps the previous configuration (so the
 // change is retried) while the revision Nelm recorded, and the objects it
-// partly applied, carry the new value.
+// partly applied, carry the new value. An entry whose state value is empty
+// counts too (a rotation from ""): only its name and type select what is
+// read, and an empty stored string has no rendered forms.
 func (m releaseModel) storedSensitiveValues(values map[string]any) []string {
 	var out []string
 
 	for _, e := range m.SetSensitive {
-		v := e.Value.ValueString()
-		if v == "" {
-			continue
-		}
+		arg := e.Name.ValueString() + "=" + e.Value.ValueString()
 
-		for _, s := range nelmclient.StoredSetValueStrings(e.Type.ValueString(), e.Name.ValueString()+"="+v, values) {
+		for _, s := range nelmclient.StoredSetValueStrings(e.Type.ValueString(), arg, values) {
 			out = append(out, renderedForms(s)...)
 		}
 	}

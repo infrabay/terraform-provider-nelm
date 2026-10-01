@@ -286,7 +286,7 @@ func TestCreateOrUpdate_ScrubsSetSensitiveFromLiveReads(t *testing.T) {
 // what the objects that update partly applied carry. Read used to put the
 // new value into state in cleartext, and the next plan's diff showed it.
 // It now also scrubs the values the release's last revision stores at the
-// set_sensitive names.
+// set_sensitive names, whatever the previous value was, empty included.
 func TestRead_ScrubsTheValueOfAFailedRotation(t *testing.T) {
 	ctx := context.Background()
 
@@ -296,38 +296,50 @@ func TestRead_ScrubsTheValueOfAFailedRotation(t *testing.T) {
 		apiKey     = "sk_live_TOPSECRET_123"
 	)
 
-	// Revision 2 failed after updating the Deployment: Nelm stored it with
-	// the new value, which the Deployment now runs, while the ConfigMap still
-	// holds the old one.
-	info, _ := releaseWithLive(sensitiveRender(rotatedURL, apiKey))
-	info.Revision, info.Status = 2, "failed"
-	info.Values = map[string]any{
-		"env": map[string]any{"DATABASE_URL": rotatedURL},
-		"api": map[string]any{"key": apiKey},
-	}
+	for name, previous := range map[string]string{
+		"value -> rotated": dbURL,
+		"empty -> rotated": "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Revision 2 failed after updating the Deployment: Nelm stored it
+			// with the new value, which the Deployment now runs, while the
+			// ConfigMap still holds the previous one.
+			info, _ := releaseWithLive(sensitiveRender(rotatedURL, apiKey))
+			info.Revision, info.Status = 2, "failed"
+			info.Values = map[string]any{
+				"env": map[string]any{"DATABASE_URL": rotatedURL},
+				"api": map[string]any{"key": apiKey},
+			}
 
-	_, live := releaseWithLive([]*unstructured.Unstructured{
-		sensitiveRender(rotatedURL, apiKey)[0],
-		sensitiveRender(dbURL, apiKey)[1],
-	})
+			_, live := releaseWithLive([]*unstructured.Unstructured{
+				sensitiveRender(rotatedURL, apiKey)[0],
+				sensitiveRender(previous, apiKey)[1],
+			})
 
-	client := &fakeReleaseClient{getInfo: info, live: live}
-	state := withSecrets(appliedModel(2, "failed"), dbURL, apiKey)
-	// No stored values to project onto: the stored manifests are the template.
-	state.Resources = emptyResourcesMap()
+			client := &fakeReleaseClient{getInfo: info, live: live}
+			state := withSecrets(appliedModel(2, "failed"), previous, apiKey)
+			// No stored values to project onto: the stored manifests are the template.
+			state.Resources = emptyResourcesMap()
 
-	req := resource.ReadRequest{State: buildState(t, ctx, state)}
-	resp := &resource.ReadResponse{State: req.State}
-	(&releaseResource{client: client}).Read(ctx, req, resp)
+			req := resource.ReadRequest{State: buildState(t, ctx, state)}
+			resp := &resource.ReadResponse{State: req.State}
+			(&releaseResource{client: client}).Read(ctx, req, resp)
 
-	if resp.Diagnostics.HasError() {
-		t.Fatalf("Read: unexpected errors: %v", resp.Diagnostics)
-	}
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("Read: unexpected errors: %v", resp.Diagnostics)
+			}
 
-	got := stringMap(t, stateModel(t, ctx, resp.State).Resources)
-	assertScrubbed(t, "Read", got, dbURL, rotatedURL, apiKey)
+			secrets := []string{rotatedURL, apiKey}
+			if previous != "" {
+				secrets = append(secrets, previous)
+			}
 
-	if len(got) != 2 {
-		t.Errorf("resources = %v, want both objects", got)
+			got := stringMap(t, stateModel(t, ctx, resp.State).Resources)
+			assertScrubbed(t, "Read", got, secrets...)
+
+			if len(got) != 2 {
+				t.Errorf("resources = %v, want both objects", got)
+			}
+		})
 	}
 }
