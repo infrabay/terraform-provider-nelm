@@ -24,6 +24,10 @@ import (
 // silently dropped). The rendered manifest resolves the ambiguity at the
 // source: a field is chart-managed iff the chart renders it.
 func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Duration) ([]*unstructured.Unstructured, error) {
+	if c.configUnknown {
+		return nil, ErrConfigUnknown
+	}
+
 	opDir, cleanup, err := newOpDir("nelm-render-")
 	if err != nil {
 		return nil, err

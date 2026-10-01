@@ -33,6 +33,10 @@ const defaultFactoryBuildTimeout = 30 * time.Second
 // single attempt is time-bounded (see below) so a half-open API server cannot
 // wedge every resource in the process behind this mutex.
 func (c *Client) ensureKubeFactory(ctx context.Context) (*kube.ClientFactory, error) {
+	if c.configUnknown {
+		return nil, ErrConfigUnknown
+	}
+
 	c.kubeMu.Lock()
 	defer c.kubeMu.Unlock()
 

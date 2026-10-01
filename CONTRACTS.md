@@ -38,6 +38,14 @@ Nelm's own `--set*` parsing (helm strvals) makes of a `set`/`set_sensitive`
 argument — what a chart can render, and so what `releaseModel.sensitiveValues`
 scrubs (seam 2).
 
+While the provider configuration is not fully known at plan time, Configure
+hands resources the `nelmclient.NewUnknownConfigClient()` placeholder instead
+(`ConfigUnknown()` reports it). It carries no connection settings, and every
+cluster-facing method (the four above plus `Render`, `LiveObjects`,
+`IsNamespaced`) returns `nelmclient.ErrConfigUnknown` before calling Nelm: a
+zero `Config` must never reach Nelm, whose defaults load `~/.kube/config`'s
+current-context. Any new cluster-facing method must keep that guard.
+
 `*plan.ResourceChange` (from `github.com/werf/nelm/pkg/plan`) passes through
 `PlanResult.Changes` **opaquely** — `internal/planconv` consumes it directly
 from Nelm's own type; nothing re-derives Nelm's create/update/delete/"blind

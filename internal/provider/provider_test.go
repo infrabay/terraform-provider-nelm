@@ -10,16 +10,20 @@ package provider_test
 //
 // CLUSTER SAFETY: the machine this runs on may have its kubeconfig
 // current-context pointed at a remote or production cluster. Every helper here
-// that shells out to kubectl passes "--context=<pinned test context>" EXPLICITLY
-// and never relies on the ambient current-context; every Terraform provider
-// block a test config builds sets kube_context to that same pinned context
-// explicitly (see providerBlock below). The pinned context comes from
-// NELM_TEST_KUBE_CONTEXT ("orbstack" locally via the GNUmakefile default,
-// "kind-nelm-acc" in CI) and testAccPreCheck hard-verifies it resolves to a
-// LOCAL (127.0.0.1/localhost) API server before anything runs.
+// that shells out to kubectl/helm passes "--context=<pinned test context>" and
+// "--kubeconfig=<testKubeconfigPath>" EXPLICITLY and never relies on the
+// ambient current-context or $KUBECONFIG; every Terraform provider block a
+// test config builds sets kube_context and kube_config_paths to that same
+// pinned context and file explicitly (see providerBlock below). The pinned
+// context comes from NELM_TEST_KUBE_CONTEXT ("orbstack" locally via the
+// GNUmakefile default, "kind-nelm-acc" in CI) and testAccPreCheck
+// hard-verifies it resolves, in that file, to a LOCAL (127.0.0.1, ::1 or
+// localhost) API server before anything runs.
 
 import (
+	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +35,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/infrabay/terraform-provider-nelm/internal/provider"
 )
@@ -57,6 +62,23 @@ func testKubeContext() string {
 	return os.Getenv("NELM_TEST_KUBE_CONTEXT")
 }
 
+// testKubeconfigPath returns the ONE kubeconfig file the whole suite reads:
+// ~/.kube/config ("" if the home directory cannot be determined). The
+// provider block passes it as kube_config_paths and kubectl/helm get it via
+// --kubeconfig, so the safety guard, the fixtures and the provider under test
+// all resolve NELM_TEST_KUBE_CONTEXT from the same file. Otherwise kubectl and
+// helm would honour an ambient $KUBECONFIG (merging every file it lists) that
+// the provider never reads, and the guard could vet one cluster while the
+// tests deploy to a same-named context in another.
+func testKubeconfigPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+
+	return filepath.Join(home, ".kube", "config")
+}
+
 // testAccPreCheck is the triple local-cluster safety guard (design §6,
 // GNUmakefile testacc target, docs/DEVELOPMENT.md): it MUST hard-fail
 // (t.Fatal, not t.Skip) unless ALL of the following hold, so acceptance
@@ -69,14 +91,15 @@ func testKubeContext() string {
 //  2. NELM_TEST_KUBE_CONTEXT is set -- an explicit, separate opt-in pin
 //     (distinct from TF_ACC) naming the ONLY context this suite is allowed
 //     to touch. There is deliberately no default.
-//  3. That kubeconfig context actually exists AND its cluster.server looks
-//     like a LOCAL endpoint (https://127.0.0.1:* / https://localhost:*),
-//     resolved via `kubectl config view` (reads the kubeconfig file only,
-//     no cluster I/O). This is the real safety net: no managed/cloud
-//     cluster endpoint ever looks like localhost.
+//  3. That kubeconfig context exists in testKubeconfigPath() AND its
+//     cluster's server host is exactly 127.0.0.1, ::1 or localhost
+//     (localContextServer: reads that one file only, no $KUBECONFIG, no
+//     cluster I/O). This is the real safety net: no managed/cloud cluster
+//     endpoint is ever a loopback host.
 //
 // This is deliberately independent of (and in addition to) every test
-// Config's own explicit `kube_context = ...` (never current-context).
+// Config's own explicit `kube_context = ...` (never current-context), and it
+// checks the same file the provider block points kube_config_paths at.
 func testAccPreCheck(t *testing.T) {
 	t.Helper()
 
@@ -94,54 +117,68 @@ func testAccPreCheck(t *testing.T) {
 		)
 	}
 
-	// Resolve the pinned CONTEXT (not just a same-named cluster entry -- a
-	// context's cluster reference can differ from its own name) to its
-	// cluster name, then that cluster's server URL. Both steps read the
-	// kubeconfig file only; kubectl config view never touches the network.
-	clusterName, err := kubectl(
-		"config", "view", "-o",
-		fmt.Sprintf(`jsonpath={.contexts[?(@.name==%q)].context.cluster}`, kubeCtx),
-	)
+	kubeconfig := testKubeconfigPath()
+	if kubeconfig == "" {
+		t.Fatal("could not determine the home directory holding the acceptance-test kubeconfig (~/.kube/config)")
+	}
+
+	if _, err := localContextServer(kubeconfig, kubeCtx); err != nil {
+		t.Fatalf("%v; refusing to run acceptance tests", err)
+	}
+}
+
+// localContextServer resolves kubeCtx in the kubeconfig file at
+// kubeconfigPath -- that file only, never merged with $KUBECONFIG and never
+// via current-context -- and returns its cluster's API server URL, the server
+// the provider connects to for kube_config_paths = [kubeconfigPath] plus
+// kube_context = kubeCtx. It resolves the CONTEXT's cluster reference (which
+// can differ from the context's own name), not a same-named cluster entry. It
+// errors unless the server's host is exactly a loopback name: a prefix test
+// would also accept https://localhost.example.com or https://127.0.0.1.nip.io.
+func localContextServer(kubeconfigPath, kubeCtx string) (string, error) {
+	cfg, err := clientcmd.LoadFromFile(kubeconfigPath)
 	if err != nil {
-		t.Fatalf("could not inspect kubeconfig for context %q: %v\n%s", kubeCtx, err, clusterName)
+		return "", fmt.Errorf("could not load kubeconfig %s: %w", kubeconfigPath, err)
 	}
 
-	clusterName = strings.TrimSpace(clusterName)
-	if clusterName == "" {
-		t.Fatalf("kubeconfig context %q does not exist; refusing to run acceptance tests", kubeCtx)
+	kctx, ok := cfg.Contexts[kubeCtx]
+	if !ok {
+		return "", fmt.Errorf("kubeconfig context %q does not exist in %s", kubeCtx, kubeconfigPath)
 	}
 
-	server, err := kubectl(
-		"config", "view", "-o",
-		fmt.Sprintf(`jsonpath={.clusters[?(@.name==%q)].cluster.server}`, clusterName),
-	)
+	cluster, ok := cfg.Clusters[kctx.Cluster]
+	if !ok || cluster.Server == "" {
+		return "", fmt.Errorf("kubeconfig context %q references cluster %q, which has no server URL in %s", kubeCtx, kctx.Cluster, kubeconfigPath)
+	}
+
+	server, err := url.Parse(cluster.Server)
 	if err != nil {
-		t.Fatalf("could not inspect kubeconfig cluster %q: %v\n%s", clusterName, err, server)
+		return "", fmt.Errorf("kubeconfig context %q has an unparsable server URL %q: %w", kubeCtx, cluster.Server, err)
 	}
 
-	server = strings.TrimSpace(server)
-	if server == "" {
-		t.Fatalf("kubeconfig context %q references cluster %q, which has no server URL", kubeCtx, clusterName)
+	switch server.Hostname() {
+	case "127.0.0.1", "::1", "localhost":
+		return cluster.Server, nil
 	}
 
-	if !strings.HasPrefix(server, "https://127.0.0.1") && !strings.HasPrefix(server, "https://localhost") {
-		t.Fatalf(
-			"kubeconfig context %q resolves to cluster %q with server %q, which does not look like a "+
-				"local endpoint (expected https://127.0.0.1:* or https://localhost:*); refusing "+
-				"to run acceptance tests against what may be a real cluster",
-			kubeCtx, clusterName, server,
-		)
-	}
+	return "", fmt.Errorf(
+		"kubeconfig context %q resolves to cluster %q with server %q, which is not a local endpoint "+
+			"(expected host 127.0.0.1, ::1 or localhost) and may be a real cluster",
+		kubeCtx, kctx.Cluster, cluster.Server,
+	)
 }
 
 // providerBlock is the provider configuration every scenario's Config
-// embeds. kube_context is always explicit -- never the ambient
-// current-context -- per the cluster safety rule above.
+// embeds. kube_context and kube_config_paths are always explicit -- never the
+// ambient current-context, never an env-dependent kubeconfig -- per the
+// cluster safety rule above, so the provider reads exactly the file
+// testAccPreCheck vetted.
 func providerBlock() string {
 	return fmt.Sprintf(`provider "nelm" {
-  kube_context = %q
+  kube_config_paths = [%q]
+  kube_context      = %q
 }
-`, testKubeContext())
+`, testKubeconfigPath(), testKubeContext())
 }
 
 // chartPath returns the absolute path to testdata/charts/basic. Tests run
@@ -169,12 +206,19 @@ func uniqueNamespace(tag string) string {
 	return fmt.Sprintf("tfnelm-acc-%s-%d", tag, time.Now().UnixNano())
 }
 
-// kubectl runs kubectl against the pinned test context ONLY, explicitly,
-// never relying on the ambient current-context (cluster safety rule). It is a
-// bare function (no *testing.T) so it can be used from resource.TestCheckFunc
-// / CheckDestroy closures, which only receive a *terraform.State.
+// kubectl runs kubectl against the pinned test context in the suite's
+// kubeconfig file ONLY, explicitly, never relying on the ambient
+// current-context or $KUBECONFIG (cluster safety rule). It is a bare function
+// (no *testing.T) so it can be used from resource.TestCheckFunc /
+// CheckDestroy closures, which only receive a *terraform.State.
 func kubectl(args ...string) (string, error) {
-	full := append([]string{"--context=" + testKubeContext()}, args...)
+	kubeconfig := testKubeconfigPath()
+	if kubeconfig == "" {
+		// An empty --kubeconfig would make kubectl fall back to $KUBECONFIG.
+		return "", errors.New("kubectl: no acceptance-test kubeconfig path (home directory unknown)")
+	}
+
+	full := append([]string{"--kubeconfig=" + kubeconfig, "--context=" + testKubeContext()}, args...)
 
 	out, err := exec.Command("kubectl", full...).CombinedOutput()
 
@@ -210,14 +254,20 @@ func scaleDeployment(t *testing.T, namespace, deployment string, replicas int) {
 // locally installed helm CLI (v4.2.3, never nelm/Terraform) -- design §6
 // scenario 6 (import) and design §7 risk #2 (whether nelm's vendored helm v3
 // release-storage reader can read what a real, current helm v4 CLI writes).
-// --kube-context is explicit here for the same cluster-safety reason as
-// every other helper in this file.
+// --kubeconfig and --kube-context are explicit here for the same
+// cluster-safety reason as every other helper in this file.
 func helmInstallOOB(t *testing.T, namespace, name, chartDir string) {
 	t.Helper()
+
+	kubeconfig := testKubeconfigPath()
+	if kubeconfig == "" {
+		t.Fatal("helm install: no acceptance-test kubeconfig path (home directory unknown)")
+	}
 
 	cmd := exec.Command("helm", "install", name, chartDir,
 		"--namespace", namespace,
 		"--create-namespace",
+		"--kubeconfig", kubeconfig,
 		"--kube-context", testKubeContext(),
 		"--wait",
 		"--timeout", "60s",
@@ -263,4 +313,78 @@ func testAccCheckReleaseDestroyed(namespace, name string) resource.TestCheckFunc
 
 		return nil
 	}
+}
+
+// TestLocalContextServer is the offline regression test for the acceptance
+// guard (review finding F47; runs without TF_ACC). The guard used to resolve
+// the pinned context through `kubectl config view`, which honours $KUBECONFIG
+// while the provider never reads it, and accepted any server merely PREFIXED
+// with https://127.0.0.1 or https://localhost.
+func TestLocalContextServer(t *testing.T) {
+	write := func(t *testing.T, name, server string) string {
+		t.Helper()
+
+		cfg := fmt.Sprintf(`apiVersion: v1
+kind: Config
+clusters:
+- name: cluster-of-dev
+  cluster:
+    server: %s
+contexts:
+- name: dev
+  context:
+    cluster: cluster-of-dev
+    user: dev
+users:
+- name: dev
+  user: {}
+`, server)
+
+		p := filepath.Join(t.TempDir(), name)
+		if err := os.WriteFile(p, []byte(cfg), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		return p
+	}
+
+	tests := []struct {
+		name    string
+		server  string
+		ctx     string
+		wantErr bool
+	}{
+		{name: "127.0.0.1", server: "https://127.0.0.1:6443", ctx: "dev"},
+		{name: "localhost", server: "https://localhost:6443", ctx: "dev"},
+		{name: "IPv6 loopback", server: "https://[::1]:6443", ctx: "dev"},
+		{name: "localhost-prefixed hostname", server: "https://localhost.example.com", ctx: "dev", wantErr: true},
+		{name: "127.0.0.1-prefixed hostname", server: "https://127.0.0.1.nip.io:6443", ctx: "dev", wantErr: true},
+		{name: "cloud endpoint", server: "https://34.1.2.3", ctx: "dev", wantErr: true},
+		{name: "missing context", server: "https://127.0.0.1:6443", ctx: "orbstack", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := localContextServer(write(t, "config", tt.server), tt.ctx)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("localContextServer(%q) err = %v, wantErr %v", tt.server, err, tt.wantErr)
+			}
+		})
+	}
+
+	t.Run("KUBECONFIG is not consulted", func(t *testing.T) {
+		// kubectl would merge $KUBECONFIG and see dev -> 127.0.0.1; the file
+		// the provider is pointed at says dev -> a real cluster.
+		t.Setenv("KUBECONFIG", write(t, "kind.yaml", "https://127.0.0.1:6443"))
+
+		if server, err := localContextServer(write(t, "config", "https://34.1.2.3"), "dev"); err == nil {
+			t.Fatalf("localContextServer accepted %q via $KUBECONFIG", server)
+		}
+	})
+
+	t.Run("missing kubeconfig file", func(t *testing.T) {
+		if _, err := localContextServer(filepath.Join(t.TempDir(), "missing"), "dev"); err == nil {
+			t.Fatal("localContextServer accepted a missing kubeconfig file")
+		}
+	})
 }

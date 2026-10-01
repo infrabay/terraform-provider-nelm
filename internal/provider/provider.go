@@ -6,11 +6,14 @@ package provider
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
@@ -81,7 +84,11 @@ func (p *nelmProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp 
 				ElementType: types.StringType,
 				Optional:    true,
 				Description: `Paths to kubeconfig files; contents are merged if more than one is given. ` +
-					`Defaults to "~/.kube/config" when this and kube_config_base64 are both empty.`,
+					`A leading "~" is expanded and every file must exist. When unset (and kube_config_base64 ` +
+					`is unset), KUBE_CONFIG_PATHS or else KUBE_CONFIG_PATH is used; $KUBECONFIG is not read. ` +
+					`With none of them only an explicit kube_context falls back to "~/.kube/config": a ` +
+					`provider configuration that names no cluster at all is an error, never an implicit ` +
+					`current-context.`,
 			},
 			"kube_config_base64": schema.StringAttribute{
 				Optional:    true,
@@ -89,8 +96,10 @@ func (p *nelmProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp 
 				Description: "Base64-encoded kubeconfig content. Takes precedence over kube_config_paths.",
 			},
 			"kube_context": schema.StringAttribute{
-				Optional:    true,
-				Description: "Kubeconfig context to use.",
+				Optional: true,
+				Description: `Kubeconfig context to use; KUBE_CTX when unset, else the kubeconfig's ` +
+					`current-context. Set without kube_config_paths (or KUBE_CONFIG_PATH(S)), the context is ` +
+					`looked up in "~/.kube/config"; KUBE_CTX alone (no kubeconfig path) names no cluster.`,
 			},
 			"kube_qps": schema.Int64Attribute{
 				Optional:    true,
@@ -173,10 +182,14 @@ func (p *nelmProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp 
 // resulting *nelmclient.Client as ResourceData for every nelm_release
 // resource instance.
 //
-// Documented v1 limitation: any Unknown provider-config value (e.g. derived
-// from an unapplied resource/data source) is a hard error. Framework v1.19.0
-// deferred-provider-configuration support is explicitly experimental; this
-// provider does not build on it.
+// A configuration that is not fully known at plan time (e.g. host taken from
+// a GKE cluster created in the same run) is not an error: Terraform
+// configures the provider again with the real values at apply. Until then
+// resources get the nelmclient.NewUnknownConfigClient placeholder, which
+// never reaches a cluster: ModifyPlan defers a new release's diff to apply,
+// and anything that needs an existing release's cluster fails with
+// nelmclient.ErrConfigUnknown. A client that supports deferred actions gets
+// resp.Deferred instead, and the framework then defers every resource.
 func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var model providerModel
 
@@ -185,46 +198,23 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 		return
 	}
 
-	if model.KubeConfigPaths.IsUnknown() ||
-		model.KubeConfigBase64.IsUnknown() ||
-		model.KubeContext.IsUnknown() ||
-		model.KubeQPS.IsUnknown() ||
-		model.KubeBurst.IsUnknown() ||
-		model.KubeRequestTimeout.IsUnknown() ||
-		model.Host.IsUnknown() ||
-		model.Token.IsUnknown() ||
-		model.ClusterCACertificate.IsUnknown() ||
-		model.Insecure.IsUnknown() ||
-		model.TLSServerName.IsUnknown() ||
-		model.Registries.IsUnknown() {
-		resp.Diagnostics.AddError(
-			"Unknown Provider Configuration Value",
-			"The nelm provider configuration depends on values that are not known until apply. "+
-				"This is a documented limitation in v1: provider configuration must not depend on "+
-				"unapplied resource or data source attributes. (Data sources such as "+
-				"google_client_config are read during plan and are fine.)",
-		)
+	if !req.Config.Raw.IsFullyKnown() {
+		// The framework rejects a Deferred response from a client that did not
+		// announce deferral support (stable Terraform never does), so it is
+		// gated; the placeholder client is returned either way.
+		if req.ClientCapabilities.DeferralAllowed {
+			resp.Deferred = &provider.Deferred{Reason: provider.DeferredReasonProviderConfigUnknown}
+		}
+
+		client := nelmclient.NewUnknownConfigClient()
+
+		resp.ResourceData = client
+		resp.DataSourceData = client
+
 		return
 	}
 
 	cfg := nelmclient.Config{}
-
-	if !model.KubeConfigPaths.IsNull() {
-		var paths []string
-		resp.Diagnostics.Append(model.KubeConfigPaths.ElementsAs(ctx, &paths, false)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-		cfg.KubeConfigPaths = paths
-	}
-
-	if !model.KubeConfigBase64.IsNull() {
-		cfg.KubeConfigBase64 = model.KubeConfigBase64.ValueString()
-	}
-
-	if !model.KubeContext.IsNull() {
-		cfg.KubeContext = model.KubeContext.ValueString()
-	}
 
 	if !model.KubeQPS.IsNull() {
 		cfg.QPS = model.KubeQPS.ValueInt64()
@@ -249,12 +239,13 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 
 	// The inline connection attributes are ONLY consumed together with host.
 	// If any of them is set while host is null or empty, failing hard is
-	// mandatory: silently ignoring them would make the provider fall back to
-	// the ambient ~/.kube/config current-context — i.e. plan/apply against
-	// whatever cluster the operator's kubectl happens to point at, with zero
-	// warning. An empty-string host (e.g. an unset variable with a ""
-	// default, or a private GKE cluster whose public_endpoint is "") is the
-	// dangerous real-world shape of this, so it is called out explicitly.
+	// mandatory: silently ignoring them would make the provider connect
+	// through whatever kubeconfig settings remain (kube_context,
+	// KUBE_CONFIG_PATH(S), KUBE_CTX) — i.e. plan/apply against a cluster the
+	// operator never meant, with zero warning. An empty-string host (e.g. an
+	// unset variable with a "" default, or a private GKE cluster whose
+	// public_endpoint is "") is the dangerous real-world shape of this, so it
+	// is called out explicitly.
 	inlineAuxSet := (!model.Token.IsNull() && model.Token.ValueString() != "") ||
 		(!model.ClusterCACertificate.IsNull() && model.ClusterCACertificate.ValueString() != "") ||
 		(!model.Insecure.IsNull() && model.Insecure.ValueBool()) ||
@@ -266,9 +257,9 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 			path.Root("host"),
 			"Inline connection attributes require host",
 			"token/cluster_ca_certificate/insecure/tls_server_name are only used together with a "+
-				"non-empty host; without it the provider would silently fall back to the ambient "+
-				"~/.kube/config current-context and could target an unintended cluster. Set host "+
-				"(check that it does not evaluate to an empty string) or remove the inline attributes.",
+				"non-empty host; without it they would be silently ignored and the provider could "+
+				"connect through a kubeconfig to an unintended cluster. Set host (check that it does "+
+				"not evaluate to an empty string) or remove the inline attributes.",
 		)
 		return
 	}
@@ -308,8 +299,11 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 		}
 
 		cfg.KubeConfigBase64 = kubeconfig
-		cfg.KubeConfigPaths = nil
-		cfg.KubeContext = ""
+	} else {
+		resp.Diagnostics.Append(resolveKubeconfig(ctx, model, &cfg)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
 	}
 
 	if !model.Registries.IsNull() {
@@ -319,16 +313,7 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 			return
 		}
 
-		for i, r := range regs {
-			if r.URL.IsUnknown() || r.Username.IsUnknown() || r.Password.IsUnknown() {
-				resp.Diagnostics.AddAttributeError(
-					path.Root("registries").AtListIndex(i),
-					"Unknown Registry Credential",
-					"registries[*].url/username/password must be known at plan time.",
-				)
-				return
-			}
-
+		for _, r := range regs {
 			cfg.Registries = append(cfg.Registries, nelmclient.RegistryAuth{
 				URL:      r.URL.ValueString(),
 				Username: r.Username.ValueString(),
@@ -346,6 +331,161 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 
 	resp.ResourceData = client
 	resp.DataSourceData = client
+}
+
+// Environment variables that fill in the kubeconfig connection when the
+// provider block leaves the matching attribute unset: the ones the
+// hashicorp/helm (and hashicorp/kubernetes) providers read, so a pipeline
+// migrated from helm_release keeps targeting the same cluster.
+// $KUBECONFIG is deliberately NOT read (hashicorp/helm does not read it
+// either): it is set ambiently by kubectl tooling and CI auth actions, and
+// honouring it would let an otherwise empty provider block pick a cluster.
+const (
+	envKubeConfigPaths = "KUBE_CONFIG_PATHS"
+	envKubeConfigPath  = "KUBE_CONFIG_PATH"
+	envKubeContext     = "KUBE_CTX"
+)
+
+// resolveKubeconfig fills cfg's kubeconfig source (the connection used when
+// host is not set): kube_config_base64, then kube_config_paths, then
+// KUBE_CONFIG_PATHS / KUBE_CONFIG_PATH, with kube_context falling back to
+// KUBE_CTX. Every path is split on the OS list separator, a leading "~" is
+// expanded, and each file must exist — nelm's loader silently skips a missing
+// file and would land on http://localhost:8080 or another file's
+// current-context instead.
+//
+// It fails closed when nothing names a cluster. An empty provider block — or
+// the implicit empty default provider Terraform instantiates for a module
+// whose providers mapping was forgotten — must never fall through to nelm's
+// own default of ~/.kube/config's current-context, which on an operator's
+// machine may well be production. An explicit kube_context attribute does
+// name a cluster: it is looked up in ~/.kube/config, made explicit here so it
+// is validated like any other path. KUBE_CTX alone does not: like
+// hashicorp/helm, it only selects a context in a kubeconfig named otherwise,
+// so an ambiently exported KUBE_CTX cannot turn that empty default provider
+// into a connection either.
+func resolveKubeconfig(ctx context.Context, model providerModel, cfg *nelmclient.Config) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	cfg.KubeContext = model.KubeContext.ValueString()
+	if model.KubeContext.IsNull() {
+		cfg.KubeContext = os.Getenv(envKubeContext)
+	}
+
+	// Inline kubeconfig content takes precedence over every path (nelm ignores
+	// KubeConfigPaths then), so there is nothing on disk to resolve.
+	cfg.KubeConfigBase64 = model.KubeConfigBase64.ValueString()
+	if cfg.KubeConfigBase64 != "" {
+		return diags
+	}
+
+	// source names where the paths came from; fromAttr marks the
+	// kube_config_paths attribute, which path diagnostics then point at.
+	var raw []string
+
+	fromAttr, source := false, ""
+
+	switch {
+	case !model.KubeConfigPaths.IsNull():
+		diags.Append(model.KubeConfigPaths.ElementsAs(ctx, &raw, false)...)
+		if diags.HasError() {
+			return diags
+		}
+
+		fromAttr, source = true, "kube_config_paths"
+	case os.Getenv(envKubeConfigPaths) != "":
+		raw, source = []string{os.Getenv(envKubeConfigPaths)}, "the "+envKubeConfigPaths+" environment variable"
+	case os.Getenv(envKubeConfigPath) != "":
+		raw, source = []string{os.Getenv(envKubeConfigPath)}, "the "+envKubeConfigPath+" environment variable"
+	}
+
+	// Only "~" expansion and the kube_context default need it, so a missing
+	// home directory is an error only when one of those is actually used.
+	home, homeErr := os.UserHomeDir()
+
+	var paths []string
+
+	for _, entry := range raw {
+		for _, p := range filepath.SplitList(entry) {
+			if p == "" {
+				continue
+			}
+
+			if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, "~"+string(filepath.Separator)) {
+				if homeErr != nil {
+					diags.AddError("Cannot expand kubeconfig path", fmt.Sprintf("%q from %s: %s", p, source, homeErr))
+					return diags
+				}
+
+				p = filepath.Join(home, p[1:])
+			}
+
+			paths = append(paths, p)
+		}
+	}
+
+	if len(paths) == 0 {
+		if model.KubeContext.ValueString() == "" {
+			detail := "The nelm provider configuration names no cluster: set host + token (+ cluster_ca_certificate), " +
+				"kube_config_base64, kube_config_paths or kube_context, or export KUBE_CONFIG_PATHS / " +
+				"KUBE_CONFIG_PATH. The provider never falls back to ~/.kube/config's current-context, and " +
+				"$KUBECONFIG is not read. If this provider configuration comes from a module call, check that " +
+				"it passes providers = { nelm = nelm.<alias> }: without it Terraform instantiates an empty " +
+				"default nelm provider."
+			if os.Getenv(envKubeContext) != "" {
+				detail += " " + envKubeContext + " is set, but on its own it names no cluster (as with the helm " +
+					"provider): it only selects the context within kube_config_base64, kube_config_paths or " +
+					"KUBE_CONFIG_PATH(S)."
+			}
+
+			diags.AddError("No Kubernetes connection configured", detail)
+
+			return diags
+		}
+
+		if homeErr != nil {
+			diags.AddError("Cannot locate the default kubeconfig", homeErr.Error())
+			return diags
+		}
+
+		fromAttr, source = false, "the default kubeconfig (kube_context is set without kube_config_paths)"
+		paths = []string{filepath.Join(home, ".kube", "config")}
+	}
+
+	for _, p := range paths {
+		err := kubeconfigFileErr(p)
+		if err == nil {
+			continue
+		}
+
+		detail := fmt.Sprintf("kubeconfig file from %s is not usable: %s", source, err)
+		if fromAttr {
+			diags.AddAttributeError(path.Root("kube_config_paths"), "Invalid kubeconfig path", detail)
+		} else {
+			diags.AddError("Invalid kubeconfig path", detail)
+		}
+
+		return diags
+	}
+
+	cfg.KubeConfigPaths = paths
+
+	return diags
+}
+
+// kubeconfigFileErr reports why p cannot be a kubeconfig file (it cannot be
+// stat-ed, e.g. does not exist, or it is a directory), or nil.
+func kubeconfigFileErr(p string) error {
+	info, err := os.Stat(p)
+	if err != nil {
+		return err
+	}
+
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory", p)
+	}
+
+	return nil
 }
 
 // normalizeHost ensures the Kubernetes API host carries a URL scheme. GKE's

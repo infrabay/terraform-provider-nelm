@@ -11,6 +11,27 @@ from the server's dry-run merge — after review demonstrated that no heuristic
 over (dry-run result, live object, stored state) can reliably separate
 chart-managed fields from live ones.
 
+## Provider configuration
+
+- **A provider configuration that is unknown at plan time only works for new
+  releases.** When `host` (or any provider attribute) depends on something
+  applied in the same run — typically a GKE cluster created or replaced
+  alongside its releases — new `nelm_release`s plan with an Unknown diff and
+  are installed at apply, but releases already in state cannot be refreshed
+  or planned and the plan fails. Apply the cluster change first with
+  `-target`, or keep the cluster and its releases in separate root modules.
+  (`helm_release` gets through this case only because it silently drops an
+  unreadable release from state.) Terraform's experimental deferred actions
+  are honoured when the CLI enables them.
+
+- **`$KUBECONFIG` and an in-cluster service account are never used
+  implicitly.** The kubeconfig comes from `kube_config_paths` /
+  `KUBE_CONFIG_PATH(S)` (or `~/.kube/config` for an explicit
+  `kube_context` attribute — `KUBE_CTX` alone is not enough, as with the
+  `helm` provider); a configuration that names no cluster is an error by
+  design. Inside a pod, pass `host` / `token` /
+  `cluster_ca_certificate` explicitly.
+
 ## Diff surface (`resources`)
 
 - **List projection is positional, not merge-key aware.** The live→desired

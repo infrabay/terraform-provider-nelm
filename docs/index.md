@@ -116,11 +116,17 @@ provider-block mapping in the
 ### Optional
 
 - `kube_config_paths` (List of String) Paths to kubeconfig files; contents
-  are merged if more than one is given. Defaults to `~/.kube/config` when
-  this and `kube_config_base64` are both empty.
+  are merged if more than one is given. A leading `~` is expanded and every
+  file must exist. When unset, `KUBE_CONFIG_PATHS` or else `KUBE_CONFIG_PATH`
+  is used (see [Choosing the cluster](#choosing-the-cluster)); `$KUBECONFIG`
+  is not read.
 - `kube_config_base64` (String, Sensitive) Base64-encoded kubeconfig
   content. Takes precedence over `kube_config_paths`.
-- `kube_context` (String) Kubeconfig context to use.
+- `kube_context` (String) Kubeconfig context to use; `KUBE_CTX` when unset,
+  otherwise the kubeconfig's current-context. Set on its own (no
+  `kube_config_paths` / `KUBE_CONFIG_PATH(S)`), the context is looked up in
+  `~/.kube/config`. `KUBE_CTX` on its own does not do that: it only selects
+  the context in a kubeconfig named some other way.
 - `kube_qps` (Number) Queries-per-second limit for the Kubernetes client.
   Must be at least 1 if set. Nelm defaults to 30 if unset.
 - `kube_burst` (Number) Burst limit for the Kubernetes client. Must be at
@@ -152,15 +158,6 @@ provider-block mapping in the
   credential helper that Nelm's OCI client cannot use (see the GKE example
   above).
 
-None of these attributes may depend on values that are only known after
-apply (e.g. an attribute of another resource created in the same run): the
-provider hard-errors on `Configure` if any of them is Unknown. Data sources
-such as `google_client_config` / `google_container_cluster` are read during
-plan, so using their attributes here is fine. This is a documented v1
-limitation — deferred provider configuration is experimental in the
-underlying plugin framework version this provider uses, and this provider
-does not build on it.
-
 Kubernetes authentication can come either from a kubeconfig
 (`kube_config_paths` / `kube_config_base64` / `kube_context` — client
 certificates and exec-based auth plugins such as cloud-provider token helpers
@@ -169,6 +166,75 @@ all work as long as the kubeconfig is valid) or from the inline
 the inline path: a complete kubeconfig is built from those fields and used on
 its own, so the two mechanisms never mix and the ambient `~/.kube/config` (and
 whatever its current context is) is ignored entirely.
+
+## Choosing the cluster
+
+The provider only ever talks to a cluster the configuration names. It
+resolves the connection in this order:
+
+1. `host` set (non-empty): the inline connection above. Every kubeconfig
+   attribute and environment variable below is ignored.
+2. `kube_config_base64` set: that kubeconfig, with `kube_context` (or
+   `KUBE_CTX`) selecting the context.
+3. Kubeconfig files from `kube_config_paths`, or — only when that attribute
+   is not set — from the `KUBE_CONFIG_PATHS` environment variable (a list
+   separated like `PATH`), or else `KUBE_CONFIG_PATH`. The context is
+   `kube_context`, or `KUBE_CTX` when that attribute is not set, or else the
+   files' current-context. A leading `~` is expanded, and every file must
+   exist: a typo'd path is a `Configure` error, not a silently skipped file.
+4. Only the `kube_context` attribute set: that context in `~/.kube/config`
+   (which must exist). This is the `provider "nelm" { kube_context = "..." }`
+   shape from the example above. The `KUBE_CTX` variable alone is **not**
+   enough (as with the `helm` provider): an exported variable can be
+   ambient, so it only picks the context in a kubeconfig from 2 or 3.
+5. **Nothing set: `Configure` fails with "No Kubernetes connection
+   configured".** The provider never falls back to `~/.kube/config`'s
+   current-context.
+
+The environment variables are the ones the `hashicorp/helm` and
+`hashicorp/kubernetes` providers read, so a pipeline that exported them for
+`helm_release` keeps targeting the same cluster; an attribute set in the
+configuration always wins over its variable. `$KUBECONFIG` is deliberately
+**not** read (the `helm` provider does not read
+it either): tooling and CI auth actions set it ambiently, and it must not turn
+an empty provider block into a working connection. Set
+`kube_config_paths = ["~/.kube/staging.yaml"]` or export
+`KUBE_CONFIG_PATH` instead. An in-cluster service account is not picked up
+implicitly either; inside a pod, pass `host`, `token` and
+`cluster_ca_certificate` (e.g. from the mounted service-account files).
+
+> **Behavior change.** Earlier builds treated an empty provider
+> configuration as `~/.kube/config`'s current-context and ignored
+> `KUBE_CONFIG_PATH(S)` / `KUBE_CTX`. That made a forgotten
+> `providers = { nelm = nelm.<alias> }` mapping on a module call — which
+> makes Terraform instantiate an implicit, empty default `nelm` provider —
+> silently plan and apply against whatever cluster the operator's `kubectl`
+> pointed at (possibly production), and a refresh there drops every release
+> it does not find from state. Such configurations now fail at `Configure`;
+> name the cluster explicitly as above.
+
+### Provider configuration known only at apply
+
+The provider configuration may depend on values that are only known after
+apply, e.g. `host` from a `google_container_cluster` resource created in the
+same run, or a cluster data source that is read during apply because it has a
+`depends_on` (resource- or module-level) on something with pending changes.
+In that case:
+
+- a **new** `nelm_release` plans with a warning ("Provider configuration not
+  known at plan time") and an Unknown diff (`resources`, `status`,
+  `revision`, `metadata`); Terraform configures the provider with the real
+  values at apply, and the release is installed there;
+- a release **already in state** cannot be refreshed or planned without its
+  cluster, so the plan fails with an error explaining this. Apply the
+  cluster change first (`terraform apply -target=...`), or — HashiCorp's own
+  recommendation — keep the cluster and the releases on it in separate root
+  modules.
+
+The provider never contacts any cluster while its configuration is unknown.
+Data sources whose inputs are known and that have no such `depends_on` (e.g.
+`google_client_config`, or `google_container_cluster` looked up by a known
+name) are read during plan and are not affected.
 
 ## Local development: `dev_overrides`
 

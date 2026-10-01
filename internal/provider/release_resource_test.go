@@ -3,8 +3,8 @@ package provider_test
 // release_resource_test.go implements design §6's acceptance scenarios for
 // nelm_release, strictly against the orbstack cluster (see provider_test.go
 // for the harness and the triple safety guard). Every Config below embeds
-// providerBlock() (kube_context = "orbstack" explicit, never
-// current-context) and every test's PreCheck is testAccPreCheck.
+// providerBlock() (kube_config_paths and kube_context = "orbstack" explicit,
+// never current-context) and every test's PreCheck is testAccPreCheck.
 
 import (
 	"fmt"

@@ -28,10 +28,12 @@ computed from Nelm's own plan engine, not just "this release will change".
 - **Secret redaction** — Secret data (and `werf.io/sensitive`-annotated fields)
   are redacted to deterministic placeholders before entering state, and so
   are `set_sensitive` values wherever a chart renders them.
-- **Flexible connection** — a kubeconfig (`kube_config_paths` / `kube_context`)
-  or an inline `host` / `token` / `cluster_ca_certificate` (mirrors the
+- **Flexible connection** — a kubeconfig (`kube_config_paths` / `kube_context`,
+  or the `helm` provider's `KUBE_CONFIG_PATH(S)` / `KUBE_CTX` variables) or an
+  inline `host` / `token` / `cluster_ca_certificate` (mirrors the
   `kubernetes`/`helm` providers), plus a `registries` block for private OCI
-  charts.
+  charts. A configuration that names no cluster is an error — never an
+  implicit `~/.kube/config` current-context.
 
 ## Using the provider
 
@@ -114,9 +116,11 @@ make testacc     # acceptance tests: TF_ACC=1 NELM_TEST_KUBE_CONTEXT=orbstack, r
 `TF_ACC=1`). `make testacc` runs the acceptance suite against a **local**
 Kubernetes cluster named by `NELM_TEST_KUBE_CONTEXT` (default `orbstack`;
 e.g. `make testacc NELM_TEST_KUBE_CONTEXT=kind-mycluster`); test code
-hard-fails unless that kubeconfig context exists and its `cluster.server`
-resolves to `127.0.0.1`/`localhost`, so acceptance tests can never
-accidentally run against a real (e.g. cloud) cluster. CI runs the same suite
+hard-fails unless that context exists in `~/.kube/config` (the one file the
+provider, `kubectl` and `helm` are all pointed at; `$KUBECONFIG` is ignored)
+and its server host is exactly `127.0.0.1`, `::1` or `localhost`, so
+acceptance tests can never accidentally run against a real (e.g. cloud)
+cluster. CI runs the same suite
 on every pull request against a [kind](https://kind.sigs.k8s.io/) cluster.
 
 ## Releasing

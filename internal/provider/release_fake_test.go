@@ -22,6 +22,10 @@ import (
 // plus a record of what was called, so the plan and CRUD branches can be
 // driven offline (no cluster, no nelm action ever runs).
 type fakeReleaseClient struct {
+	// configUnknown makes the fake the unknown-provider-configuration
+	// placeholder (nelmclient.NewUnknownConfigClient).
+	configUnknown bool
+
 	planResult *nelmclient.PlanResult
 	planErr    error
 	plans      int
@@ -75,6 +79,10 @@ func (f *fakeReleaseClient) IsNamespaced(gvk schema.GroupVersionKind) (bool, err
 	default:
 		return true, nil
 	}
+}
+
+func (f *fakeReleaseClient) ConfigUnknown() bool {
+	return f.configUnknown
 }
 
 func (f *fakeReleaseClient) Plan(context.Context, nelmclient.ReleaseSpec, time.Duration) (*nelmclient.PlanResult, error) {

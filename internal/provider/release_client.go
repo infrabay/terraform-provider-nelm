@@ -22,6 +22,9 @@ import (
 type releaseClient interface {
 	planconv.KeyScoper
 
+	// ConfigUnknown reports the nelmclient.NewUnknownConfigClient
+	// placeholder: the provider configuration is not known at plan time.
+	ConfigUnknown() bool
 	Plan(ctx context.Context, spec nelmclient.ReleaseSpec, timeout time.Duration) (*nelmclient.PlanResult, error)
 	Render(ctx context.Context, spec nelmclient.ReleaseSpec, timeout time.Duration) ([]*unstructured.Unstructured, error)
 	Install(ctx context.Context, spec nelmclient.ReleaseSpec, timeout time.Duration) error
