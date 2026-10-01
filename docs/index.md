@@ -18,6 +18,14 @@ reinstall by following
 **never** just rename `helm_release` to `nelm_release`, which uninstalls the
 release.
 
+Unlike `helm_release`, every plan renders the chart and shows each object's
+changes and out-of-band drift. Charts whose templates generate random or
+time-based values are handled, but a few template patterns can never converge
+or abort the apply; check
+[Non-deterministic charts](resources/release.md#non-deterministic-charts)
+before migrating, and set `diff_mode = "none"` on such a release for
+`helm_release`-style plans.
+
 v1 of this provider ships exactly one resource, `nelm_release`. There is no
 `nelm_release` data source and no chart-repository data source in v1.
 

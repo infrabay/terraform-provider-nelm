@@ -138,10 +138,11 @@ sets every attribute without a `helm_release` counterpart to its default.
 A configuration with a `timeouts` block, with an explicit
 `release_history_limit` where `max_history` was `0` (as
 [History limit](#history-limit) recommends), or with a non-default value
-for such an attribute (e.g. `no_remove_manual_changes = true`) therefore
-plans an in-place update, and its apply runs `nelm install` as after an
-import (see [What the first apply does](#what-the-first-apply-does)). So
-does anything else that differs.
+for such an attribute (e.g. `no_remove_manual_changes = true` or
+`diff_mode = "none"`) therefore plans an in-place update, and its apply
+runs `nelm install` as after an import (see
+[What the first apply does](#what-the-first-apply-does)). So does anything
+else that differs.
 
 Check the plan the same way: `has moved to`, no destroy, never
 `must be replaced`. In a shared module, put the `moved` block inside the
@@ -284,6 +285,12 @@ for how your provider version handles it.
 - **The apply fails with `nelm release <ns>/<name> already exists`.** The
   `import` block is missing or names a different address, so Terraform tried
   to create the release. Nothing was changed; add the import.
+- **Every plan shows the same object of a migrated release changing, or the
+  apply fails with `Provider produced inconsistent final plan`.** The chart
+  renders something different on every plan in a way the provider cannot
+  absorb (a `.Release.Revision` annotation, a coarse timestamp); see
+  [Non-deterministic charts](../resources/release.md#non-deterministic-charts).
+  Set `diff_mode = "none"` on that release, or make the chart deterministic.
 - **The apply fails with `... is locked by another operation`.** The release
   has a `pending-*` revision: a `helm` command (or another apply) is still
   running against it, or one was interrupted. See

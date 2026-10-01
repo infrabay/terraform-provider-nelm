@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
@@ -22,10 +24,18 @@ import (
 type fakeReleaseClient struct {
 	planResult *nelmclient.PlanResult
 	planErr    error
+	plans      int
 
-	renderObjs  []*unstructured.Unstructured
+	renderObjs []*unstructured.Unstructured
+	// renderFn, when set, answers Render instead of renderObjs: a chart
+	// whose render differs from call to call (randAlphaNum, now, ...).
+	renderFn    func() []*unstructured.Unstructured
 	renderErr   error
 	renderSpecs []nelmclient.ReleaseSpec
+
+	// unservedKinds are kinds IsNamespaced reports as not served by the
+	// cluster (their CRD is not installed).
+	unservedKinds []string
 
 	history    *nelmclient.ReleaseHistory
 	historyErr error
@@ -44,17 +54,23 @@ type fakeReleaseClient struct {
 	getInfo *nelmclient.ReleaseInfo
 	getErr  error
 
-	live    map[nelmclient.ResourceRef]*unstructured.Unstructured
-	liveErr error
+	live     map[nelmclient.ResourceRef]*unstructured.Unstructured
+	liveErr  error
+	liveRefs [][]nelmclient.ResourceRef
 }
 
 var _ releaseClient = (*fakeReleaseClient)(nil)
 
 // IsNamespaced answers like a real RESTMapper for the kinds these tests use:
-// RBAC cluster kinds are cluster-scoped, everything else is namespaced.
+// RBAC cluster kinds, Namespace and CRDs are cluster-scoped, unservedKinds
+// are not served, everything else is namespaced.
 func (f *fakeReleaseClient) IsNamespaced(gvk schema.GroupVersionKind) (bool, error) {
+	if slices.Contains(f.unservedKinds, gvk.Kind) {
+		return false, &meta.NoKindMatchError{GroupKind: gvk.GroupKind(), SearchedVersions: []string{gvk.Version}}
+	}
+
 	switch gvk.Kind {
-	case "ClusterRole", "ClusterRoleBinding", "Namespace":
+	case "ClusterRole", "ClusterRoleBinding", "Namespace", "CustomResourceDefinition":
 		return false, nil
 	default:
 		return true, nil
@@ -62,6 +78,8 @@ func (f *fakeReleaseClient) IsNamespaced(gvk schema.GroupVersionKind) (bool, err
 }
 
 func (f *fakeReleaseClient) Plan(context.Context, nelmclient.ReleaseSpec, time.Duration) (*nelmclient.PlanResult, error) {
+	f.plans++
+
 	if f.planErr != nil {
 		return nil, f.planErr
 	}
@@ -78,6 +96,10 @@ func (f *fakeReleaseClient) Render(_ context.Context, spec nelmclient.ReleaseSpe
 
 	if f.renderErr != nil {
 		return nil, f.renderErr
+	}
+
+	if f.renderFn != nil {
+		return f.renderFn(), nil
 	}
 
 	return f.renderObjs, nil
@@ -122,7 +144,9 @@ func (f *fakeReleaseClient) History(_ context.Context, _, _, driver string, _ ti
 	return h, nil
 }
 
-func (f *fakeReleaseClient) LiveObjects(context.Context, []nelmclient.ResourceRef) (map[nelmclient.ResourceRef]*unstructured.Unstructured, error) {
+func (f *fakeReleaseClient) LiveObjects(_ context.Context, refs []nelmclient.ResourceRef) (map[nelmclient.ResourceRef]*unstructured.Unstructured, error) {
+	f.liveRefs = append(f.liveRefs, refs)
+
 	if f.liveErr != nil {
 		return nil, f.liveErr
 	}

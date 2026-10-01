@@ -168,7 +168,8 @@ func TestModifyPlan_CreateResourcesIndependentOfLiveState(t *testing.T) {
 
 // TestModifyPlan_CreateRendersAsFirstInstall: only a create's render ignores
 // the release history (it must match what Install renders after a
-// replacement's destroy); an update renders against the real history.
+// replacement's destroy); an update renders against the real history. Each
+// plan renders twice (the volatility probe), both times with the same spec.
 func TestModifyPlan_CreateRendersAsFirstInstall(t *testing.T) {
 	client := &fakeReleaseClient{renderObjs: renderedObjects()}
 
@@ -177,16 +178,20 @@ func TestModifyPlan_CreateRendersAsFirstInstall(t *testing.T) {
 	prior := appliedModel(1, "deployed")
 	runModifyPlan(t, client, baseTestReleaseModel(), &prior)
 
-	if len(client.renderSpecs) != 2 {
-		t.Fatalf("Render called %d times, want 2", len(client.renderSpecs))
+	if len(client.renderSpecs) != 4 {
+		t.Fatalf("Render called %d times, want 4", len(client.renderSpecs))
 	}
 
-	if !client.renderSpecs[0].RenderAsFirstInstall {
-		t.Error("create plan: Render must render as a first install")
+	for i, spec := range client.renderSpecs[:2] {
+		if !spec.RenderAsFirstInstall {
+			t.Errorf("create plan, render %d: Render must render as a first install", i)
+		}
 	}
 
-	if client.renderSpecs[1].RenderAsFirstInstall {
-		t.Error("update plan: Render must use the release's real history")
+	for i, spec := range client.renderSpecs[2:] {
+		if spec.RenderAsFirstInstall {
+			t.Errorf("update plan, render %d: Render must use the release's real history", i)
+		}
 	}
 }
 
@@ -254,7 +259,7 @@ func TestModifyPlan_IdentityChangeLiveConflictIsAdvisory(t *testing.T) {
 				t.Errorf("planned resources = %v, want the %d rendered objects", got, len(renderedObjects()))
 			}
 
-			if len(client.renderSpecs) != 1 || !client.renderSpecs[0].RenderAsFirstInstall {
+			if len(client.renderSpecs) != 2 || !client.renderSpecs[0].RenderAsFirstInstall || !client.renderSpecs[1].RenderAsFirstInstall {
 				t.Error("the new release must render as a first install")
 			}
 		})

@@ -11,8 +11,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
 	"github.com/infrabay/terraform-provider-nelm/internal/planconv"
@@ -115,19 +117,32 @@ func applyReleaseInfo(model *releaseModel, info *nelmclient.ReleaseInfo) diag.Di
 }
 
 // liveResourcesMap builds the "resources" map attribute value from a live
-// cluster read of refs (design §2.4: Read's live path, and Create/Update's
-// degraded-Unknown-plan path). It fetches the live objects via
+// cluster read of refs (design §2.4: Read's live path, a failed install's
+// partial state, and — via liveResources — what Create/Update read back for
+// an Unknown plan value). It fetches the live objects via
 // r.client.LiveObjects, normalizes them through the SAME planconv pipeline +
 // Key as ModifyPlan (CONTRACTS.md seam 2's bold invariant), using r.client
 // itself as the KeyScoper (it implements planconv.KeyScoper via IsNamespaced).
 //
-// desired is the previously stored resources map (prior state's, or a KNOWN
-// plan's) keyed identically; each live object is projected onto its desired
-// counterpart so Kubernetes' server-side defaulting is stripped generically
-// (planconv.NormalizeLiveAgainst). Pass nil when there is no stored desired
-// (e.g. a degraded/Unknown plan) — the live objects are then normalized in
-// full and converge on the next plan.
+// desired is the projection template keyed identically (projectionTemplate:
+// the stored values, or the release manifests); each live object is
+// projected onto its desired counterpart so Kubernetes' server-side
+// defaulting is stripped generically (planconv.NormalizeLiveAgainst). A live
+// object without one is normalized in full.
 func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclient.ResourceRef, releaseNS string, desired map[string]string, timeout time.Duration) (types.Map, diag.Diagnostics) {
+	resourcesMap, diags := r.liveResources(ctx, refs, releaseNS, desired, timeout)
+	if diags.HasError() {
+		return types.MapNull(types.StringType), diags
+	}
+
+	mapVal, d := types.MapValueFrom(ctx, types.StringType, resourcesMap)
+	diags.Append(d...)
+
+	return mapVal, diags
+}
+
+// liveResources is liveResourcesMap's body, returning the plain map.
+func (r *releaseResource) liveResources(ctx context.Context, refs []nelmclient.ResourceRef, releaseNS string, desired map[string]string, timeout time.Duration) (map[string]string, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	// Bound the live GET phase: LiveObjects' client-go calls honour ctx, so
@@ -142,7 +157,7 @@ func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclien
 	objsByRef, err := r.client.LiveObjects(ctx, refs)
 	if err != nil {
 		diags.AddError("Failed to read live resources", err.Error())
-		return types.MapNull(types.StringType), diags
+		return nil, diags
 	}
 
 	objs := make([]*unstructured.Unstructured, 0, len(objsByRef))
@@ -153,28 +168,180 @@ func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclien
 	resourcesMap, err := planconv.BuildLiveResources(objs, releaseNS, r.client, desired)
 	if err != nil {
 		diags.AddError("Failed to build live resources map", err.Error())
-		return types.MapNull(types.StringType), diags
+		return nil, diags
 	}
 
-	mapVal, d := types.MapValueFrom(ctx, types.StringType, resourcesMap)
-	diags.Append(d...)
-
-	return mapVal, diags
+	return resourcesMap, diags
 }
 
-// desiredResources extracts the stored resources map (prior state's or a KNOWN
+// desiredResources extracts the stored resources map (prior state's or a
 // plan's) as a plain map for projection in liveResourcesMap. A null/unknown
 // map yields nil (no projection template — the live objects are normalized in
-// full).
+// full); a plan's Unknown elements (ModifyPlan's volatile objects) are left
+// out.
 func desiredResources(ctx context.Context, m types.Map) (map[string]string, diag.Diagnostics) {
 	if m.IsNull() || m.IsUnknown() {
 		return nil, nil
 	}
 
 	out := map[string]string{}
-	diags := m.ElementsAs(ctx, &out, false)
+
+	for key, v := range m.Elements() {
+		if v.IsUnknown() {
+			continue
+		}
+
+		var str types.String
+
+		diags := tfsdk.ValueAs(ctx, v, &str)
+		if diags.HasError() {
+			return nil, diags
+		}
+
+		out[key] = str.ValueString()
+	}
+
+	return out, nil
+}
+
+// unknownResourceKeys returns the keys of m's Unknown elements (none for a
+// null or wholly Unknown map).
+func unknownResourceKeys(m types.Map) map[string]bool {
+	out := map[string]bool{}
+
+	if m.IsNull() || m.IsUnknown() {
+		return out
+	}
+
+	for key, v := range m.Elements() {
+		if v.IsUnknown() {
+			out[key] = true
+		}
+	}
+
+	return out
+}
+
+// projectionTemplate is what a live read projects onto: the stored values
+// (prior state's, or the plan's known ones), and for every object without a
+// value — a state seeded by import or a moved block, a plan's Unknown
+// element or wholly Unknown map — the release's stored manifest, what its
+// last install rendered and applied, normalized like a planned value.
+// Projecting a live object onto either strips the server's defaulting the
+// same way, so the result has the chart's shape instead of carrying every
+// live-only field. The manifests are best-effort: if they cannot be keyed,
+// those objects are normalized in full.
+func (r *releaseResource) projectionTemplate(ctx context.Context, stored types.Map, info *nelmclient.ReleaseInfo, releaseNS string) (map[string]string, diag.Diagnostics) {
+	out := map[string]string{}
+
+	if info != nil && len(info.Manifests) > 0 {
+		if manifests, err := planconv.BuildRenderedResources(info.Manifests, releaseNS, r.client); err == nil {
+			out = manifests
+		}
+	}
+
+	known, diags := desiredResources(ctx, stored)
+	for key, value := range known {
+		if value != "" {
+			out[key] = value
+		}
+	}
 
 	return out, diags
+}
+
+// appliedResources builds the "resources" value a successful Create/Update
+// persists. A KNOWN planned value MUST be reproduced exactly (Terraform's
+// "inconsistent result after apply" check), so the plan's known elements are
+// copied verbatim — recomputing them would also pay a needless LiveObjects
+// round trip on the common fast path. What the plan left Unknown is read
+// from the cluster after the install: the whole map when ModifyPlan degraded
+// the diff (cluster unreachable or kinds not served at plan time,
+// diff_mode = "none"), or the single objects whose render changes on every
+// render (ModifyPlan step 6e) — their applied value is only knowable now.
+// The live objects are projected onto the stored release's manifests, so the
+// persisted values have the chart's shape. A failed live read must not fail
+// the successful install (see installedButUnreadWarnings): an object it
+// could not read keeps its manifest value, or "" when it has none, and the
+// next Read rebuilds it.
+func (r *releaseResource) appliedResources(ctx context.Context, planned types.Map, info *nelmclient.ReleaseInfo, releaseNS string, timeout time.Duration) (types.Map, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	wholeUnknown := planned.IsUnknown() || planned.IsNull()
+	unknownKeys := unknownResourceKeys(planned)
+
+	if !wholeUnknown && len(unknownKeys) == 0 {
+		return planned, diags
+	}
+
+	template, tdiags := r.projectionTemplate(ctx, planned, info, releaseNS)
+	if tdiags.HasError() {
+		diags.Append(installedButUnreadWarnings(tdiags)...)
+	} else {
+		diags.Append(tdiags...)
+	}
+
+	refs := info.Resources
+	if !wholeUnknown {
+		refs = refsWithKeys(info.Resources, releaseNS, r.client, unknownKeys)
+	}
+
+	live, ldiags := r.liveResources(ctx, refs, releaseNS, template, timeout)
+	if ldiags.HasError() {
+		diags.Append(installedButUnreadWarnings(ldiags)...)
+		live = nil
+	} else {
+		diags.Append(ldiags...)
+	}
+
+	if wholeUnknown {
+		if live == nil {
+			return emptyResourcesMap(), diags
+		}
+
+		mapVal, d := types.MapValueFrom(ctx, types.StringType, live)
+		diags.Append(d...)
+
+		return mapVal, diags
+	}
+
+	elems := make(map[string]attr.Value, len(planned.Elements()))
+	for key, v := range planned.Elements() {
+		if !unknownKeys[key] {
+			elems[key] = v
+			continue
+		}
+
+		value, ok := live[key]
+		if !ok {
+			value = template[key]
+		}
+
+		elems[key] = types.StringValue(value)
+	}
+
+	mapVal, d := types.MapValue(types.StringType, elems)
+	diags.Append(d...)
+
+	return mapVal, diags
+}
+
+// refsWithKeys returns the refs whose resources-map key is in keys.
+func refsWithKeys(refs []nelmclient.ResourceRef, releaseNS string, scoper planconv.KeyScoper, keys map[string]bool) []nelmclient.ResourceRef {
+	var out []nelmclient.ResourceRef
+
+	for _, ref := range refs {
+		key, err := planconv.Key(planconv.Ref{
+			GroupVersionKind: schema.GroupVersionKind{Group: ref.Group, Version: ref.Version, Kind: ref.Kind},
+			Namespace:        ref.Namespace,
+			Name:             ref.Name,
+		}, releaseNS, scoper)
+		if err == nil && keys[key] {
+			out = append(out, ref)
+		}
+	}
+
+	return out
 }
 
 // refreshedRelease fetches the current cluster state for the release
@@ -222,7 +389,7 @@ func (r *releaseResource) refreshedRelease(ctx context.Context, model releaseMod
 // status/revision/metadata when ModifyPlan expected no reinstall — are
 // reproduced verbatim. Unknown computed cluster attrs are set to safe
 // concretes that the next Read replaces with live values; an Unknown
-// resources value becomes an empty map.
+// resources value becomes an empty map, and an Unknown element of it "".
 func planFallbackState(plan releaseModel) (releaseModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
@@ -248,8 +415,25 @@ func planFallbackState(plan releaseModel) (releaseModel, diag.Diagnostics) {
 		out.Metadata = metaObj
 	}
 
-	if plan.Resources.IsUnknown() || plan.Resources.IsNull() {
+	switch {
+	case plan.Resources.IsUnknown() || plan.Resources.IsNull():
 		out.Resources = emptyResourcesMap()
+
+	case len(unknownResourceKeys(plan.Resources)) > 0:
+		// ModifyPlan's volatile objects: "" until the next Read rebuilds them
+		// from the cluster (an empty desired value projects nothing).
+		elems := make(map[string]attr.Value, len(plan.Resources.Elements()))
+		for key, v := range plan.Resources.Elements() {
+			if v.IsUnknown() {
+				v = types.StringValue("")
+			}
+
+			elems[key] = v
+		}
+
+		resMap, d := types.MapValue(types.StringType, elems)
+		diags.Append(d...)
+		out.Resources = resMap
 	}
 
 	return out, diags
@@ -309,11 +493,11 @@ func installedButUnreadWarnings(diags diag.Diagnostics) diag.Diagnostics {
 // call client.Install (a fresh install, never artifact replay — nelm
 // install is an idempotent upgrade) and, on success, build the full state
 // from the plan (config attrs verbatim) plus the cluster (computed attrs).
-// resources is copied verbatim from the plan when the plan value is KNOWN
-// (a known plan value MUST be reproduced exactly at apply); otherwise it is
-// computed from a live read. On a partial failure (Install errors but the
-// release exists per client.Get), the refreshed state is persisted so
-// Terraform does not lose track of a partially-applied release, and an
+// resources keeps the plan's KNOWN elements verbatim (a known plan value MUST
+// be reproduced exactly at apply); whatever the plan left Unknown is read
+// from the cluster (appliedResources). On a partial failure (Install errors
+// but the release exists per client.Get), the refreshed state is persisted
+// so Terraform does not lose track of a partially-applied release, and an
 // error diagnostic is still added so the apply fails; on an Update it keeps
 // the prior configuration (failedUpdateState) so the change is retried.
 //
@@ -418,12 +602,13 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 		// live-computed resources map, since the plan's (possibly KNOWN)
 		// resources value described the intended post-apply state that this
 		// partial apply did NOT fully reach — so Terraform does not lose track
-		// of the release, but still fail the apply. The plan's resources (when
-		// KNOWN) are the projection template. A failed Update keeps the PRIOR
-		// configuration so the change is retried (failedUpdateState).
+		// of the release, but still fail the apply. The plan's known resources
+		// are the projection template, the stored manifests fill in the rest.
+		// A failed Update keeps the PRIOR configuration so the change is
+		// retried (failedUpdateState).
 		diags.Append(rdiags...)
 
-		desired, ddiags := desiredResources(ctx, plan.Resources)
+		desired, ddiags := r.projectionTemplate(ctx, plan.Resources, info, ns)
 		diags.Append(ddiags...)
 		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, desired, readTimeout)
 		diags.Append(mdiags...)
@@ -452,29 +637,9 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 	diags.Append(rdiags...)
 	state = refreshed
 
-	// A KNOWN plan value MUST be reproduced exactly at apply (ModifyPlan
-	// consistency rule) — do NOT recompute it from the live cluster in that
-	// case; recomputing it would also pay a needless LiveObjects round trip
-	// on the common fast path. Only the degraded Unknown-plan path (cluster
-	// was unreachable at plan time) needs a live resources computation here.
-	if !plan.Resources.IsUnknown() && !plan.Resources.IsNull() {
-		state.Resources = plan.Resources
-	} else {
-		// Degraded (Unknown) plan: the cluster was unreachable at plan time,
-		// so there is no stored desired to project against — pass nil and let
-		// the map converge on the next plan. A failed live read must not fail
-		// the successful install either (see above): persist an empty map,
-		// which the next Read rebuilds.
-		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, nil, readTimeout)
-		if mdiags.HasError() {
-			diags.Append(installedButUnreadWarnings(mdiags)...)
-			resMap = emptyResourcesMap()
-		} else {
-			diags.Append(mdiags...)
-		}
-
-		state.Resources = resMap
-	}
+	resMap, mdiags := r.appliedResources(ctx, plan.Resources, info, ns, readTimeout)
+	diags.Append(mdiags...)
+	state.Resources = resMap
 
 	return state, true, diags
 }
@@ -553,8 +718,12 @@ func (r *releaseResource) Read(ctx context.Context, req resource.ReadRequest, re
 	// next plan (design §2.4). The resources already in state are the
 	// projection template: their shape is the chart's desired shape, so
 	// projecting the live objects onto it strips server-side defaulting while
-	// keeping genuine drift visible.
-	desired, ddiags := desiredResources(ctx, state.Resources)
+	// keeping genuine drift visible. An object state has no value for (the
+	// first Read after an import or a moved block) is projected onto its
+	// stored release manifest instead of being kept in full: a volatile
+	// object (ModifyPlan step 6e) only keeps its value when it has the
+	// chart's shape.
+	desired, ddiags := r.projectionTemplate(ctx, state.Resources, info, state.Namespace.ValueString())
 	resp.Diagnostics.Append(ddiags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -645,6 +814,7 @@ func (r *releaseResource) ImportState(ctx context.Context, req resource.ImportSt
 	// and false matches a configuration that leaves it at its default, so
 	// importing never plans a change to it.
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("adopt_existing"), false)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("diff_mode"), diffModeFull)...)
 
 	// The framework runs Read after ImportState to fill in the remaining
 	// computed attributes (status/revision/metadata/resources).

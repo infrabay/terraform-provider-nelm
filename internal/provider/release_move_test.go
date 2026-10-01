@@ -126,6 +126,7 @@ func TestMoveFromHelmRelease(t *testing.T) {
 		{"no_install_crds (skip_crds)", got.NoInstallCRDs.ValueBool(), true},
 		{"force_adoption", got.ForceAdoption.ValueBool(), false},
 		{"adopt_existing", got.AdoptExisting.ValueBool(), false},
+		{"diff_mode", got.DiffMode.ValueString(), "full"},
 		{"release_storage_driver", got.ReleaseStorageDriver.ValueString(), "secret"},
 		// Computed attributes are left for the next refresh to fill in.
 		{"status is null", got.Status.IsNull(), true},

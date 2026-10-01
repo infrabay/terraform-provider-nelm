@@ -137,6 +137,7 @@ func moveFromHelmRelease(ctx context.Context, req resource.MoveStateRequest, res
 		"no_remove_manual_changes": false,
 		"no_install_crds":          src.SkipCRDs,
 		"adopt_existing":           false,
+		"diff_mode":                diffModeFull,
 		"release_history_limit":    historyLimit,
 		// helm_release's storage backend is a provider-level setting
 		// (helm_driver) that its state does not record; "secret" is Helm's

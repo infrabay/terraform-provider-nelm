@@ -22,11 +22,33 @@ chart-managed fields from live ones.
   Appended injections are handled correctly. A merge-key-aware projection is
   planned for v1.0.
 
-- **A resources map seeded from a full live read** (the first `Read` after
-  `terraform import`, or an apply whose plan ran with the cluster unreachable)
-  contains live-only fields until each resource's next chart-driven update
-  replaces its entry with the rendered desired shape. Until then those fields
-  produce state-refresh churn (no spurious plan diffs).
+- **Objects whose render changes on every render** (random or time-based
+  template functions: `rollme` annotations, `genCA` certificates, generated
+  passwords, deploy timestamps) are detected by rendering the chart twice per
+  plan — a second chart render on every plan. Such an object is
+  `(known after apply)` whenever the release is reinstalled, so the plan
+  does not show which of its fields change, and out-of-band changes to its
+  random fields are not drift. Two kinds of templates escape the check: a
+  `.Release.Revision`-dependent one renders the next revision against the
+  live one on every plan (a perpetual update and rollout), and one whose
+  output changes only once a second or slower (`now | unixEpoch`,
+  `now | date ...`) can render identically twice within one plan and
+  differently at apply, which aborts the apply with "Provider produced
+  inconsistent final plan". Use `diff_mode = "none"` for those (no object
+  diff and no drift detection for that release, like `helm_release`), or
+  make the chart deterministic. See "Non-deterministic charts" in the
+  resource docs.
+
+- **Kinds the cluster does not serve at plan time.** When a chart renders
+  objects of a kind that is not served yet and whose
+  CustomResourceDefinition the chart itself does not contain — typically a
+  CRD installed by another release earlier in the same apply (cert-manager
+  and a chart of ClusterIssuers) — the whole `resources` map, with
+  `status`/`revision`/`metadata`, is known after apply, with a warning.
+  Templates gated on `.Capabilities.APIVersions.Has`, or on a `lookup` of
+  objects another release creates in the same apply, give no such signal:
+  they can still render differently at apply and abort it. Apply the
+  providing release first (`-target`) or apply twice.
 
 - **A chart-rendered field the API server refuses to persist (dropped via
   `omitempty`/pruning) shows as permanent drift.** The desired side always
@@ -86,11 +108,11 @@ chart-managed fields from live ones.
 - **Replacing a release whose chart `lookup`s live objects can abort.** A
   replacement's create is planned while the old release still exists and
   re-planned after its destroy removed it; a template whose output depends
-  on `lookup` (or on random functions) renders differently in the two, and
-  Terraform aborts with "Provider produced inconsistent final plan" after
-  the uninstall ran; the next apply installs the release. To replace such a
-  release without the failed apply, do it in two steps:
-  `terraform destroy -target=...`, then `terraform apply`.
+  on `lookup` (a `lookup`-guarded generated password included) renders
+  differently in the two, and Terraform aborts with "Provider produced
+  inconsistent final plan" after the uninstall ran; the next apply installs
+  the release. To replace such a release without the failed apply, do it in
+  two steps: `terraform destroy -target=...`, then `terraform apply`.
 
 - **A replacement's conflicts with live objects are only warnings at plan
   time.** The create half of a replacement (a `name`/`namespace`/

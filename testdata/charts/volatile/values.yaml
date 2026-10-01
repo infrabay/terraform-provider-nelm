@@ -1,0 +1,14 @@
+replicaCount: 1
+
+image:
+  repository: nginx
+  tag: "1.27-alpine"
+  pullPolicy: IfNotPresent
+
+configMap:
+  message: "hello from the volatile test chart"
+
+# revisionAnnotation renders .Release.Revision into the pod template: the same
+# in every render of one plan, but always one revision ahead of the live
+# object, so the release never converges under diff_mode = "full".
+revisionAnnotation: false

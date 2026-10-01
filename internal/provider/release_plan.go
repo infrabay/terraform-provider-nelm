@@ -12,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
 	"github.com/infrabay/terraform-provider-nelm/internal/planconv"
@@ -39,7 +40,7 @@ var metadataAttrTypes = map[string]attr.Type{
 // and adopt_existing is read by Create alone (an unknown value only
 // suppresses ModifyPlan's existing-release warning).
 var (
-	unknownCheckStringPaths = []string{"chart", "repository", "version", "name", "namespace", "release_storage_driver"}
+	unknownCheckStringPaths = []string{"chart", "repository", "version", "name", "namespace", "release_storage_driver", "diff_mode"}
 	unknownCheckBoolPaths   = []string{"force_adoption", "no_remove_manual_changes", "no_install_crds"}
 )
 
@@ -211,10 +212,12 @@ func releaseWillReinstall(plan, priorState releaseModel, planned, prior map[stri
 		!plan.NoInstallCRDs.Equal(priorState.NoInstallCRDs) ||
 		!plan.AutoRollback.Equal(priorState.AutoRollback) ||
 		!plan.ReleaseHistoryLimit.Equal(priorState.ReleaseHistoryLimit) ||
-		// adopt_existing only matters to Create, but an edit to it still makes
-		// Terraform call Update, and that Update's Install can bump the
-		// revision just like a timeouts-only edit (below).
+		// adopt_existing only matters to Create, and diff_mode only to
+		// ModifyPlan, but an edit to either still makes Terraform call Update,
+		// and that Update's Install can bump the revision just like a
+		// timeouts-only edit (below).
 		!plan.AdoptExisting.Equal(priorState.AdoptExisting) ||
+		!plan.DiffMode.Equal(priorState.DiffMode) ||
 		// timeouts is the one remaining in-place-updatable attribute: its edit
 		// makes Terraform call Update, and nelm's Install can bump the
 		// revision even for an identical chart (e.g. a chart with an
@@ -266,12 +269,15 @@ func degradeDiffToUnknown(ctx context.Context, resp *resource.ModifyPlanResponse
 // (via Client.Plan) — or, on a create, from the chart's first-install render
 // (step 6c) — and set UNCONDITIONALLY, even on an entirely unchanged
 // plan, so out-of-band cluster drift is always visible. ModifyPlan runs at
-// both the plan and the apply phase; the ONLY values it ever sets KNOWN are
-// "id" (a pure function of known inputs) and "resources" (a deterministic
-// function of nelm's plan output, prior state, and canonical JSON) — every
-// other computed attribute either stays Unknown or is left untouched at
-// whatever prior state already holds (CONTRACTS.md/design §2.2 consistency
-// policy).
+// both the plan and the apply phase, and Terraform aborts the apply ("Provider
+// produced inconsistent final plan") unless every value the plan phase set
+// KNOWN comes out identical at the apply phase. The ONLY values it ever sets
+// KNOWN are "id" (a pure function of known inputs) and the elements of
+// "resources" that two independent renders agree on (step 6e: an object that
+// renders differently every time is Unknown, or keeps its prior value) —
+// every other computed attribute either stays Unknown or is left untouched
+// at whatever prior state already holds (CONTRACTS.md/design §2.2
+// consistency policy). diff_mode = "none" skips all of this (planWithoutDiff).
 func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	// 1. DESTROY: req.Plan.Raw is null on a destroy plan. The response
 	// plan MUST stay entirely null. resp.Plan already equals req.Plan
@@ -361,6 +367,17 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	// it an empty resp.RequiresReplace.
 	createPlan := stateIsNull || releaseIdentityChanged(plan, priorState)
 
+	// The lock warning is about the release this plan updates; a replacement
+	// destroys the prior release instead (and destroy takes no lock).
+	if !createPlan {
+		resp.Diagnostics.Append(pendingReleaseWarning(ctx, plan, priorState)...)
+	}
+
+	if plan.DiffMode.ValueString() == diffModeNone {
+		planWithoutDiff(ctx, plan, priorState, createPlan, resp)
+		return
+	}
+
 	planRes, planErr := r.client.Plan(ctx, spec, readTimeout)
 	if planErr != nil {
 		// 5a. Cluster unreachable at plan time: degrade (helm-parity),
@@ -406,15 +423,10 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		}
 	}
 
-	// The lock warning is about the release this plan updates; a replacement
-	// destroys the prior release instead (and destroy takes no lock).
-	if !createPlan {
-		resp.Diagnostics.Append(pendingReleaseWarning(ctx, plan, priorState)...)
-	}
-
 	// 6b. The chart's client render is the authoritative desired shape for
-	// update changes (an update's After is the server dry-run merge, which no
-	// heuristic can reliably un-blend from live state) and for creates (6c).
+	// every changed object (an update's After is the server dry-run merge,
+	// which no heuristic can reliably un-blend from live state) and for
+	// creates (6c).
 	// A render failure here is a HARD error, deliberately: it is how a bad
 	// chart or bad values fail a create plan whose live-cluster Plan was
 	// downgraded to a warning (5b); otherwise Plan just succeeded with
@@ -433,15 +445,41 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	renderSpec := spec
 	renderSpec.RenderAsFirstInstall = createPlan
 
+	// The chart is rendered twice, independently: what the two renders
+	// disagree on is volatile (step 6e). Comparing two renders, rather than
+	// a render with nelm's plan, works the same for a create (whose
+	// live-cluster plan may have failed, 5b) and an update.
 	renderObjs, err := r.client.Render(ctx, renderSpec, readTimeout)
 	if err != nil {
 		resp.Diagnostics.AddError("nelm_release: chart render for the plan diff failed", plan.scrubSensitive(err.Error()))
 		return
 	}
 
-	rendered, err := planconv.BuildRenderedResources(renderObjs, ns, r.client)
+	probeObjs, err := r.client.Render(ctx, renderSpec, readTimeout)
+	if err != nil {
+		resp.Diagnostics.AddError("nelm_release: chart render for the plan diff failed", plan.scrubSensitive(err.Error()))
+		return
+	}
+
+	// Kinds the cluster does not serve yet are scoped from the CRDs the chart
+	// itself renders; a kind that still has to be guessed is handled in 6d.
+	scoper := planconv.NewRenderScoper(renderObjs, r.client)
+
+	rendered, err := planconv.BuildRenderedResources(renderObjs, ns, scoper)
 	if err != nil {
 		resp.Diagnostics.AddError("nelm_release: failed to build the rendered resources map", err.Error())
+		return
+	}
+
+	probe, err := planconv.BuildRenderedResources(probeObjs, ns, scoper)
+	if err != nil {
+		resp.Diagnostics.AddError("nelm_release: failed to build the rendered resources map", err.Error())
+		return
+	}
+
+	volatility, err := planconv.CompareRenders(rendered, probe)
+	if err != nil {
+		resp.Diagnostics.AddError("nelm_release: failed to compare the chart renders", err.Error())
 		return
 	}
 
@@ -467,7 +505,7 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 				"conflict is still there.\n\n"+plan.scrubSensitive(planErr.Error()),
 		)
 	} else {
-		built, warns, err := planconv.BuildPlannedResources(prior, planRes.Changes, ns, r.client, rendered)
+		built, warns, err := planconv.BuildPlannedResources(prior, planRes.Changes, ns, scoper, rendered)
 		if err != nil {
 			resp.Diagnostics.AddError("nelm_release: failed to build the planned resources map", err.Error())
 			return
@@ -489,7 +527,83 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		}
 	}
 
-	plannedMap, mdiags := types.MapValueFrom(ctx, types.StringType, planned)
+	// 6d. A key set that may change before the apply phase cannot be
+	// planned as a known map (and per-element Unknown cannot express an
+	// uncertain key): a kind whose scope had to be guessed — not served yet,
+	// with no CRD for it in the chart, e.g. a cluster-scoped CR whose CRD
+	// another release installs earlier in the same apply, which keys
+	// "<ns>" now and "" once served — or a chart that renders a different
+	// set of objects each time.
+	if unresolved := scoper.Unresolved(); len(unresolved) > 0 {
+		degradeDiffToUnknown(ctx, resp)
+		resp.Diagnostics.AddWarning(
+			"nelm_release: resource kinds not served by the cluster yet",
+			fmt.Sprintf("The chart renders objects of kinds the cluster does not serve and whose "+
+				"CustomResourceDefinition the chart does not contain: %s. Their keys in \"resources\" depend on "+
+				"whether the kind is namespaced, which is only known once its CRD is installed (e.g. by another "+
+				"release earlier in this apply), so the resource diff will be computed at apply instead.",
+				gvkList(unresolved)),
+		)
+
+		return
+	}
+
+	if unstable := volatility.Unstable(); len(unstable) > 0 {
+		degradeDiffToUnknown(ctx, resp)
+		resp.Diagnostics.AddWarning(
+			"nelm_release: the chart renders a different set of objects every time",
+			"Two renders of the chart with the same configuration disagree on which objects it contains ("+
+				strings.Join(unstable, ", ")+"), so the resource diff will be computed at apply instead.",
+		)
+
+		return
+	}
+
+	// 6e. Volatile objects: a template using randAlphaNum, uuidv4, genCA,
+	// now, ... — directly, or behind a lookup guard whose object does not
+	// exist yet (a first install) — renders differently every time, so its
+	// planned value at the apply phase can never match a known value from
+	// the plan phase. An object that differs from its prior value only where
+	// every render differs (the rollme/timestamp annotation, the generated
+	// password) did not change, so it keeps the prior value: helm_release
+	// does not reinstall such a chart on every apply, and nor does this
+	// provider. Any other difference is a change like any other, and
+	// whenever the release is reinstalled (step 8) its volatile objects are
+	// re-rendered, so they are planned Unknown and Create/Update read their
+	// applied value back from the cluster. A template whose output changes
+	// only once a second or slower (now | date ..., now | unixEpoch) can
+	// render identically twice and escape this check; diff_mode = "none" is
+	// the way out for those.
+	for _, key := range volatility.Keys() {
+		value, ok := planned[key]
+		if createPlan || !ok || value == prior[key] {
+			continue
+		}
+
+		same, err := volatility.EqualOutside(key, prior[key], rendered[key])
+		if err != nil {
+			resp.Diagnostics.AddError("nelm_release: failed to compare the chart renders", err.Error())
+			return
+		}
+
+		if same {
+			planned[key] = prior[key]
+		}
+	}
+
+	reinstall := releaseWillReinstall(plan, priorState, planned, prior, createPlan)
+
+	unknownKeys := map[string]bool{}
+
+	if reinstall {
+		for _, key := range volatility.Keys() {
+			if _, ok := planned[key]; ok {
+				unknownKeys[key] = true
+			}
+		}
+	}
+
+	plannedMap, mdiags := resourcesMapValue(planned, unknownKeys)
 	resp.Diagnostics.Append(mdiags...)
 
 	if resp.Diagnostics.HasError() {
@@ -510,18 +624,66 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 
 	// 8. status, revision, AND metadata are all Unknown whenever anything is
 	// actually changing (see releaseWillReinstall): a fresh create, drift, or
-	// any config input that feeds the release spec differing from prior state.
-	// They MUST move together — status/revision were previously gated on
-	// nelm's resource-level Changes alone, which misses a values/version edit
-	// that renders no manifest change yet still bumps the revision on apply
-	// (the "inconsistent result after apply" bug). On a true no-op this is
-	// false and prior status/revision/metadata are left entirely untouched —
-	// the clean no-change plan.
-	if releaseWillReinstall(plan, priorState, planned, prior, createPlan) {
+	// any config input that feeds the release spec differing from prior
+	// state — exactly when 6e plans the volatile objects Unknown. They MUST
+	// move together —
+	// status/revision were previously gated on nelm's resource-level Changes
+	// alone, which misses a values/version edit that renders no manifest
+	// change yet still bumps the revision on apply (the "inconsistent result
+	// after apply" bug). On a true no-op this is false and prior
+	// status/revision/metadata are left entirely untouched — the clean
+	// no-change plan.
+	if reinstall {
 		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("status"), types.StringUnknown())...)
 		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("revision"), types.Int64Unknown())...)
 		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("metadata"), types.ObjectUnknown(metadataAttrTypes))...)
 	}
+}
+
+// planWithoutDiff is ModifyPlan for diff_mode = "none": no render and no
+// nelm plan, like helm_release (without its manifest experiment). Whenever
+// the release is (re)installed — a create, a non-deployed release, any input
+// change — "resources", status, revision and metadata are Unknown, and
+// Create/Update read them back from the cluster; otherwise "resources" keeps
+// its refreshed value, so the plan is empty. That is the only way to manage
+// a chart whose render never converges with its live objects (a
+// .Release.Revision-dependent template renders revision N+1 against live N
+// on every plan), at the cost of the object diff and drift detection.
+func planWithoutDiff(ctx context.Context, plan, priorState releaseModel, createPlan bool, resp *resource.ModifyPlanResponse) {
+	if releaseWillReinstall(plan, priorState, nil, nil, createPlan) {
+		degradeDiffToUnknown(ctx, resp)
+		return
+	}
+
+	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("resources"), priorState.Resources)...)
+}
+
+// resourcesMapValue builds the planned "resources" value: a known map of
+// planned, with the keys in unknown as Unknown elements.
+func resourcesMapValue(planned map[string]string, unknown map[string]bool) (types.Map, diag.Diagnostics) {
+	elems := make(map[string]attr.Value, len(planned))
+
+	for key, value := range planned {
+		if unknown[key] {
+			elems[key] = types.StringUnknown()
+			continue
+		}
+
+		elems[key] = types.StringValue(value)
+	}
+
+	return types.MapValue(types.StringType, elems)
+}
+
+// gvkList renders kinds for a diagnostic, e.g. "cert-manager.io/v1,
+// Kind=ClusterIssuer".
+func gvkList(gvks []schema.GroupVersionKind) string {
+	out := make([]string, len(gvks))
+	for i, gvk := range gvks {
+		out[i] = gvk.String()
+	}
+
+	return strings.Join(out, "; ")
 }
 
 // existingReleaseWarning is ModifyPlan's plan-time heads-up for a create that

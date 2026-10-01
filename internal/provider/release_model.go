@@ -56,6 +56,7 @@ type releaseModel struct {
 	NoRemoveManualChanges types.Bool     `tfsdk:"no_remove_manual_changes"`
 	NoInstallCRDs         types.Bool     `tfsdk:"no_install_crds"`
 	AdoptExisting         types.Bool     `tfsdk:"adopt_existing"`
+	DiffMode              types.String   `tfsdk:"diff_mode"`
 	ReleaseHistoryLimit   types.Int64    `tfsdk:"release_history_limit"`
 	ReleaseStorageDriver  types.String   `tfsdk:"release_storage_driver"`
 	Timeouts              timeouts.Value `tfsdk:"timeouts"`

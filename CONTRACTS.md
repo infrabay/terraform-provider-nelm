@@ -24,6 +24,9 @@ unit tests can substitute an offline fake; `Configure` always stores a
 - `Install(ctx, ReleaseSpec, timeout) error`
 - `Uninstall(ctx, name, namespace, storageDriver string, timeout) error`
 - `Get(ctx, name, namespace, storageDriver string, timeout) (*ReleaseInfo, error)`
+  — `ReleaseInfo.Manifests` carries the stored release's manifests (cleartext,
+  like Render's output): the projection template for objects the plan or
+  state has no value for
 - `History(ctx, name, namespace, storageDriver string, timeout) (*ReleaseHistory, error)`
   — the stored-revision summary behind Create's adoption guards (the
   configured storage backend and, on Create, the other one) and the
@@ -48,9 +51,22 @@ through.
 - `NormalizeLiveAgainst(obj, desired)` (Phase D) — live side; wraps
   `NormalizeUnstructured` then projects the live object onto the planned
   shape, stripping Kubernetes' server-side defaulting generically
-- `BuildPlannedResources(prior, changes, releaseNS, scoper)` (Phase B)
+- `BuildPlannedResources(prior, changes, releaseNS, scoper, rendered)`
+  (Phase B) — every non-delete change takes its value from `rendered`, the
+  chart render (`BuildRenderedResources`)
 - `BuildLiveResources(objs, releaseNS, scoper, desired)` (Phase B; `desired`
   projection template added in Phase D)
+- `CompareRenders(a, b)` — what two independent renders disagree on
+  (volatile objects, planned Unknown on a reinstall, see ModifyPlan step 6e)
+- `NewRenderScoper(renderObjs, scoper)` — the planned side's KeyScoper: the
+  real scoper, plus the scope of kinds not served yet from the CRDs in the
+  render; `Unresolved()` lists the kinds whose scope had to be guessed (the
+  planned map is then not known at plan time)
+
+`NormalizeUnstructured` strips the release ownership metadata nelm stamps at
+install (`meta.helm.sh/release-name`, `meta.helm.sh/release-namespace`,
+`app.kubernetes.io/managed-by`), so a render, a create's After and a live
+object of the same chart output normalize identically.
 
 Both `internal/provider/release_plan.go` (ModifyPlan — the **planned** side,
 built from `*plan.ResourceChange`) and `internal/provider/release_crud.go`
@@ -59,7 +75,9 @@ built from `*plan.ResourceChange`) and `internal/provider/release_crud.go`
 pipeline and the same key function.
 
 > **Invariant (bold on purpose): both sides of the diff MUST key through
-> `Key` with the same `KeyScoper` implementation, and the live side MUST be
+> `Key` with the same `KeyScoper` implementation (`RenderScoper` answers
+> exactly like the wrapped scoper for every kind the cluster serves, and the
+> live side never sees an unserved kind), and the live side MUST be
 > projected onto the planned shape (`NormalizeLiveAgainst`) so server-side
 > defaulting is stripped identically, or phantom diffs result.** A `KeyScoper`
 > mismatch (e.g. one side guessing namespace-scoping instead of asking the

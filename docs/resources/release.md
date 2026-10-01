@@ -100,6 +100,18 @@ intentionally skipped — see `docs/DEVELOPMENT.md`).
   cannot take over a release stored in the other storage backend. Only
   Create reads it; see "Creating a resource for an existing release"
   below.
+- `diff_mode` (String) How the plan computes `resources`: `"full"` (the
+  default) or `"none"`. `"full"` renders the chart and runs Nelm's plan
+  against the cluster, so the plan shows each object's changes and
+  out-of-band drift; an object whose render changes on every render is
+  known after apply whenever the release is reinstalled. `"none"` renders
+  nothing at plan time, like `helm_release`: `resources` (with `status`,
+  `revision` and `metadata`) is known after apply whenever the release is
+  (re)installed and otherwise keeps its refreshed value — no object diff, no
+  drift detection, and chart or values errors only surface at apply. Use it
+  for charts that can never converge under `"full"`; see
+  [Non-deterministic charts](#non-deterministic-charts). Changing it is an
+  in-place update that runs Nelm's install. Must be `"full"` or `"none"`.
 - `release_history_limit` (Number) Maximum number of release revisions
   kept in storage. Null or `0` uses Nelm's own default (10). Only release
   metadata is pruned; cluster resources are unaffected. Must be `0` or
@@ -193,7 +205,9 @@ and only ever set by the provider:
   `"<apiVersion>/<Kind>/<namespace>/<name>"` (cluster-scoped kinds use an
   empty namespace segment, e.g.
   `rbac.authorization.k8s.io/v1/ClusterRole//my-role`) to canonical,
-  redacted JSON of that resource. See "How `resources` drives
+  redacted JSON of that resource. An object whose render changes on every
+  render is known after apply whenever the release is reinstalled; with
+  `diff_mode = "none"` the whole map is. See "How `resources` drives
   `terraform plan`" below.
 
 ## How `resources` drives `terraform plan`
@@ -205,26 +219,30 @@ correctly:
 
 - On every plan, the **planned** side of `resources` is computed by
   running Nelm's own plan engine (`action.ReleasePlanInstall`) against
-  your current configuration and normalizing each resulting resource
+  your current configuration, which says which objects change, and taking
+  each changed object's value from the chart's own render, normalized
   (sensitive-path redaction, then stripping runtime metadata such as
-  `status`, `managedFields`, `resourceVersion`, and `uid`) to a
-  deterministic, key-sorted JSON string per resource. When the plan
-  creates the release — a new resource, or the create half of a
-  replacement — the planned map is the chart's own first-install render,
-  free of server defaulting and independent of what is live in the cluster
+  `status`, `managedFields`, `resourceVersion`, and `uid`, and the release
+  ownership metadata Nelm adds at install — `meta.helm.sh/release-name`,
+  `meta.helm.sh/release-namespace` and `app.kubernetes.io/managed-by`) to a
+  deterministic, key-sorted JSON string per resource. The render is free of
+  server defaulting and of live-mutable fields (an HPA-owned `replicas`,
+  controller-written annotations), which Nelm's own plan value — the API
+  server's dry-run merge — carries. When the plan creates the release — a
+  new resource, or the create half of a replacement — the planned map is the
+  chart's first-install render, independent of what is live in the cluster
   (so it is the same at plan time, while a replaced release still exists,
   and at apply time, after its destroy removed it).
-  For *update*d resources Nelm's plan value is the API server's dry-run
-  merge, which carries live fields (server defaults, an HPA-owned
-  `replicas`, controller-written annotations) — the provider projects
-  those away three-ways against the change's live object and the stored
-  desired shape, so the planned value stays a pure function of your
-  configuration and never depends on live-mutable cluster state.
+- The chart is rendered twice per plan; an object the two renders disagree
+  on (random or time-based template functions) is handled as described in
+  [Non-deterministic charts](#non-deterministic-charts).
 - The **prior** side of `resources` (what's already in state) is
   refreshed on every `terraform plan`/`apply` by reading the objects
   *live from the cluster* — not from the release's stored chart
   manifests — and normalizing them the same way, then **projecting** each
-  live object onto the shape of its planned counterpart: fields present
+  live object onto the shape of its planned counterpart (or, for an object
+  state has no value for yet, such as right after an import, onto the
+  release's stored manifest of it): fields present
   only on the live object (the API server's server-side defaulting — empty
   `resources: {}`, `dnsPolicy`, a Service's `clusterIP`, a StatefulSet's
   `updateStrategy`, and so on) are dropped, so they never show up as a
@@ -376,7 +394,8 @@ stale; a younger one is refused as a lock (see
 `adopt_existing`.
 
 The plan warns (`a release with this name already exists`) when it can see
-this coming. It cannot fail at plan time: a destroy-first replacement
+this coming (not with `diff_mode = "none"`, whose plan does not ask Nelm).
+It cannot fail at plan time: a destroy-first replacement
 legitimately plans the create while the old release is still there. There
 is no warning for a release in the other storage backend, nor for a
 `-replace`: Terraform plans a `-replace` as an update first and keeps only
@@ -561,20 +580,73 @@ guidance:
 
 ### Non-deterministic charts
 
-The `resources` diff is computed by rendering the chart at plan time and
-again at apply time. A chart whose templates are **non-deterministic** —
-e.g. generating a password or certificate with `randAlphaNum`, `genCA`, or
-`uuidv4` on every render — produces a different rendered manifest each
-time, so a saved plan (`terraform plan -out=…` then `terraform apply
-<file>`) can fail its consistency check with "Provider produced an
-inconsistent final plan". This is inherent to any plan-based Helm tool.
-The same goes for a **replacement** of a chart whose templates read live
-cluster state with `lookup` (e.g. "reuse the existing password Secret"):
-at plan time the old release's objects still exist, at apply time the
-destroy has removed them, so the two renders differ.
-Prefer charts that read such secrets from existing Kubernetes `Secret`s or
-`lookup`-guarded templates so a value is generated once and reused, rather
-than regenerated on every render.
+Terraform runs the provider's planning again during every apply — a plain
+`terraform apply` too, not only a saved plan — and aborts the apply with
+"Provider produced inconsistent final plan" if any value the plan showed as
+known comes out different. Chart templates that produce a new value on every
+render — `randAlphaNum` and the other `rand*` functions, `uuidv4`, `genCA`,
+`genSelfSignedCert`, `genPrivateKey`, `now` — are common: Helm's documented
+`rollme: {{ randAlphaNum 5 | quote }}` annotation, webhook certificates
+generated with `genCA`, deploy timestamps (a `now` pod annotation that
+rolls the pods on every upgrade), and passwords generated behind a
+`lookup` guard (Bitnami charts, `grafana` without `adminPassword`,
+`airflow`'s `fernetKey`). A `lookup` guard does **not** help on a first install: the
+object it looks for does not exist yet at either render.
+
+With `diff_mode = "full"` the provider renders the chart twice for every
+plan and compares the two renders:
+
+- An object they disagree on is **volatile**. Whenever the release is
+  installed or reinstalled (a create, any change of its inputs, drift in any
+  object), the volatile object's entry in `resources` is `(known after
+  apply)` and is read back from the cluster after the install. The plan then
+  shows that the object is re-rendered, not which of its fields change
+  (the input change itself is shown).
+- When nothing changes, a volatile object whose live state differs from the
+  new render only where every render differs (the random annotation, the
+  timestamp, the generated password) keeps its value: the plan is empty,
+  like `helm_release`'s, and the pods are not rolled on every apply. Any
+  other difference in it (out-of-band drift, a chart change) is a change,
+  and reinstalls the release.
+- If the two renders do not even contain the same objects, the whole
+  `resources` map is known after apply, with a warning.
+
+Two kinds of templates are not handled this way and need
+`diff_mode = "none"` or a chart change:
+
+- **Revision-dependent templates** (`.Release.Revision` in a pod annotation,
+  for example): every render of one plan agrees, but it renders the next
+  revision against the live one, so every plan shows a change and every
+  apply reinstalls the release and rolls its pods — it never converges.
+  `helm_release` (without its `manifest` experiment) does not compare
+  manifests and is not affected.
+- **Coarse-grained time** (`now | unixEpoch`, `now | date "2006-01-02"`): the
+  two renders of one plan usually agree, while the apply's re-plan, seconds
+  or minutes later, renders a different value — and the apply aborts. A
+  template that prints `now` itself (with nanoseconds) is handled as
+  volatile.
+
+`diff_mode = "none"` renders nothing at plan time, so neither affects it.
+The alternative is to make the chart deterministic: set generated values
+explicitly (an `existingSecret`, or a password from a `random_password`
+resource) or turn the feature off (a chart that stamps a deploy timestamp
+usually has a value that disables it).
+
+Workflows that refuse to apply a plan that differs from the reviewed one —
+a saved plan, Atlantis, `dflook/terraform-apply` comparing the plan with the
+one on the pull request — are blocked by any release whose plan text
+changes from one plan to the next, which is the coarse-grained-time case; one
+such release blocks the whole root module. Before migrating, check the
+charts' templates for `rand`, `uuid`, `gen`, `derivePassword`, `now`, `date`
+and `.Release.Revision`.
+
+A **replacement** (taint, `-replace`, a `name`/`namespace`/
+`release_storage_driver` change) of a chart whose templates read live
+cluster state with `lookup` — including a `lookup`-guarded generated
+password — is still affected: at plan time the old release's objects exist
+and the guard reuses their values, at apply time the destroy has removed
+them and the chart generates new ones, so the apply aborts after the
+uninstall (see [Known limitations](../KNOWN_LIMITATIONS.md)).
 
 ### Namespace lifecycle
 
