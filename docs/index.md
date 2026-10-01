@@ -79,7 +79,7 @@ resource "nelm_release" "example" {
   # ${path.module} makes the reference independent of the directory the
   # terraform CLI is invoked from (a bare relative path would resolve
   # against the CLI's working directory, not this module's).
-  chart     = "${path.module}/charts/example"
+  chart = "${path.module}/charts/example"
 
   values = [
     file("${path.module}/values.yaml")
