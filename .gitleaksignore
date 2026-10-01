@@ -6,6 +6,9 @@
 # "czNjcjN0LWZha2UtOWYyYw=="); see scripts/smoke/README.md. Fake values in
 # Go test files are marked inline with "gitleaks:allow" (and Postgres-URL
 # fixtures with "trufflehog:ignore") instead.
+#
+# These fingerprints carry line numbers: after regenerating or editing one of
+# the fixtures below, re-run "gitleaks dir ." and update the line numbers.
 internal/planconv/testdata/secrets/NOTES.md:generic-api-key:38
 internal/planconv/testdata/secrets/secret_after.raw.json:generic-api-key:4
 internal/planconv/testdata/secrets/secret_plan.decoded.json:generic-api-key:167
