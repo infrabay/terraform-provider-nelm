@@ -578,25 +578,46 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	// after the destroy finds no release and plans the known render, and
 	// Unknown to known is allowed. Under create_before_destroy both phases
 	// see the release and degrade alike, and Create refuses it
-	// (installGuardDiags, otherBackendDiags). The render above still ran: it
-	// is what fails a bad chart or bad values at plan time.
-	if createPlan && (planErr != nil || planRes.DeployType != nelmclient.DeployTypeInitial ||
-		r.releaseInOtherBackend(ctx, plan, readTimeout)) {
-		degradeDiffToUnknown(ctx, resp)
+	// (installGuardDiags, otherBackendDiags). A create whose other backend
+	// could not be read for a reason other than RBAC (releaseInOtherBackend)
+	// may or may not be live, so it degrades too. The render above still
+	// ran: it is what fails a bad chart or bad values at plan time.
+	if createPlan {
+		live := planErr != nil || planRes.DeployType != nelmclient.DeployTypeInitial
 
-		if !existingWarned {
-			resp.Diagnostics.AddWarning(
-				"nelm_release: this create's release is live, its resources are computed at apply",
-				fmt.Sprintf("Release %q has records in namespace %q while this plan creates nelm_release for it: "+
-					"the release this plan replaces (a tainted resource, -replace, a release_storage_driver change), "+
-					"one adopt_existing takes over, or one left behind by a failed or interrupted install. Templates "+
-					"that read live objects (lookup) render differently once a replacement's destroy has removed "+
-					"them, so \"resources\" is known after apply.",
-					name, ns),
-			)
+		var otherErr error
+		if !live {
+			live, otherErr = r.releaseInOtherBackend(ctx, plan, readTimeout)
 		}
 
-		return
+		if live || otherErr != nil {
+			degradeDiffToUnknown(ctx, resp)
+
+			switch {
+			case otherErr != nil:
+				resp.Diagnostics.AddWarning(
+					"nelm_release: could not check the other storage backend, this create's resources are computed at apply",
+					fmt.Sprintf("The records of release %q in namespace %q could not be read from the storage "+
+						"backend that release_storage_driver does not select, so this plan cannot tell whether a "+
+						"release this plan replaces (a release_storage_driver change) is still live there. Templates "+
+						"that read live objects (lookup) render differently once a replacement's destroy has removed "+
+						"them, so \"resources\" is known after apply.\n\n%s",
+						name, ns, otherErr),
+				)
+			case !existingWarned:
+				resp.Diagnostics.AddWarning(
+					"nelm_release: this create's release is live, its resources are computed at apply",
+					fmt.Sprintf("Release %q has records in namespace %q while this plan creates nelm_release for it: "+
+						"the release this plan replaces (a tainted resource, -replace, a release_storage_driver change), "+
+						"one adopt_existing takes over, or one left behind by a failed or interrupted install. Templates "+
+						"that read live objects (lookup) render differently once a replacement's destroy has removed "+
+						"them, so \"resources\" is known after apply.",
+						name, ns),
+				)
+			}
+
+			return
+		}
 	}
 
 	// 6d. A key set that may change before the apply phase cannot be

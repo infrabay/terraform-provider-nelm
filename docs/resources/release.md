@@ -307,7 +307,9 @@ correctly:
   and `metadata`) is known after apply instead, with a warning: a template
   that reads live objects with `lookup` renders differently once the
   replacement's destroy has removed them, and the apply's re-plan computes
-  the map after that destroy.
+  the map after that destroy. The same goes for a create whose plan cannot
+  read the other storage backend for a reason other than RBAC (a transient
+  API error): it cannot tell whether a release is live there.
 - The chart is rendered twice per plan; an object the two renders disagree
   on (random or time-based template functions) is handled as described in
   [Non-deterministic charts](#non-deterministic-charts).

@@ -126,15 +126,28 @@ func otherStorageDriver(driver string) string {
 // storage backend release_storage_driver does NOT select. On a create plan
 // that is the release a destroy-first release_storage_driver change
 // replaces, whose objects stay live until its destroy (ModifyPlan step 6c').
-// A read that fails, or that the credentials may not make, reports false:
-// ModifyPlan only uses the answer to plan more conservatively, and must not
-// degrade at the apply-time re-plan what the plan phase planned known.
-func (r *releaseResource) releaseInOtherBackend(ctx context.Context, plan releaseModel, timeout time.Duration) bool {
+//
+// A read the credentials may not make (RBAC that covers only the configured
+// backend) reports false: it is just as forbidden at the apply-time re-plan,
+// so the known map the plan phase plans on that answer is planned again.
+// Any other failed read is returned, and ModifyPlan plans the map Unknown:
+// a transient failure (a connection reset) says nothing about what the
+// re-plan's read will find, and if that read finds records there the re-plan
+// degrades to Unknown, which aborts the apply ("was known, but now unknown")
+// unless the plan phase was Unknown already; Unknown to known is allowed.
+func (r *releaseResource) releaseInOtherBackend(ctx context.Context, plan releaseModel, timeout time.Duration) (bool, error) {
 	other := otherStorageDriver(plan.ReleaseStorageDriver.ValueString())
 
 	h, err := r.client.History(ctx, plan.Name.ValueString(), plan.Namespace.ValueString(), other, timeout)
 
-	return err == nil && h.Exists()
+	switch {
+	case nelmclient.IsForbidden(err):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("%s storage backend: %w", other, err)
+	}
+
+	return h.Exists(), nil
 }
 
 // otherBackendDiags is the Create-side check installGuardDiags cannot make
