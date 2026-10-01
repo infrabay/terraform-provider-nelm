@@ -47,7 +47,11 @@ limitations, with workarounds; read it before migrating production
 releases.
 
 v1 of this provider ships exactly one resource, `nelm_release`. There is no
-`nelm_release` data source and no chart-repository data source in v1.
+`nelm_release` data source and no chart-repository data source in v1, and
+nothing like the `helm` provider's `helm_template` data source: keep
+`hashicorp/helm` in configurations that render charts with
+`data "helm_template"`. The two providers can be used side by side, and
+migrating `helm_release`s does not require removing the `helm` provider.
 
 ## Example Usage
 
@@ -125,8 +129,53 @@ client does not reliably use an external Docker credential helper (e.g.
 obtains a valid token yet the pull still returns `401`. Supplying a static
 username/password here (written to a private, per-operation Docker
 `config.json`) is what the `helm` provider's `registries` block does too, and it
-authenticates reliably. The access token is short-lived (~1h); because it comes
-from a data source it is refreshed on every `plan`/`apply`.
+authenticates reliably.
+
+The access token is short-lived (about an hour, often less from a CI
+runner's metadata server) and is **not refreshed** during a run: it is
+captured when `google_client_config` is read, at the start of the run, and a
+saved plan applied later uses the token captured when the plan was made. An
+apply that outlives the token (a long readiness wait, many releases), or a
+saved plan applied after it expired, fails mid-apply with `401
+Unauthorized`, for the cluster connection and for `registries` alike. A
+plan and apply in one short run, as most CI workflows do, is fine. For long
+applies or saved plans, connect with a kubeconfig whose user runs an exec
+plugin instead, which fetches a fresh token whenever one is needed:
+
+```hcl
+provider "nelm" {
+  kube_config_base64 = base64encode(yamlencode({
+    apiVersion      = "v1"
+    kind            = "Config"
+    current-context = "gke"
+    clusters = [{
+      name = "gke"
+      cluster = {
+        server                     = "https://${data.google_container_cluster.main.private_cluster_config[0].public_endpoint}"
+        certificate-authority-data = data.google_container_cluster.main.master_auth[0].cluster_ca_certificate
+      }
+    }]
+    users = [{
+      name = "gke"
+      user = {
+        exec = {
+          apiVersion         = "client.authentication.k8s.io/v1beta1"
+          command            = "gke-gcloud-auth-plugin"
+          provideClusterInfo = true
+        }
+      }
+    }]
+    contexts = [{ name = "gke", context = { cluster = "gke", user = "gke" } }]
+  }))
+}
+```
+
+`gke-gcloud-auth-plugin` must be on the `PATH` of the machine running
+Terraform. `registries` has no exec equivalent: a registry password from a
+data source is captured the same way, so a long apply can also fail pulling
+a chart once the token has expired. A longer-lived registry credential
+avoids that (for Artifact Registry, a service-account key with
+`username = "_json_key"`), at the cost of a key to manage.
 
 For the `helm` provider's settings and their `nelm` equivalents, see the
 provider-block mapping in the

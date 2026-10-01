@@ -41,9 +41,13 @@ computed from Nelm's own plan engine, not just "this release will change".
 
 ## Installation
 
-Releases are published to the
+Releases will be published to the
 [Terraform Registry](https://registry.terraform.io/providers/infrabay/nelm/latest)
-as `infrabay/nelm`. Declare the provider and run `terraform init`:
+as `infrabay/nelm`. None has been published yet: until the first one,
+`terraform init` installs the provider from a mirror, under the same
+address — see
+[Installing before the first Registry release](DEVELOPMENT.md#installing-before-the-first-registry-release).
+Declare the provider and run `terraform init`:
 
 ```hcl
 terraform {
@@ -86,7 +90,7 @@ pre-1.0, so read the release notes before moving to a new minor version.
 - [Migrating from `helm_release`](docs/guides/migrating-from-helm_release.md)
 - [Known limitations](docs/guides/known-limitations.md)
 
-The same pages are rendered on the Terraform Registry.
+The Terraform Registry will render the same pages.
 
 ## Development
 

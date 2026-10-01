@@ -35,6 +35,16 @@ before moving production releases.
   design. Inside a pod, pass `host` / `token` /
   `cluster_ca_certificate` explicitly.
 
+- **A token from a data source is not refreshed during a run.** A `token`
+  or `registries` password taken from `google_client_config` (or any data
+  source) is read once, when the run starts — a saved plan keeps the one it
+  was made with — so an apply that outlives the token (about an hour, often
+  less), or a saved plan applied after it expired, fails mid-apply with
+  `401 Unauthorized`. The `helm` and `kubernetes` providers behave the same.
+  For long applies or saved plans, connect with a kubeconfig whose user runs
+  an exec plugin (`gke-gcloud-auth-plugin`); see the
+  [GKE example](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/index.md#gke--a-private-oci-chart-google-artifact-registry).
+
 - **`terraform plan` writes to the cluster and needs write access.**
   Planning an existing release is not read-only. Nelm's plan runs a dry-run
   server-side apply of every existing object, which the API server

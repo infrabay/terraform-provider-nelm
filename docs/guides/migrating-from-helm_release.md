@@ -37,6 +37,9 @@ reinstalled.
   still in the state while Terraform plans the handover.
 - Configure the `nelm` provider for the same cluster (see
   [Provider configuration](#provider-configuration)).
+- Declare `nelm = { source = "infrabay/nelm" }` in `required_providers` in
+  **every** module that contains a `nelm_release`, not only in the root
+  module (see [Resources in modules](#resources-in-modules)).
 - Plan with credentials that may write to the cluster. Unlike
   `helm_release`'s, a `nelm_release` plan dry-runs a server-side apply of
   every object and can patch their `managedFields`, so a pipeline that plans
@@ -119,9 +122,33 @@ Then:
      `helm_release` last applied; fix the configuration first.
 2. `terraform apply`.
 3. Delete the `removed` and `import` blocks (they are one-shot), and drop
-   `hashicorp/helm` from `required_providers` once no `helm_release` is left.
+   `hashicorp/helm` from `required_providers` once no `helm_release` (and no
+   `helm_template` data source, which `nelm` has no counterpart of) is left.
 
-**Resources in modules.** Declare the blocks in the root module and use full
+### Resources in modules
+
+Every module that declares a `nelm_release` must name the provider's source
+in its own `required_providers`. A module without one gets away with
+`helm_release`, because Terraform infers `hashicorp/helm` from the type
+name; for `nelm_release` it infers `hashicorp/nelm`, which does not exist,
+and `terraform init` fails to find that provider:
+
+```hcl
+# modules/app/versions.tf
+terraform {
+  required_providers {
+    nelm = {
+      source = "infrabay/nelm"
+    }
+  }
+}
+```
+
+The root module's `provider "nelm"` block reaches the module as its default
+`nelm` provider, or explicitly through `providers = { nelm = nelm.<alias> }`
+on the module call.
+
+Declare the `removed` and `import` blocks in the root module and use full
 addresses: `from = module.app.helm_release.this`,
 `to = module.app.nelm_release.this`. A `removed` block takes no instance keys
 and covers every instance of the resource (all `count`/`for_each` instances,

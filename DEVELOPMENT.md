@@ -1,7 +1,9 @@
 # Developing terraform-provider-nelm
 
 This page is for contributors. To use the provider, install it from the
-Terraform Registry as the [README](README.md#installation) shows.
+Terraform Registry as the [README](README.md#installation) shows — until the
+first release is published, from a mirror (see
+[Installing before the first Registry release](#installing-before-the-first-registry-release)).
 
 Local iteration uses Terraform's `dev_overrides` mechanism with a locally
 built binary (no `terraform init`), the real Nelm Go library, and — for
@@ -167,6 +169,58 @@ One-time setup for the Terraform Registry:
 4. Sign in to the Registry with GitHub and publish the provider from this
    repository. The Registry adds a webhook that picks up every later
    release.
+
+## Installing before the first Registry release
+
+No release has been published yet — the repository is private, and the
+public Registry only serves public repositories — so `terraform init`
+cannot download `infrabay/nelm` from `registry.terraform.io`. Until it can,
+install the provider from a mirror. A mirror serves the provider under its
+own address, `registry.terraform.io/infrabay/nelm`, so configurations, lock
+files and state need no change once the Registry serves it:
+
+1. Get the release archives: push a `vX.Y.Z` tag (the release workflow
+   attaches `terraform-provider-nelm_X.Y.Z_<os>_<arch>.zip` to a GitHub
+   release, in a private repository too).
+2. Put the archive of every platform Terraform runs on into a filesystem
+   mirror (the packed layout):
+
+   ```
+   <mirror>/registry.terraform.io/infrabay/nelm/terraform-provider-nelm_X.Y.Z_linux_amd64.zip
+   ```
+
+   and point Terraform at it with a CLI configuration file named by
+   `TF_CLI_CONFIG_FILE`:
+
+   ```hcl
+   provider_installation {
+     filesystem_mirror {
+       path    = "/path/to/mirror"
+       include = ["registry.terraform.io/infrabay/nelm"]
+     }
+     direct {
+       exclude = ["registry.terraform.io/infrabay/nelm"]
+     }
+   }
+   ```
+
+   In CI the mirror can live in the repository that runs Terraform, with
+   `TF_CLI_CONFIG_FILE` set to a path inside the checkout. A
+   `network_mirror` — an HTTPS server or bucket serving
+   the
+   [provider network mirror protocol](https://developer.hashicorp.com/terraform/internals/provider-network-mirror-protocol)'s
+   `index.json` and `X.Y.Z.json` next to the archives — works the same way;
+   Terraform authenticates to it with that host's `TF_TOKEN_<host>`
+   credentials.
+3. Record the hashes of every platform in `.terraform.lock.hcl`:
+   `terraform providers lock -fs-mirror=/path/to/mirror -platform=linux_amd64 -platform=darwin_arm64`.
+
+Mirror the tagged release's archives, not a snapshot build: the Registry
+later serves the same files, so the lock files stay valid when the mirror
+is removed. An HCP Terraform private registry works too, but under another
+address (`app.terraform.io/<organization>/nelm`), which
+`terraform state replace-provider` then has to change in every state when
+moving to the public Registry.
 
 ## Nelm source reference
 
