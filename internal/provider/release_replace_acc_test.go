@@ -65,7 +65,7 @@ func TestAccReleaseResource_createRefusesExistingRelease(t *testing.T) {
 			{
 				PreConfig:   func() { helmInstallOOB(t, namespace, name, chart) },
 				Config:      releaseConfig(name, namespace, chart, ""),
-				ExpectError: regexp.MustCompile(`already exists`),
+				ExpectError: regexp.MustCompile(`nelm\s+release\s+\S+\s+already\s+exists`),
 			},
 			{
 				PreConfig: func() { assertReleaseStored(t, namespace, name) },
@@ -201,7 +201,7 @@ func TestAccReleaseResource_createBeforeDestroyFailsSafe(t *testing.T) {
 			{
 				Config:      cbd,
 				Taint:       []string{resourceAddr},
-				ExpectError: regexp.MustCompile(`already exists`),
+				ExpectError: regexp.MustCompile(`nelm\s+release\s+\S+\s+already\s+exists`),
 			},
 			{
 				// Still installed; without create_before_destroy the (still

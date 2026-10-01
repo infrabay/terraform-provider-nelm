@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -284,12 +285,10 @@ func helmInstallOOB(t *testing.T, namespace, name, chartDir string) {
 // release secret + namespace are gone (delete the namespace in CheckDestroy
 // since nelm Uninstall leaves it)":
 //
-//  1. Assert no release-storage Secret remains (label selector
-//     "owner=helm,name=<name>" -- the same convention nelm's vendored helm
-//     v3 storage/driver/secrets.go uses, regardless of "secret" vs "secrets"
-//     release_storage_driver spelling). A lookup error here (e.g. the
-//     namespace is already gone) is treated as "no secrets left", not a
-//     failure.
+//  1. Assert no release record remains in either storage backend
+//     (releaseRecordsLeft): a release that moved to release_storage_driver
+//     = "configmap" leaves ConfigMaps, not Secrets, and the namespace
+//     deletion below would hide them.
 //  2. Delete the namespace -- ReleaseUninstall always runs with
 //     DeleteReleaseNamespace:false (design §2.3), so nothing else will ever
 //     clean this up -- and confirm it is actually gone afterwards, so a
@@ -297,10 +296,8 @@ func helmInstallOOB(t *testing.T, namespace, name, chartDir string) {
 //     leaking silently.
 func testAccCheckReleaseDestroyed(namespace, name string) resource.TestCheckFunc {
 	return func(_ *terraform.State) error {
-		if out, err := kubectl("get", "secret", "-n", namespace, "-l", fmt.Sprintf("owner=helm,name=%s", name), "-o", "name"); err == nil {
-			if s := strings.TrimSpace(out); s != "" {
-				return fmt.Errorf("nelm_release CheckDestroy: release secret(s) for %s/%s still exist after destroy:\n%s", namespace, name, s)
-			}
+		if left := releaseRecordsLeft(kubectl, namespace, name); len(left) > 0 {
+			return fmt.Errorf("nelm_release CheckDestroy: release record(s) for %s/%s still exist after destroy:\n%s", namespace, name, strings.Join(left, "\n"))
 		}
 
 		if out, err := kubectl("delete", "namespace", namespace, "--ignore-not-found", "--wait=true", "--timeout=180s"); err != nil {
@@ -312,6 +309,78 @@ func testAccCheckReleaseDestroyed(namespace, name string) resource.TestCheckFunc
 		}
 
 		return nil
+	}
+}
+
+// releaseRecordsLeft lists, through get (kubectl), the release records left
+// for release name in namespace in both storage backends: the Secrets and
+// the ConfigMaps labeled "owner=helm,name=<name>", the convention nelm's
+// vendored helm v3 storage/driver/secrets.go and cfgmaps.go share whatever
+// release_storage_driver spelling selected them. A lookup error (e.g. the
+// namespace is already gone) counts as no records left, not a failure.
+func releaseRecordsLeft(get func(args ...string) (string, error), namespace, name string) []string {
+	var left []string
+
+	for _, kind := range []string{"secret", "configmap"} {
+		out, err := get("get", kind, "-n", namespace, "-l", fmt.Sprintf("owner=helm,name=%s", name), "-o", "name")
+		if err != nil {
+			continue
+		}
+
+		if s := strings.TrimSpace(out); s != "" {
+			left = append(left, s)
+		}
+	}
+
+	return left
+}
+
+// TestReleaseRecordsLeft is the offline test of the CheckDestroy lookup: a
+// release record left in either backend must fail it.
+func TestReleaseRecordsLeft(t *testing.T) {
+	const (
+		secretRecord    = "secret/sh.helm.release.v1.my-release.v1"
+		configMapRecord = "configmap/sh.helm.release.v1.my-release.v2"
+	)
+
+	tests := map[string]struct {
+		records map[string]string
+		errs    map[string]error
+		want    []string
+	}{
+		"none left":        {},
+		"secret left":      {records: map[string]string{"secret": secretRecord + "\n"}, want: []string{secretRecord}},
+		"configmap left":   {records: map[string]string{"configmap": configMapRecord + "\n"}, want: []string{configMapRecord}},
+		"both left":        {records: map[string]string{"secret": secretRecord, "configmap": configMapRecord}, want: []string{secretRecord, configMapRecord}},
+		"namespace gone":   {errs: map[string]error{"secret": errors.New("not found"), "configmap": errors.New("not found")}},
+		"one lookup fails": {records: map[string]string{"configmap": configMapRecord}, errs: map[string]error{"secret": errors.New("timeout")}, want: []string{configMapRecord}},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			var calls [][]string
+
+			get := func(args ...string) (string, error) {
+				calls = append(calls, args)
+				kind := args[1]
+
+				return tt.records[kind], tt.errs[kind]
+			}
+
+			if got := releaseRecordsLeft(get, "ns-1", "my-release"); !slices.Equal(got, tt.want) {
+				t.Errorf("releaseRecordsLeft = %q, want %q", got, tt.want)
+			}
+
+			for _, args := range calls {
+				if want := []string{"get", args[1], "-n", "ns-1", "-l", "owner=helm,name=my-release", "-o", "name"}; !slices.Equal(args, want) {
+					t.Errorf("lookup args = %q, want %q", args, want)
+				}
+			}
+
+			if len(calls) != 2 || calls[0][1] != "secret" || calls[1][1] != "configmap" {
+				t.Errorf("lookups = %q, want one per backend (secret, configmap)", calls)
+			}
+		})
 	}
 }
 

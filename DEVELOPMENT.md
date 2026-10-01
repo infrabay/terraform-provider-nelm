@@ -181,7 +181,12 @@ files and state need no change once the Registry serves it:
 
 1. Get the release archives: push a `vX.Y.Z` tag (the release workflow
    attaches `terraform-provider-nelm_X.Y.Z_<os>_<arch>.zip` to a GitHub
-   release, in a private repository too).
+   release, in a private repository too). The workflow signs `SHA256SUMS`
+   and fails at its GPG import step without the `GPG_PRIVATE_KEY` and
+   `PASSPHRASE` secrets, so create the key and those secrets (item 2 of the
+   one-time setup above) before pushing the tag, even while the repository
+   is private; registering the key with the Registry, and the other
+   Registry items, can wait.
 2. Put the archive of every platform Terraform runs on into a filesystem
    mirror (the packed layout):
 
