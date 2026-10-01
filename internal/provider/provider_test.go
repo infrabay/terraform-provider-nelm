@@ -3,7 +3,7 @@ package provider_test
 // provider_test.go is the acceptance-test HARNESS. release_resource_test.go
 // (same package) and the other *_acc_test.go files hold the actual scenario
 // Test functions; everything below is shared plumbing: the protocol-v6
-// provider factory, the triple orbstack safety guard, and small kubectl/helm
+// provider factory, the triple cluster-safety guard, and small kubectl/helm
 // helpers the scenarios use to create out-of-band drift/fixtures and to clean
 // up after themselves.
 //
@@ -56,9 +56,10 @@ var testAccProtoV6ProviderFactories = map[string]func() (tfprotov6.ProviderServe
 }
 
 // testKubeContext returns the kubeconfig context name this suite is pinned
-// to: the value of NELM_TEST_KUBE_CONTEXT. Empty means "not opted in" and
-// testAccPreCheck hard-fails. "orbstack" locally (the GNUmakefile default),
-// "kind-nelm-acc" in the CI kind job.
+// to: the value of NELM_TEST_KUBE_CONTEXT ("kind-nelm-acc" via the
+// GNUmakefile default, as in CI; any other local context such as "orbstack"
+// works too). Empty means "not opted in" and testAccPreCheck hard-fails: the
+// Go code itself deliberately has no default.
 func testKubeContext() string {
 	return os.Getenv("NELM_TEST_KUBE_CONTEXT")
 }
@@ -113,7 +114,7 @@ func testAccPreCheck(t *testing.T) {
 			"nelm_release acceptance tests require NELM_TEST_KUBE_CONTEXT=<local kube context> as an " +
 				"explicit opt-in pin (safety guard against accidentally running against this machine's " +
 				"actual kubeconfig current-context, which may be a production cluster); e.g. " +
-				"NELM_TEST_KUBE_CONTEXT=orbstack locally or kind-nelm-acc in CI",
+				"NELM_TEST_KUBE_CONTEXT=kind-nelm-acc",
 		)
 	}
 
@@ -201,7 +202,7 @@ func chartPath(t *testing.T) string {
 // uniqueNamespace returns a namespace name of the form "tfnelm-acc-<tag>-<ts>"
 // -- unique per test run, short enough to stay well under Kubernetes' 63-char
 // limit, and immediately recognizable as an acceptance-test artifact on the
-// orbstack cluster if cleanup is ever interrupted (e.g. by a panic).
+// test cluster if cleanup is ever interrupted (e.g. by a panic).
 func uniqueNamespace(tag string) string {
 	return fmt.Sprintf("tfnelm-acc-%s-%d", tag, time.Now().UnixNano())
 }
