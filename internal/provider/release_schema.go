@@ -114,8 +114,10 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 			},
 			"version": schema.StringAttribute{
 				Optional: true,
-				Description: "Chart version constraint. If omitted, the latest version is used; the " +
-					"resolved version surfaces in metadata.chart_version.",
+				Description: "Chart version constraint. If omitted, the latest version is used, resolved " +
+					"again by every plan and apply; the resolved version surfaces in " +
+					"metadata.chart_version. Pin it for charts from a repository or registry: unset, every " +
+					"new upstream chart release becomes an upgrade at the next apply.",
 			},
 			"values": schema.ListAttribute{
 				ElementType: types.StringType,
@@ -204,7 +206,10 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 				Computed: true,
 				Default:  booldefault.StaticBool(false),
 				Description: `Skip installing CustomResourceDefinitions from the chart's "crds/" ` +
-					`directory.`,
+					`directory. Unlike helm_release, which only creates missing ones, Nelm server-side ` +
+					`applies them with force on every install and upgrade, overwriting existing CRDs; set ` +
+					`this where the CRDs are managed elsewhere (they must then exist before the first ` +
+					`install).`,
 			},
 			"adopt_existing": schema.BoolAttribute{
 				Optional: true,
@@ -256,7 +261,10 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 					`switch would install into an empty new backend and orphan the old release records. ` +
 					`RequiresReplace makes destroy use the OLD backend and create use the new one; apply ` +
 					`it destroy-first, since under create_before_destroy Create refuses to install while ` +
-					`the release is still deployed in the old backend.`,
+					`the release is still deployed in the old backend. A change between two spellings of ` +
+					`the same backend ("secret"/"secrets") is a replacement too; import records "secret". ` +
+					`ConfigMap release records (values, set_sensitive included, and rendered Secrets) are ` +
+					`readable by anyone who may read ConfigMaps in the namespace.`,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
@@ -272,9 +280,10 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 			"status": schema.StringAttribute{
 				Computed: true,
 				Description: "Release status as reported by the cluster (ReleaseGet). Unknown " +
-					"whenever the release will be re-installed: a create, out-of-band drift, or any " +
-					"change to chart/version/values/set/set_sensitive/repository (even one that " +
-					"renders no manifest change, since Nelm still bumps the revision then).",
+					"whenever the release will be re-installed: a create, a release that is not " +
+					"deployed, out-of-band drift, or a change to any argument that does not force " +
+					"replacement (timeouts included). Every such in-place update runs Nelm's install, " +
+					"which can bump the revision and re-run upgrade hooks even when no manifest changes.",
 			},
 			"revision": schema.Int64Attribute{
 				Computed:    true,
@@ -327,8 +336,9 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 				Update:            true,
 				Delete:            true,
 				CreateDescription: "Timeout for the install action backing Create. Defaults to 10m.",
-				ReadDescription: "Timeout bounding ReleaseGet during Read AND the ReleasePlanInstall " +
-					"call inside ModifyPlan. Defaults to 5m.",
+				ReadDescription: "Timeout for each read-side step, bounded separately: Read's ReleaseGet " +
+					"and live-object reads, ModifyPlan's ReleasePlanInstall and each ChartRender, and the " +
+					"history read before and the read-back after an install. Defaults to 5m.",
 				UpdateDescription: "Timeout for the install action backing Update. Defaults to 10m.",
 				DeleteDescription: "Timeout for the uninstall action backing Delete. Defaults to 5m.",
 			}),

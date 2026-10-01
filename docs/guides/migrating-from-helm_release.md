@@ -37,6 +37,33 @@ reinstalled.
   still in the state while Terraform plans the handover.
 - Configure the `nelm` provider for the same cluster (see
   [Provider configuration](#provider-configuration)).
+- Plan with credentials that may write to the cluster. Unlike
+  `helm_release`'s, a `nelm_release` plan dry-runs a server-side apply of
+  every object and can patch their `managedFields`, so a pipeline that plans
+  with a read-only identity needs write access for its plans too (see
+  [Cluster permissions](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/index.md#cluster-permissions)).
+
+## Check the charts first
+
+`nelm_release` diffs every rendered object against the cluster and applies
+charts with Nelm, so a few chart patterns behave differently from
+`helm_release`. Before moving a release, check its chart for:
+
+- **Templates that render a new value every time** (`randAlphaNum`, `genCA`,
+  `now`, `.Release.Revision`): see
+  [Non-deterministic charts](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#non-deterministic-charts).
+- **Fields a controller owns** — `replicas` rendered unconditionally next to
+  an autoscaler, a webhook `caBundle` that an injector fills in: every plan
+  shows them as drift and every apply resets them (see
+  [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#drift-and-out-of-band-changes)).
+- **A `crds/` directory**: Nelm updates those CRDs on every install, where
+  Helm only created them; set `no_install_crds = true` where the CRDs are
+  managed elsewhere (see
+  [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#chart-versions-and-crds)).
+- **Size**: a large chart's handover plan prints every object, megabytes for
+  charts with many CRDs. Move large releases one per change, and review the
+  full plan rather than a size-capped pull-request comment (see
+  [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#plan-size)).
 
 ## The one-apply recipe
 
@@ -196,7 +223,7 @@ instead; the chart renders the same objects either way. See
 | `set`, `set_sensitive` | `set`, `set_sensitive` | Same `{ name, value, type }` objects; `type` also accepts `"json"`. |
 | `set_list`, `set_wo` | — | Express them in `values` (or `set` with `type = "json"`). |
 | `max_history` | `release_history_limit` | Not the same default — see [History limit](#history-limit). |
-| `timeout` (seconds) | `timeouts { create, update, delete }` | Go durations, e.g. `"600s"` or `"10m"`. |
+| `timeout` (seconds), `timeouts = { ... }` | `timeouts { create, update, delete }` | A block, written without `=`; Go durations, e.g. `"600s"` or `"10m"`. |
 | `atomic` | `auto_rollback` | Covers only part of `atomic`: no rollback when `timeouts` expires, and a failed first install is not uninstalled — see [`auto_rollback` vs `helm_release`'s `atomic`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#auto_rollback-vs-helm_releases-atomic). |
 | `skip_crds` | `no_install_crds` | |
 | `take_ownership` | `force_adoption` | |
@@ -205,8 +232,8 @@ instead; the chart renders the same objects either way. See
 | `wait` | `wait` | Same default (`true`), but Nelm's readiness tracking is stricter, and `wait = false` still waits for what later deploy steps depend on — see [Readiness tracking and `wait`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#readiness-tracking-and-wait). Size `timeouts` accordingly. |
 | `wait_for_jobs` | — | With `wait = true` Nelm always waits for non-hook Jobs to complete. |
 | `force_update`, `recreate_pods`, `reset_values`, `reuse_values`, `cleanup_on_fail`, `replace`, `disable_webhooks`, `disable_crd_hooks`, `disable_openapi_validation`, `render_subchart_notes`, `dependency_update`, `devel`, `verify`, `keyring`, `lint`, `description`, `pass_credentials`, `postrender`, `repository_username`/`repository_password`/`repository_*_file` | — | Not supported. |
-| `id` (`<name>`) | `id` (`<namespace>/<name>`) | Rewire references that use the id. |
-| `metadata` | `metadata` (`app_version`, `chart_name`, `chart_version`, `values_json`), `revision`, `status` | `helm_release`'s `metadata.revision`/`notes`/`values` have no 1:1 counterpart. |
+| `id` (`<name>`) | `id` (`<namespace>/<name>`) | Rewire references that use the id. A resource that uses it as a replacement trigger (`terraform_data`'s `triggers_replace`, `null_resource`'s `triggers`) is replaced once. |
+| `metadata` | `metadata` (`app_version`, `chart_name`, `chart_version`, `values_json`), `name`, `namespace`, `revision`, `status` | `metadata.name`, `namespace` and `revision` are top-level attributes; `metadata.chart` and `version` are `metadata.chart_name` and `chart_version`. `metadata.values_json` holds the coalesced values (chart defaults included, not just the user-supplied `metadata.values`) and is sensitive, so an output of it needs `sensitive = true`. `metadata.notes`, `first_deployed` and `last_deployed` have no counterpart. |
 | `manifest` | `resources` | One canonical, redacted JSON per object. |
 
 ## Provider configuration
@@ -260,7 +287,9 @@ to run**: a hook without a `helm.sh/hook-delete-policy` (or with
 `before-hook-creation`) is re-created, so `pre-upgrade`/`post-upgrade` Jobs
 — admission-webhook certificate patch Jobs, database migrations — run
 again, exactly as they would on a `helm upgrade`. Plan the migration window
-accordingly.
+accordingly. If the chart has a `crds/` directory, the apply also updates
+those CRDs to the chart's copies for the first time since `helm_release`
+created them (unless `no_install_crds = true`).
 
 ## History limit
 
@@ -274,11 +303,19 @@ the limit, and pruned revisions cannot be recovered. Set
 
 ## Release storage driver
 
-`terraform import` and the `moved` block assume the default `secret`
-storage driver. Releases that were installed with `HELM_DRIVER=configmap`
-(or the `helm` provider's `helm_driver = "configmap"`) are not found that
-way; see the resource docs and [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md)
-for their status.
+`terraform import` and the `moved` block record the default `secret`
+storage driver, so a release installed with `HELM_DRIVER=configmap` (or the
+`helm` provider's `helm_driver = "configmap"`) is not found that way: the
+import fails with `Cannot import non-existent remote object`, and a moved
+release drops out of the state at the refresh and is planned as a new
+resource. Take such a release over without an import: keep the `removed`
+block, and give the new `nelm_release`
+`release_storage_driver = "configmap"` and `adopt_existing = true` for that
+one apply. Its plan is a create, so it shows the chart's full render instead
+of a diff against the live objects; the apply upgrades the existing release
+in place. Remove `adopt_existing` afterwards. ConfigMap release records, values included,
+can be read with the built-in `view` role; see
+[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#storage-driver-and-import).
 
 ## Field managers
 
@@ -299,6 +336,24 @@ One default differs: with `no_remove_manual_changes = false`, fields added
 with `kubectl edit` are removed by the next update, which `helm_release`
 kept. Decide before the first plan; see
 [Fields added out of band](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#fields-added-out-of-band).
+
+## After the migration
+
+- **Make hotfixes through Terraform.** An out-of-band
+  `helm upgrade --reuse-values`, `helm rollback` or `kubectl set image` on a
+  migrated release is drift: the next apply of the root module reverts it,
+  whatever that apply is for. Under `helm_release`, a successful hotfix that
+  kept the chart version survived until the release's own configuration
+  changed. Put on-call fixes into the configuration, or hold applies of that
+  root module until they are (see
+  [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#drift-and-out-of-band-changes)).
+- **`helm history` reads differently.** Revisions Nelm writes have an empty
+  DESCRIPTION, and a superseded revision's UPDATED time is when the next
+  revision finished; pick rollback targets by REVISION, CHART and APP
+  VERSION (see [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#release-history)).
+- **Nelm leaves a lock ConfigMap**, `werf-synchronization`, in each release
+  namespace. If you move a release back to `helm_release`, delete it once no
+  `nelm_release` is left in that namespace.
 
 ## If something goes wrong
 

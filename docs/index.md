@@ -9,10 +9,11 @@ description: |-
 The `nelm` provider manages Helm-chart-based releases on a Kubernetes cluster
 through the [Nelm](https://github.com/werf/nelm) Go library — not the `helm`
 CLI, and not the werf CLI. It calls Nelm's `action` package directly
-in-process (`action.ReleasePlanInstall` for diffs, `action.ReleaseInstall`
-for apply, `action.ReleaseUninstall` for destroy, `action.ReleaseGet` for
-refresh), so every plan and apply speaks Nelm's own rendering, ordering, and
-resource-tracking logic rather than shelling out.
+in-process (`action.ReleasePlanInstall` and `action.ChartRender` for diffs,
+`action.ReleaseInstall` for apply, `action.ReleaseUninstall` for destroy,
+`action.ReleaseGet` for refresh), so every plan and apply speaks Nelm's
+own rendering, ordering, and resource-tracking logic rather than shelling
+out.
 
 Nelm is a drop-in-compatible successor to Helm 3: release storage uses the
 same Secret/ConfigMap format Helm writes (`sh.helm.release.v1.<name>.v<rev>`
@@ -28,9 +29,12 @@ how field ownership is handed over, and the one default that differs
 the next update).
 
 Unlike `helm_release`, every plan renders the chart and shows each object's
-changes and out-of-band drift. `Secret` data and `set_sensitive` values are
-redacted from that diff, but a secret passed through `values` or `set` is
-shown wherever the chart renders it outside a `Secret` — see
+changes and out-of-band drift, and an apply reverts that drift: an
+out-of-band hotfix (`helm upgrade --reuse-values`, `helm rollback`,
+`kubectl set image`) lasts only until the next apply of the root module.
+`Secret` data and `set_sensitive` values are redacted from that diff, but a
+secret passed through `values` or `set` is shown wherever the chart renders
+it outside a `Secret` — see
 [Sensitive values in non-`Secret` resources](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#sensitive-values-in-non-secret-resources).
 Charts whose templates generate random or time-based values are handled, but
 a few template patterns can never converge or abort the apply; check
@@ -252,6 +256,21 @@ The provider never contacts any cluster while its configuration is unknown.
 Data sources whose inputs are known and that have no such `depends_on` (e.g.
 `google_client_config`, or `google_container_cluster` looked up by a known
 name) are read during plan and are not affected.
+
+## Cluster permissions
+
+The credentials the provider uses need the access `helm upgrade` needs for
+the release: every kind the chart renders, and the release-storage Secrets
+(or ConfigMaps) in the release namespace. **`terraform plan` needs the same
+write access**: Nelm's plan runs a dry-run server-side apply of every
+existing object, which the API server authorizes like a real `patch`, and
+it can fix up objects' `managedFields` with a real patch (see
+[`managedFields` and `terraform plan`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#managedfields-and-terraform-plan)).
+With read-only plan credentials, plans fail or lose the API server's
+validation. Nelm also gets, creates and updates a lock ConfigMap named
+`werf-synchronization` in every release namespace, whatever the storage
+driver. See
+[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#provider-configuration-and-cluster-access).
 
 ## Nelm feature gates
 

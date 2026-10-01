@@ -7,20 +7,14 @@ description: |-
 
 # Known limitations
 
-This is a young (v0.x) provider. The items below are known, mostly narrow,
-correctness/UX limitations surfaced by five rounds of adversarial code review
-(three model families plus two independent CLI-agent passes). Each notes the
-impact and the intended direction for v1.0. Everything the reviews rated
-higher-severity has been fixed in code, except the `auto_rollback`-on-timeout
-gap (see "Readiness tracking" below), which is documented until the
-provider-side rollback lands. Most notably, the planned side of the
-`resources` diff for *updated* resources is now taken from the chart's own
-client render (`nelm`'s chart-render machinery) rather than reconstructed
-from the server's dry-run merge — after review demonstrated that no heuristic
-over (dry-run result, live object, stored state) can reliably separate
-chart-managed fields from live ones.
+`nelm_release` is a young (v0.x) resource. This page lists its known
+limitations and the differences from `hashicorp/helm`'s `helm_release` that
+matter in production, each with its impact and a workaround where there is
+one. Read it together with
+[Migrating from `helm_release`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md)
+before moving production releases.
 
-## Provider configuration
+## Provider configuration and cluster access
 
 - **A provider configuration that is unknown at plan time only works for new
   releases.** When `host` (or any provider attribute) depends on something
@@ -40,6 +34,103 @@ chart-managed fields from live ones.
   `helm` provider); a configuration that names no cluster is an error by
   design. Inside a pod, pass `host` / `token` /
   `cluster_ca_certificate` explicitly.
+
+- **`terraform plan` writes to the cluster and needs write access.**
+  Planning an existing release is not read-only. Nelm's plan runs a dry-run
+  server-side apply of every existing object, which the API server
+  authorizes like a real `patch`, and before that it rewrites some objects'
+  `metadata.managedFields` with a real (not dry-run) patch: on the first
+  plan of a release last written by the Helm 3 CLI, and whenever another
+  field manager co-owns fields Nelm's own manager owns (see
+  [`managedFields` and `terraform plan`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#managedfields-and-terraform-plan)).
+  That patch changes only metadata (no rollout) and does not show in the
+  plan. The credentials `terraform plan` uses therefore need `get`, `list`
+  and `patch` on every kind the chart renders, and read access to the
+  release's storage Secrets (or ConfigMaps), like the apply's. With a
+  read-only plan identity the plan fails on such a patch (`cannot patch`),
+  or warns `blind apply` for each object it may not dry-run and plans it
+  without the API server's validation. `helm_release` (without its
+  `manifest` experiment) plans with read access only. Plan and apply with
+  the same writer identity.
+
+- **Nelm keeps a lock ConfigMap in every release namespace.** Every apply
+  and destroy gets or creates an unlabelled ConfigMap named
+  `werf-synchronization` in the release namespace and keeps per-release
+  lease locks in its annotations (`lockgate.io/<hash>`); every Nelm or werf
+  release in that namespace shares it. The provider therefore needs `get`,
+  `create` and `update` on ConfigMaps in each release namespace even with
+  `release_storage_driver = "secret"`, and an admission policy that requires
+  labels on ConfigMaps must exempt it, or every apply fails with
+  `unable to prepare kubernetes cm/werf-synchronization`.
+  `terraform destroy` leaves it in place (and creates it if it is missing);
+  Helm and `helm_release` ignore it. Delete it by hand only when no `nelm_release`
+  (and no Nelm or werf CLI user) is left in the namespace. Upstream in Nelm.
+
+## Drift and out-of-band changes
+
+- **A field a controller owns that the chart also renders makes every plan
+  an update.** When a chart renders a field that a controller or operator
+  then changes — `replicas` rendered unconditionally next to a
+  HorizontalPodAutoscaler or a KEDA `ScaledObject`, a webhook `caBundle`
+  (often rendered empty) that an injector fills in, an image tag an image
+  updater rewrites — the live value differs from the chart's on every
+  refresh. Every plan then shows that object changing (e.g. `replicas`
+  `7` -> `2`), and every apply of the root module, including one made for an
+  unrelated change, runs Nelm's install: it resets the field (scaling the
+  Deployment down until the autoscaler scales it up again, or blanking the
+  CA until it is injected again), creates a new release revision (pushing
+  older ones out of the history limit) and runs the chart's upgrade hooks,
+  which `resources` does not show. The plan does not converge while the
+  controller keeps changing the field. `helm_release` (without its
+  `manifest` experiment) does not compare live objects and plans nothing.
+  `lifecycle { ignore_changes = [resources] }` has no effect: `resources`
+  is computed, and Terraform reports the entry as redundant. Workarounds:
+  stop the chart from rendering the field while a controller owns it (most
+  charts guard `replicas` with their autoscaling value), or set
+  `diff_mode = "none"` on the release, which plans like `helm_release`: no
+  object diff and no drift detection, and an install only when the
+  release's inputs change.
+
+- **Out-of-band hotfixes are reverted by the next apply.** Any out-of-band
+  change to a field the chart renders —
+  `helm upgrade --reuse-values --set image.tag=...`, `helm rollback`,
+  `kubectl set image`, `kubectl scale`, `kubectl edit` — is drift: the next
+  plan shows the release changing, and the next apply of the root module,
+  whatever change it is made for, re-installs the configured chart and
+  values and so reverts the hotfix.
+  `helm_release` (without its `manifest` experiment) keeps a successful
+  hotfix or rollback that did not change the chart version until its own
+  configuration changes, and then reverts it without showing it. Make
+  on-call fixes through Terraform, or mirror them into the configuration
+  before the next apply of that root module, and read the `resources` diff
+  of releases nobody meant to change. `ignore_changes` has no effect here
+  either; `diff_mode = "none"` restores `helm_release`'s behavior for a
+  release.
+
+- **Changes that render the same objects can plan nothing.** A plan updates
+  a release when one of its arguments changes or an object the chart renders
+  differs from the live one. A change confined to what only the release
+  record holds — hooks, `NOTES.txt`, values that only hooks or notes use —
+  passes neither check:
+  - editing a local chart's hooks or `NOTES.txt` without changing any
+    argument (same chart path, same `version`) gives an empty plan, and the
+    change reaches the cluster only with the next update made for another
+    reason;
+  - an out-of-band `helm upgrade` or `helm rollback` confined to those parts,
+    or to the chart version of a chart that does not stamp its version into
+    labels, gives an empty plan too: the refresh records the new revision's
+    `metadata.chart_version` and `values_json` without planning a change, so
+    the configured chart is not applied again until something else changes
+    (`helm_release` catches the chart-version case as a `version` change).
+    Undo such a change with `helm rollback` to the revision Terraform
+    applied, or apply the configuration again through any in-place change
+    of the release (its `timeouts`, for example).
+
+  A failed or pending release is not affected: it always re-plans as an
+  update until it is deployed (though the apply refuses to run over a
+  pending revision until it is stale, see
+  [Release lifecycle](#release-lifecycle)). A fix depends on surfacing
+  Nelm's own "release up to date" signal.
 
 ## Diff surface (`resources`)
 
@@ -66,8 +157,8 @@ chart-managed fields from live ones.
   differently at apply, which aborts the apply with "Provider produced
   inconsistent final plan". Use `diff_mode = "none"` for those (no object
   diff and no drift detection for that release, like `helm_release`), or
-  make the chart deterministic. See "Non-deterministic charts" in the
-  resource docs.
+  make the chart deterministic. See
+  [Non-deterministic charts](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#non-deterministic-charts).
 
 - **Kinds the cluster does not serve at plan time.** When a chart renders
   objects of a kind that is not served yet and whose
@@ -89,6 +180,15 @@ chart-managed fields from live ones.
   `autoscaling/v1` → `v2`) leaves the old versioned map key in state for one
   refresh cycle; the next `Read` rebuilds the map from live refs and it
   clears. Cosmetic, self-healing.
+
+- **`werf.io/resource-policy` skip policies are invisible in the diff.**
+  Since Nelm 1.26, a resource annotated with a `skip-create`, `skip-update`
+  or `skip-recreate` policy gets no planned change, so `resources` keeps its
+  prior/live entry and a chart change to it is not shown; the apply leaves
+  the object untouched. A `keep` / `skip-delete` resource removed from the
+  chart, or left behind by a destroy, stays in the cluster (as with
+  `helm.sh/resource-policy: keep`); its key stays in state until the next
+  refresh drops it. An invalid policy value fails the plan.
 
 - **Secret redaction placeholders embed a truncated unsalted SHA-256 and the
   value's byte length.** This holds for `Secret` data and for scrubbed
@@ -118,18 +218,73 @@ chart-managed fields from live ones.
   the next successful one. Self-healing; a `moved` block from `helm_release`
   carries the values over and is not affected.
 
-## Release lifecycle
+## Plan size
 
-- **A release-only change that renders no manifests produces an empty plan.**
-  If you change something that alters the coalesced release config or
-  `NOTES.txt` but no rendered resource — while every Terraform attribute
-  stays identical — the plan can come out empty and `Update` is not invoked.
-  Rare in practice; a fix depends on surfacing nelm's own "release up to
-  date" signal. (A *failed or pending* release is NOT affected: it always
-  re-plans as an update until deployed — though the apply refuses to run
-  over a pending revision until it is stale, see below. Nor is a
-  `timeouts`-only edit: it marks status/revision/metadata unknown like any
-  other update.)
+- **`crds/` CRDs show up as additions in every plan that changes them.**
+  Nelm does not store a chart's `crds/` CustomResourceDefinitions in the
+  release, so a refresh never reads them back, but its plan reports the ones
+  it creates or updates. A create, and every upgrade that changes such a CRD
+  (a chart version bump that moves the CRDs' version labels, an out-of-band
+  edit of a CRD), therefore lists each one in `resources` as a full-body
+  addition (`+`), and the refresh after the apply drops it from state again.
+  For operator charts this is large: a kube-prometheus-stack version bump
+  adds its ten Prometheus Operator CRDs, about 2.5 MB of JSON, to the plan
+  and, until the next refresh, to state, and since their
+  `apiextensions.k8s.io/...` keys sort first, a size-capped pull-request
+  comment shows nothing else. With `no_install_crds = true` (see
+  [Chart versions and CRDs](#chart-versions-and-crds)) upgrades no longer
+  plan them; a create plan still lists them (below).
+
+- **Plans for large charts are large.** Every object a change touches is
+  printed as its full canonical JSON, and a chart version bump touches almost
+  every object, because charts stamp their version into the `helm.sh/chart`
+  and `app.kubernetes.io/version` labels: a routine kube-prometheus-stack or
+  kyverno bump prints tens of kilobytes where `helm_release` prints
+  `~ version`. An `import` block prints the whole map, templated CRDs
+  included: several megabytes for a chart such as kyverno. And since
+  `resources` sorts before `values` and `version`, a size-capped
+  pull-request comment can be cut off before the change that triggered the
+  plan. Review such plans from the full plan output (the job log or a saved
+  plan file), and move large releases from `helm_release` one per change.
+
+## Chart versions and CRDs
+
+- **An unset `version` follows the newest chart on every plan.** With
+  `version` unset, every plan, chart render and install resolves the newest
+  chart version in the repository on its own. A new upstream chart release
+  therefore becomes an upgrade at the next apply of the root module without
+  any configuration change, and the plan shows only the objects' changes
+  (`metadata.chart_version` is known after apply), not a `version` line. A
+  saved plan aborts with "Provider produced inconsistent final plan" when a
+  chart is released between the plan and the apply, and the install
+  resolves the version once more after the plan. `helm_release` keeps the
+  installed version on a plan with no other change. Pin `version` to an
+  exact version for every chart from a repository or registry.
+
+- **`crds/` CRDs are applied on every install and upgrade.** Helm (and
+  `helm_release`) only creates a chart's `crds/` CustomResourceDefinitions
+  when they are missing and never updates them. Nelm server-side-applies
+  them with force on every install, upgrade and rollback, from the chart
+  and every enabled subchart, with no ownership check: an existing CRD —
+  including one upgraded out of band (`kubectl apply --server-side` with a
+  newer version) or owned by another release or tool — is rewritten to the
+  chart's copy, and a chart downgrade that drops a version still listed in
+  a CRD's `status.storedVersions` fails the apply. The first `nelm_release`
+  apply after a migration is the first update of those CRDs since
+  `helm_release` created them. Before migrating, check every chart with a
+  `crds/` directory (subcharts included) and set `no_install_crds = true`
+  where the CRDs are managed elsewhere: a separate CRD chart or release, a
+  CRD upgrade Job (kube-prometheus-stack's `crds.upgradeJob`), CRDs shared
+  by several releases. With it, the CRDs must already exist when the release
+  is first installed; turning it on for an installed release deletes
+  nothing.
+
+- **A create plan lists the chart's `crds/` CRDs even with
+  `no_install_crds = true`.** The planned `resources` of a create is the
+  chart's render, which includes `crds/`; the first refresh after the apply
+  drops them again. Cosmetic.
+
+## Release lifecycle
 
 - **`create_before_destroy` cannot replace a release under the same name.**
   The new and the old object are the same Helm release — across a
@@ -153,8 +308,9 @@ chart-managed fields from live ones.
   age comes from the timestamp the writer (helm, nelm) stored, so large
   clock skew between machines shifts it; an operation that starts between
   the provider's history read and nelm's install is not detected; destroy
-  does not check the lock (like `helm uninstall`). See "Pending releases" in
-  the resource docs for manual recovery.
+  does not check the lock (like `helm uninstall`). See
+  [Pending releases](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#pending-releases-helms-release-lock)
+  for manual recovery.
 
 - **Replacing a release whose chart `lookup`s live objects can abort.** A
   replacement's create is planned while the old release still exists and
@@ -182,16 +338,6 @@ chart-managed fields from live ones.
   immutable-field check fails that plan. Use `terraform taint` (planned as
   a plain create) or `terraform destroy -target=...` then `terraform apply`.
 
-- **A create plan lists the chart's `crds/` CRDs even with
-  `no_install_crds = true`.** The planned `resources` of a create is the
-  chart's render, which includes `crds/`; the first refresh after the apply
-  drops them again. Cosmetic.
-
-- **Import assumes the `secret` storage backend.** `terraform import` seeds
-  `release_storage_driver = "secret"`. Importing a `configmap`-backed release
-  will report it missing. Set the driver in configuration before importing
-  such a release (driver auto-detection on import is planned).
-
 - **First plan after import is an in-place update.** `chart` is not
   recoverable from release storage, so it is null right after import; any
   real configuration supplies a chart, making the first post-import plan an
@@ -199,24 +345,82 @@ chart-managed fields from live ones.
   chart's upgrade hooks (migration Jobs, webhook certificate patch Jobs) run
   as on any `helm upgrade`. Inherent to Helm/nelm storage.
 
-- **`werf.io/resource-policy` skip policies are invisible in the diff.**
-  Since nelm 1.26, a resource annotated with a `skip-create`, `skip-update`
-  or `skip-recreate` policy gets no planned change, so `resources` keeps its
-  prior/live entry and a chart change to it is not shown. A `keep` /
-  `skip-delete` resource removed from the chart is left in the cluster (as
-  with `helm.sh/resource-policy: keep`); its key stays in state until the
-  next refresh drops it. An invalid policy value now fails the plan.
-
 - **`werf.io/deploy-dependency-*: state=ready` targets are always
-  readiness-tracked** (nelm 1.26.2+), even when unchanged, so a release whose
+  readiness-tracked** (Nelm 1.26.2+), even when unchanged, so a release whose
   dependency target is unhealthy fails its apply even if nothing about that
   target changed. Charts without werf.io annotations are unaffected.
 
+## Storage driver and import
+
+- **ConfigMap-backed releases cannot be imported.** An import never sees the
+  configuration, so it always records `release_storage_driver = "secret"`;
+  the refresh after it looks for the release in Secrets, finds none, and the
+  import fails with "Cannot import non-existent remote object". A `moved`
+  block from `helm_release` records `secret` too, so the moved release drops
+  out of the state and is planned as a new resource. To take such a release
+  over, stop managing the `helm_release` (a `removed` block with
+  `destroy = false`) and create the `nelm_release` with
+  `release_storage_driver = "configmap"` and `adopt_existing = true` for
+  that one apply: Create upgrades the existing release in place. The plan is
+  a create, so it shows the chart's full render rather than a diff against
+  the live objects. Remove `adopt_existing` afterwards. Driver detection on
+  import is planned.
+
+- **A different spelling of the storage driver replaces the release.**
+  `"secret"` and `"secrets"` name the same backend, and so do `"configmap"`
+  and `"configmaps"`, but the replacement check compares the strings:
+  changing `"secret"` to `"secrets"` (or back) plans a replacement, an
+  uninstall and a fresh install. An import and a `moved` block record
+  `"secret"`, so write `"secret"` and `"configmap"` in configurations.
+
+- **With the `configmap` driver, release records are readable with the
+  `view` role.** With `release_storage_driver = "configmap"` (or
+  `"configmaps"`), each revision's record — the user-supplied values,
+  `set_sensitive` ones included, and the rendered manifest with every
+  `Secret` the chart renders — is stored in a ConfigMap
+  `sh.helm.release.v1.<name>.v<revision>`, which anyone who may read
+  ConfigMaps in the namespace can decode, including Kubernetes' built-in
+  `view` role (which deliberately excludes Secrets). Helm and
+  `helm_release` with `helm_driver = "configmap"` store it the same way.
+  Keep the default `secret` for any release that carries credentials.
+
+## Release history
+
+- **Nelm writes no revision description and rewrites timestamps.**
+  Revisions Nelm writes have an empty DESCRIPTION in `helm history`, where
+  Helm writes `Install complete`, `Upgrade complete`, `Rollback to N` or the
+  failure message, so an `auto_rollback` revision looks like any other
+  upgrade, and alerts built on the description (helm-exporter's
+  `description` label, for example) carry no error text: take the cause from
+  the Terraform apply log. Nelm also rewrites a revision's timestamps
+  whenever it updates its status, so a superseded revision's UPDATED column
+  shows when the next revision finished, not when it was deployed — the
+  last revision `helm_release` wrote included, once Nelm supersedes it. Pick
+  rollback targets by REVISION, CHART and APP VERSION, not by UPDATED or
+  DESCRIPTION. Upstream in Nelm.
+
+## References from `helm_release` configurations
+
+- **`id` and `metadata` differ from `helm_release`'s.** `nelm_release.id`
+  is `<namespace>/<name>`, where `helm_release.id` is the release name, and
+  `metadata` holds `app_version`, `chart_name`, `chart_version` and
+  `values_json` (the coalesced values, sensitive), with `name`,
+  `namespace`, `revision` and `status` as top-level attributes;
+  `helm_release`'s `metadata.notes`, `first_deployed` and `last_deployed`
+  have no counterpart. Expressions that read these attributes must be
+  rewritten when migrating, and a resource that uses the id as a
+  replacement trigger (`terraform_data`'s `triggers_replace`,
+  `null_resource`'s `triggers`) is replaced once. `timeouts` is a block
+  (`timeouts { create = "10m" }`), not `helm_release`'s `timeout` seconds
+  or `timeouts = { ... }` attribute. See the
+  [attribute mapping](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md#attribute-mapping).
+
 ## Readiness tracking and `helm_release` parity
 
-Details and workarounds for all of these are in the resource docs
-(`docs/resources/release.md`, "Readiness tracking and `wait`" and
-"`auto_rollback` vs `helm_release`'s `atomic`").
+Details and workarounds for all of these are in the resource docs'
+[Readiness tracking and `wait`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#readiness-tracking-and-wait)
+and
+[`auto_rollback` vs `helm_release`'s `atomic`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#auto_rollback-vs-helm_releases-atomic).
 
 - **`auto_rollback` does not roll back when `timeouts` expires.** It only
   acts on failures nelm detects inside the `timeouts.create`/`update`

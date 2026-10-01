@@ -8,7 +8,8 @@ description: |-
 # nelm_release (Resource)
 
 Manages a Helm/Nelm release via the Nelm Go library
-(`action.ReleaseInstall` for apply, `action.ReleasePlanInstall` for diff).
+(`action.ReleaseInstall` for apply, `action.ReleasePlanInstall` and
+`action.ChartRender` for diff).
 
 ## Example Usage
 
@@ -72,10 +73,12 @@ in the provider's repository; its chart is
   provider's `registries` block. Credentials for classic HTTP repositories
   are out of scope for v1. See "Chart references" below.
 - `version` (String) Chart version constraint. If omitted, the latest
-  version is used; the resolved version surfaces in
-  `metadata.chart_version`. Unlike some Helm-based providers, this
-  attribute is Optional only — not Computed — so there is no plan-time
-  "unknown until apply" dance around it.
+  version is used, resolved again by every plan and apply; the resolved
+  version surfaces in `metadata.chart_version`. Pin it for charts from a
+  repository or registry: with `version` unset, every new upstream chart
+  release becomes an upgrade at the next apply, and the plan shows only the
+  objects' changes, not the version (see
+  [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#chart-versions-and-crds)).
 - `values` (List of String) List of raw YAML documents, merged in order
   with later entries overriding earlier ones (mirrors Nelm's `ValuesFiles`
   precedence). There is no `values_files` attribute by design: a
@@ -118,7 +121,13 @@ in the provider's repository; its chart is
   if you rely on `kubectl edit` hotfixes surviving upgrades; see "Fields
   added out of band" below.
 - `no_install_crds` (Boolean) Skip installing CustomResourceDefinitions
-  from the chart's `crds/` directory. Defaults to `false`.
+  from the chart's `crds/` directory. Defaults to `false`. Unlike
+  `helm_release`, which only creates missing ones, Nelm server-side-applies
+  these CRDs with force on every install and upgrade, overwriting existing
+  ones, including CRDs that another release or tool manages; set this where
+  the CRDs are managed elsewhere. They must then already exist when the
+  release is first installed; turning it on for an installed release deletes
+  nothing. See [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#chart-versions-and-crds).
 - `adopt_existing` (Boolean) Allow Create to take over a release of the
   same name that already exists in the namespace (one with a deployed
   revision). Defaults to `false`: Create then fails instead, like
@@ -153,7 +162,13 @@ in the provider's repository; its chart is
   change destroy-first, never `create_before_destroy` (see "Replacement
   and `create_before_destroy`" below). Enum-validated at plan time — an
   unrecognized driver string panics inside Nelm, so `"memory"` and `"sql"`
-  are rejected in v1.
+  are rejected in v1. `"secret"` and `"secrets"` (like the two ConfigMap
+  spellings) name the same backend, but changing one spelling to the other
+  is still a replacement; import records `"secret"`. With a ConfigMap
+  driver, the release records — the user-supplied values, `set_sensitive`
+  ones included, and every Secret the chart renders — can be read by anyone
+  who may read ConfigMaps in the namespace, including Kubernetes' built-in
+  `view` role; keep `"secret"` for releases that carry credentials.
 - `timeouts` (Block, Optional) See nested schema below.
 
 ### `set` / `set_sensitive` nested schema
@@ -175,8 +190,11 @@ Optional block; all four are Go duration strings (e.g. `"20m"`):
 
 - `create` (String) Timeout for the install action backing Create.
   Defaults to 10m.
-- `read` (String) Timeout bounding `ReleaseGet` during Read AND the
-  `ReleasePlanInstall` call inside plan-time diffing. Defaults to 5m.
+- `read` (String) Timeout for each read-side step, bounded separately: a
+  refresh's release read (`ReleaseGet`) and live-object reads; the
+  plan-time diff (`ReleasePlanInstall` and each of the two chart renders,
+  `ChartRender`); and, around an install, the release-history read before
+  it and the read-back after it. Defaults to 5m.
 - `update` (String) Timeout for the install action backing Update.
   Defaults to 10m.
 - `delete` (String) Timeout for the uninstall action backing Delete.
@@ -222,13 +240,18 @@ and only ever set by the provider:
   plan-time diffing — it is a pure function of the (known) `name` and
   `namespace` attributes.
 - `status` (String) Release status as reported by the cluster
-  (`ReleaseGet`). Unknown whenever the release will be re-installed —
-  i.e. a create, out-of-band drift, or any change to
-  `chart`/`version`/`values`/`set`/`set_sensitive`/`repository`; left
-  untouched on a clean no-change plan. It goes Unknown even when the config
-  change renders no manifest change, because Nelm still creates a new
-  revision in that case (its up-to-date check compares the coalesced values
-  and release notes, not just the rendered resources).
+  (`ReleaseGet`). Unknown whenever the release will be re-installed: a
+  create, a release that is not `deployed` (failed or `pending-*`),
+  out-of-band drift in `resources`, or a change to any argument that does
+  not force replacement — `chart`, `repository`, `version`, `values`,
+  `set`, `set_sensitive`, the boolean flags, `diff_mode`,
+  `release_history_limit` and `timeouts` alike; left untouched on a clean
+  no-change plan. Every such in-place update runs Nelm's install. Nelm
+  skips writing a revision only when the coalesced values, the release
+  notes and every rendered object are unchanged and the chart has no hooks;
+  otherwise it creates a new revision and runs the chart's
+  `pre-upgrade`/`post-upgrade` hooks again — so even a `timeouts`-only edit
+  re-runs them, as any in-place change does with `helm_release`.
 - `revision` (Number) Release revision number. Unknown under exactly the
   same condition as `status` above.
 - `metadata` (Object) Release metadata resolved from the cluster
@@ -267,13 +290,17 @@ correctly:
   `meta.helm.sh/release-namespace` and `app.kubernetes.io/managed-by` —
   then replacing `set_sensitive` values with placeholders) to a
   deterministic, key-sorted JSON string per resource. The render is free of
-  server defaulting and of live-mutable fields (an HPA-owned `replicas`,
-  controller-written annotations), which Nelm's own plan value — the API
-  server's dry-run merge — carries. When the plan creates the release — a
-  new resource, or the create half of a replacement — the planned map is the
-  chart's first-install render, independent of what is live in the cluster
-  (so it is the same at plan time, while a replaced release still exists,
-  and at apply time, after its destroy removed it).
+  server defaulting and of fields the chart does not render (an HPA-owned
+  `replicas` that the chart leaves out, controller-written annotations),
+  which Nelm's own plan value — the API server's dry-run merge — carries.
+  A field the chart does render is planned at the chart's value even when a
+  controller keeps changing it, so it shows as drift on every plan (see
+  [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#drift-and-out-of-band-changes)).
+  When the plan creates the release — a new resource, or the create half of
+  a replacement — the planned map is the chart's first-install render,
+  independent of what is live in the cluster (so it is the same at plan
+  time, while a replaced release still exists, and at apply time, after its
+  destroy removed it).
 - The chart is rendered twice per plan; an object the two renders disagree
   on (random or time-based template functions) is handled as described in
   [Non-deterministic charts](#non-deterministic-charts).
@@ -297,7 +324,15 @@ correctly:
   scale` a chart-set `replicas`, `kubectl edit` a chart-set container
   image) shows up as a diff on that resource's `resources["..."]` entry,
   even though your Terraform configuration hasn't changed — this is the
-  intended drift-detection behavior, not a bug.
+  intended drift-detection behavior, not a bug. Applying it reverts the
+  change and runs Nelm's install, and every apply of the root module
+  applies it, whatever change the apply is for: an out-of-band hotfix
+  (`helm upgrade --reuse-values`, `helm rollback`, `kubectl set image`)
+  lasts only until the next apply. `helm_release` (without its `manifest`
+  experiment) ignores such a change until its own configuration changes.
+  `lifecycle { ignore_changes = [resources] }` has no effect;
+  `diff_mode = "none"` turns drift detection off for a release (see
+  [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#drift-and-out-of-band-changes)).
 - Because the live side is projected onto the chart's rendered shape,
   drift detection is scoped to **fields the chart actually sets** — the
   same managed-field semantics Helm itself uses. An out-of-band change
@@ -353,9 +388,8 @@ was created by `helm install`/`helm upgrade` (Helm 3 **or** Helm 4), by
 hashicorp/helm's `helm_release` (see "Migrating from `helm_release`"
 below for its field managers) or by Nelm itself: Nelm's default
 release-storage format
-(`sh.helm.release.v1.<name>.v<rev>` Secrets, or the analogous ConfigMap
-form) is exactly the format Helm itself writes, so `ReleaseGet` reads a
-plain-helm release directly. `force_adoption = true` is **not** required
+(`sh.helm.release.v1.<name>.v<rev>` Secrets) is exactly the format Helm
+itself writes, so `ReleaseGet` reads a plain-helm release directly. `force_adoption = true` is **not** required
 purely to import a plain-helm release — Helm's own release-ownership
 annotations already satisfy Nelm's adoption check. `force_adoption` only
 matters for resources that are live in the cluster but untracked by any
@@ -375,8 +409,8 @@ import, and both matter for the first plan you run afterward:
   differ from what was previously deployed.
 - `repository` and `version` are not persisted by Helm's release record
   either, so they are simply absent from imported state until you set
-  them in configuration (or leave `version` unset to always track
-  latest).
+  them in configuration. Set `version` to the chart version the release
+  runs now (see `version` above).
 
 `chart` is not recoverable either, so it is null right after the import:
 the **first plan after an import is always an in-place update**, and its
@@ -393,7 +427,11 @@ values. Do not seed them from `helm get values -a` or
 included, which pins every default in your configuration.
 
 An import never goes through Create, so `adopt_existing` plays no part in
-it; ImportState seeds it as `false`.
+it; ImportState seeds it as `false`. It also seeds
+`release_storage_driver = "secret"` (an import never sees the
+configuration), so a release stored in ConfigMaps cannot be imported; see
+[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#storage-driver-and-import)
+for how to take one over instead.
 
 ### Creating a resource for an existing release
 
@@ -590,6 +628,14 @@ recognize at all; this provider hands it over at apply, never during plan
 `managedFields` are stripped by the normalization pipeline before entering
 `resources`, so none of this shows up as diff noise in `terraform plan`
 output, and none of it changes an object's spec (no rollout).
+
+The plan also runs a dry-run server-side apply of every existing object,
+which the API server authorizes like a real `patch`. The credentials
+`terraform plan` runs with therefore need `patch` on every kind the chart
+renders, like the apply's: with a read-only plan identity the plan fails on
+the fix-up (`cannot patch`), or warns `blind apply` for each object it may
+not dry-run and plans it without the API server's validation. See
+[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#provider-configuration-and-cluster-access).
 
 ### Fields added out of band
 
@@ -928,9 +974,13 @@ The provider does not offer a `create_namespace` flag because there is
 nothing to toggle: Nelm's install path always creates the target
 namespace if it doesn't already exist. Symmetrically, `terraform destroy`
 does **not** delete the namespace — only the release's managed resources
-and release-storage records are removed. If a namespace should be
-removed too, manage it with a separate `kubernetes_namespace`-style
-resource (from another provider) or delete it manually.
+and release-storage records are removed. Nelm's lock ConfigMap
+`werf-synchronization`, which every apply and destroy creates in the
+release namespace if it is missing, stays as well (see
+[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#provider-configuration-and-cluster-access)).
+If a namespace should be removed too, manage it with a separate
+`kubernetes_namespace`-style resource (from another provider) or delete it
+manually.
 
 ### Values precedence
 
