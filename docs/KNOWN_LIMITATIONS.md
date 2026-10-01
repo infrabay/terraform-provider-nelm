@@ -59,13 +59,20 @@ chart-managed fields from live ones.
   other update.)
 
 - **`create_before_destroy` cannot replace a release under the same name.**
-  The new and the old object are the same Helm release, so the create half
-  of such a replacement is refused (`already exists`): the apply fails and
-  the release stays installed. Remove `create_before_destroy` — Terraform
-  also enables it implicitly when a dependent resource has it (`+/-` in the
-  plan instead of `-/+`). With `adopt_existing = true` the refusal is off and
-  such a replacement would uninstall the release, so set that flag only for
-  the apply that adopts a release.
+  The new and the old object are the same Helm release — across a
+  `release_storage_driver` change too — so the create half of such a
+  replacement is refused (`already exists`, or `already exists in the
+  <driver> storage backend` for a driver change): the apply fails and the
+  release stays installed. Remove `create_before_destroy` — Terraform also
+  enables it implicitly when a dependent resource has it (`+/-` in the plan
+  instead of `-/+`). Only the apply refuses: the plan does not warn for a
+  driver change or a `-replace`. With `adopt_existing = true` the
+  same-backend refusal is off and such a replacement would uninstall the
+  release, so set that flag only for the apply that adopts a release. The
+  driver-change check reads the other backend's Secrets or ConfigMaps; if
+  the provider's credentials may not list them, Create only warns, and a
+  `create_before_destroy` driver change would again install into the new
+  backend and then uninstall the release from the old one.
 
 - **The pending-release lock is a fixed-age heuristic.** The apply refuses
   to install over a `pending-*` revision younger than the operation timeout

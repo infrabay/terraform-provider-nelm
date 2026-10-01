@@ -191,7 +191,7 @@ func releaseWillReinstall(plan, priorState releaseModel, planned, prior map[stri
 		// eternally-empty plan (never retried without -replace), and any
 		// no-op-rendering config edit (e.g. only timeouts) aborts with
 		// "inconsistent result after apply" when the retry bumps the revision.
-		(!isCreate && priorState.Status.ValueString() != "deployed") ||
+		priorState.Status.ValueString() != "deployed" ||
 		// Chart-rendering / values inputs (change the coalesced config).
 		plan.Chart.ValueString() != priorState.Chart.ValueString() ||
 		plan.Repository.ValueString() != priorState.Repository.ValueString() ||

@@ -95,9 +95,11 @@ intentionally skipped — see `docs/DEVELOPMENT.md`).
   revision). Defaults to `false`: Create then fails instead, like
   `helm_release` without `upgrade_install`, so a forgotten import, a
   duplicate resource, or a `create_before_destroy` replacement can never
-  silently adopt — and then uninstall — a live release. Prefer `terraform import`. It does not override the `pending-*`
-  lock. Only Create reads it; see "Creating a resource for an existing
-  release" below.
+  silently adopt — and then uninstall — a live release. Prefer
+  `terraform import`. It does not override the `pending-*` lock, and it
+  cannot take over a release stored in the other storage backend. Only
+  Create reads it; see "Creating a resource for an existing release"
+  below.
 - `release_history_limit` (Number) Maximum number of release revisions
   kept in storage. Null or `0` uses Nelm's own default (10). Only release
   metadata is pruned; cluster resources are unaffected. Must be `0` or
@@ -106,9 +108,11 @@ intentionally skipped — see `docs/DEVELOPMENT.md`).
   metadata is stored: `"secret"`, `"secrets"`, `"configmap"`, or
   `"configmaps"`. Defaults to `"secret"`. Changing it destroys and recreates
   the whole release (Nelm does not migrate history between backends; the
-  destroy uses the old backend, the create the new one). Enum-validated at
-  plan time — an unrecognized driver string panics inside Nelm, so
-  `"memory"` and `"sql"` are rejected in v1.
+  destroy uses the old backend, the create the new one), so apply such a
+  change destroy-first, never `create_before_destroy` (see "Replacement
+  and `create_before_destroy`" below). Enum-validated at plan time — an
+  unrecognized driver string panics inside Nelm, so `"memory"` and `"sql"`
+  are rejected in v1.
 - `timeouts` (Block, Optional) See nested schema below.
 
 ### `set` / `set_sensitive` nested schema
@@ -341,7 +345,26 @@ it catches:
 To manage such a release with Terraform, import it (`terraform import
 nelm_release.x <namespace>/<name>`, or an `import` block).
 `adopt_existing = true` lets Create take it over instead (Nelm upgrades it
-in place); set it only for the apply that adopts the release.
+in place); set it only for the apply that adopts the release. The planned
+`resources` of that create are a first-install render, while the apply
+upgrades the release, so a chart whose manifests use `.Release.Revision`
+or `.Release.IsUpgrade` shows those objects as changed outside Terraform on
+the refresh after the adopting apply. That is cosmetic: the refresh records
+the live objects.
+
+When the configured storage backend holds no deployed revision, Create also
+reads the **other** backend (`configmap` when `release_storage_driver` is
+`secret`/`secrets`, and the other way round). A release still deployed
+there fails the apply with `nelm release <namespace>/<name> already exists
+in the <driver> storage backend`, and nothing is changed — with or without
+`adopt_existing`, since Nelm cannot take a release over from another
+backend, only install a second one over the same objects. This catches a
+`create_before_destroy` replacement that changes `release_storage_driver`
+(below), and a new resource whose `release_storage_driver` does not match
+where an existing release is stored (set it to that backend). If the
+provider's credentials may not read the other backend (RBAC that covers
+only the configured one), Create only warns (`Could not check the <driver>
+storage backend ...`) and installs.
 
 A release whose history holds only failed or uninstalled revisions — a
 first install that failed, or a `helm uninstall --keep-history` — does not
@@ -354,7 +377,12 @@ stale; a younger one is refused as a lock (see
 
 The plan warns (`a release with this name already exists`) when it can see
 this coming. It cannot fail at plan time: a destroy-first replacement
-legitimately plans the create while the old release is still there.
+legitimately plans the create while the old release is still there. There
+is no warning for a release in the other storage backend, nor for a
+`-replace`: Terraform plans a `-replace` as an update first and keeps only
+the errors, not the warnings, of its replacement re-plan. A taint, a
+`name`/`namespace` change or a plain create does show the warning. The
+apply refuses in every case.
 
 ### Replacement and `create_before_destroy`
 
@@ -390,14 +418,18 @@ such a change, taint it instead (`terraform taint <address>`, then
 `create_before_destroy` is **not supported** for a replacement that keeps
 the same `name` and `namespace`: the new and the old object are the same
 Helm release, so the create would take over the live release and the
-destroy of the old object would then uninstall it. The create is refused
-instead (see above): the apply fails, Terraform keeps the old object, and
-nothing is uninstalled. Remove `create_before_destroy` and apply again.
+destroy of the old object would then uninstall it. That holds for a
+`release_storage_driver` change too: the create would install the release
+into the new backend over its live objects, and the destroy would then
+uninstall it from the old backend, deleting those objects. The create is
+refused instead (see above) — in the same backend, and for a release still
+deployed in the other one: the apply fails, Terraform keeps the old object,
+and nothing is uninstalled. Remove `create_before_destroy` and apply again.
 Terraform also turns `create_before_destroy` on implicitly for a resource
 when anything that depends on it has it (including through a module's
 `depends_on`), so look for `+/-` ("create replacement and then destroy")
 rather than `-/+` in the plan. Never combine `adopt_existing = true` with
-such a replacement: the opt-in disables the refusal.
+such a replacement: the opt-in disables the same-backend refusal.
 
 ### Pending releases (Helm's release lock)
 

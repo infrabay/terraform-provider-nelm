@@ -30,6 +30,14 @@ type fakeReleaseClient struct {
 	history    *nelmclient.ReleaseHistory
 	historyErr error
 
+	// historyByDriver, when set, answers History per storage driver instead
+	// of history/historyErr (a driver it lacks has no release); historyErrs
+	// fails History for the drivers it names. historyDrivers records the
+	// driver of every History call.
+	historyByDriver map[string]*nelmclient.ReleaseHistory
+	historyErrs     map[string]error
+	historyDrivers  []string
+
 	installErr error
 	installs   int
 
@@ -93,16 +101,25 @@ func (f *fakeReleaseClient) Get(context.Context, string, string, string, time.Du
 	return f.getInfo, nil
 }
 
-func (f *fakeReleaseClient) History(context.Context, string, string, string, time.Duration) (*nelmclient.ReleaseHistory, error) {
-	if f.historyErr != nil {
+func (f *fakeReleaseClient) History(_ context.Context, _, _, driver string, _ time.Duration) (*nelmclient.ReleaseHistory, error) {
+	f.historyDrivers = append(f.historyDrivers, driver)
+
+	if err := f.historyErrs[driver]; err != nil {
+		return nil, err
+	}
+
+	h := f.history
+	if f.historyByDriver != nil {
+		h = f.historyByDriver[driver]
+	} else if f.historyErr != nil {
 		return nil, f.historyErr
 	}
 
-	if f.history == nil {
+	if h == nil {
 		return &nelmclient.ReleaseHistory{}, nil
 	}
 
-	return f.history, nil
+	return h, nil
 }
 
 func (f *fakeReleaseClient) LiveObjects(context.Context, []nelmclient.ResourceRef) (map[nelmclient.ResourceRef]*unstructured.Unstructured, error) {

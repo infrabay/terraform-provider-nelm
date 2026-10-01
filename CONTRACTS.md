@@ -25,7 +25,8 @@ unit tests can substitute an offline fake; `Configure` always stores a
 - `Uninstall(ctx, name, namespace, storageDriver string, timeout) error`
 - `Get(ctx, name, namespace, storageDriver string, timeout) (*ReleaseInfo, error)`
 - `History(ctx, name, namespace, storageDriver string, timeout) (*ReleaseHistory, error)`
-  — the stored-revision summary behind Create's adoption guard and the
+  — the stored-revision summary behind Create's adoption guards (the
+  configured storage backend and, on Create, the other one) and the
   pending-* lock check
 - `LiveObjects(ctx, refs)` and `IsNamespaced(gvk)` (the `planconv.KeyScoper`)
 

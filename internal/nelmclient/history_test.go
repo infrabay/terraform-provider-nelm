@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -151,15 +152,55 @@ func encodeStoredRelease(t *testing.T, rel *helmrelease.Release) string {
 	return base64.StdEncoding.EncodeToString(buf.Bytes())
 }
 
+// fakeAPIClient starts an httptest fake API server answering /version and
+// handing every other request to handle, and returns a Client for it. The
+// kubeconfig is passed inline (kube_config_base64), so no kubeconfig file and
+// no real cluster is ever consulted.
+func fakeAPIClient(t *testing.T, handle http.HandlerFunc) *Client {
+	t.Helper()
+
+	t.Setenv("KUBECACHEDIR", t.TempDir())
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.URL.Path == "/version" {
+			_, _ = w.Write([]byte(`{"major":"1","minor":"29","gitVersion":"v1.29.3"}`))
+			return
+		}
+
+		handle(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	kubeconfig := fmt.Sprintf(`apiVersion: v1
+kind: Config
+clusters:
+- name: fake
+  cluster:
+    server: %s
+contexts:
+- name: fake
+  context:
+    cluster: fake
+    user: fake
+current-context: fake
+users:
+- name: fake
+  user: {}
+`, srv.URL)
+
+	return NewClient(Config{
+		KubeConfigBase64: base64.StdEncoding.EncodeToString([]byte(kubeconfig)),
+		RequestTimeout:   10 * time.Second,
+	})
+}
+
 // TestClientHistory_FakeAPIServer drives Client.History end to end — kube
 // client construction, nelm's Secret release storage, Helm's record decoding,
 // BuildHistory and summarizeHistory — against an httptest fake API server
 // serving two stored revisions of a release, one of them a pending-upgrade.
-// The kubeconfig is passed inline (kube_config_base64), so no kubeconfig file
-// and no real cluster is ever consulted.
 func TestClientHistory_FakeAPIServer(t *testing.T) {
-	t.Setenv("KUBECACHEDIR", t.TempDir())
-
 	started := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
 	secret := func(rel *helmrelease.Release) map[string]any {
@@ -197,45 +238,19 @@ func TestClientHistory_FakeAPIServer(t *testing.T) {
 		selector string
 	)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		switch r.URL.Path {
-		case "/version":
-			_, _ = w.Write([]byte(`{"major":"1","minor":"29","gitVersion":"v1.29.3"}`))
-		case "/api/v1/namespaces/apps/secrets":
-			mu.Lock()
-			selector = r.URL.Query().Get("labelSelector")
-			mu.Unlock()
-
-			_ = json.NewEncoder(w).Encode(secretList)
-		default:
+	c := fakeAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/namespaces/apps/secrets" {
 			t.Errorf("unexpected API request %s %s", r.Method, r.URL.String())
 			http.NotFound(w, r)
+
+			return
 		}
-	}))
-	defer srv.Close()
 
-	kubeconfig := fmt.Sprintf(`apiVersion: v1
-kind: Config
-clusters:
-- name: fake
-  cluster:
-    server: %s
-contexts:
-- name: fake
-  context:
-    cluster: fake
-    user: fake
-current-context: fake
-users:
-- name: fake
-  user: {}
-`, srv.URL)
+		mu.Lock()
+		selector = r.URL.Query().Get("labelSelector")
+		mu.Unlock()
 
-	c := NewClient(Config{
-		KubeConfigBase64: base64.StdEncoding.EncodeToString([]byte(kubeconfig)),
-		RequestTimeout:   10 * time.Second,
+		_ = json.NewEncoder(w).Encode(secretList)
 	})
 
 	got, err := c.History(context.Background(), "app", "apps", "secret", 10*time.Second)
@@ -255,5 +270,37 @@ users:
 		if !strings.Contains(selector, term) {
 			t.Errorf("release storage query labelSelector = %q, want it to contain %q", selector, term)
 		}
+	}
+}
+
+// TestClientHistory_ForbiddenIsDetectable: a History read the credentials may
+// not make (here: listing ConfigMaps, the other storage backend) must still
+// classify as Forbidden through nelm's and Helm's error wrapping — Create
+// downgrades exactly that case of its other-backend check to a warning.
+func TestClientHistory_ForbiddenIsDetectable(t *testing.T) {
+	c := fakeAPIClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/namespaces/apps/configmaps" {
+			t.Errorf("unexpected API request %s %s", r.Method, r.URL.String())
+			http.NotFound(w, r)
+
+			return
+		}
+
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"kind":"Status","apiVersion":"v1","status":"Failure","reason":"Forbidden","code":403,` +
+			`"message":"configmaps is forbidden: User \"deployer\" cannot list resource \"configmaps\" in API group \"\" in the namespace \"apps\""}`))
+	})
+
+	_, err := c.History(context.Background(), "app", "apps", "configmap", 10*time.Second)
+	if err == nil {
+		t.Fatal("History: expected an error from a forbidden list")
+	}
+
+	if !IsForbidden(err) {
+		t.Fatalf("IsForbidden(%v) = false, want true", err)
+	}
+
+	if IsForbidden(errors.New("configmaps is forbidden")) {
+		t.Error("IsForbidden matched a plain error by its text")
 	}
 }

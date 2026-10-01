@@ -130,7 +130,18 @@ becomes `secret`. The refresh before the plan reads `status`, `revision`,
 `metadata` and `resources` from the cluster. Unlike after an import,
 `chart` is known, so when the `nelm_release` configuration reproduces the
 `helm_release` inputs the plan can be empty: no install, no new revision, no
-hooks. Whatever differs is an ordinary in-place update.
+hooks.
+
+The move leaves `timeouts` null (`helm_release`'s `timeout` is not carried
+over) and `release_history_limit` null when `max_history` was `0`, and it
+sets every attribute without a `helm_release` counterpart to its default.
+A configuration with a `timeouts` block, with an explicit
+`release_history_limit` where `max_history` was `0` (as
+[History limit](#history-limit) recommends), or with a non-default value
+for such an attribute (e.g. `no_remove_manual_changes = true`) therefore
+plans an in-place update, and its apply runs `nelm install` as after an
+import (see [What the first apply does](#what-the-first-apply-does)). So
+does anything else that differs.
 
 Check the plan the same way: `has moved to`, no destroy, never
 `must be replaced`. In a shared module, put the `moved` block inside the
@@ -227,12 +238,14 @@ environment variables the `helm` provider reads (`KUBE_CONFIG_PATH`,
 ## What the first apply does
 
 The first apply after the import is an in-place update (after a `moved`
-block, only if the configuration differs), and it runs `nelm install` for
-real. Expect a new release revision, and expect **hooks to run**: a hook
-without a `helm.sh/hook-delete-policy` (or with `before-hook-creation`) is
-re-created, so `pre-upgrade`/`post-upgrade` Jobs — admission-webhook
-certificate patch Jobs, database migrations — run again, exactly as they
-would on a `helm upgrade`. Plan the migration window accordingly.
+block, only if the configuration differs from what the move carried over —
+a `timeouts` block or a new `release_history_limit` is enough), and it runs
+`nelm install` for real. Expect a new release revision, and expect **hooks
+to run**: a hook without a `helm.sh/hook-delete-policy` (or with
+`before-hook-creation`) is re-created, so `pre-upgrade`/`post-upgrade` Jobs
+— admission-webhook certificate patch Jobs, database migrations — run
+again, exactly as they would on a `helm upgrade`. Plan the migration window
+accordingly.
 
 ## History limit
 

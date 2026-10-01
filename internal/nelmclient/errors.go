@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"github.com/werf/nelm/pkg/action"
 )
 
@@ -13,6 +15,13 @@ import (
 func IsReleaseNotFound(err error) bool {
 	var notFound *action.ReleaseNotFoundError
 	return errors.As(err, &notFound)
+}
+
+// IsForbidden reports whether err is (or wraps) a Kubernetes API 403: the
+// credentials are not allowed to make the request (e.g. a History read of a
+// storage backend the deployer's RBAC does not cover).
+func IsForbidden(err error) bool {
+	return apierrors.IsForbidden(err)
 }
 
 // clusterUnreachableSignal is the connectivity-check phrase nelm's

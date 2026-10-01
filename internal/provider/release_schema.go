@@ -187,8 +187,8 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 					"resource, or a create_before_destroy replacement can never silently adopt (and then " +
 					"uninstall) a live release. Prefer `terraform import`. A release that only has failed or " +
 					"uninstalled revisions (e.g. a failed first install), or a stale pending-install left by a " +
-					"killed first install, is always installed over. It does not override the pending-* lock. " +
-					"Only Create reads it.",
+					"killed first install, is always installed over. It does not override the pending-* lock, " +
+					"and it cannot take over a release stored in the other storage backend. Only Create reads it.",
 			},
 			"release_history_limit": schema.Int64Attribute{
 				Optional: true,
@@ -208,7 +208,9 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 					`is enum-validated ("memory" and "sql" are rejected in v1). Changing it forces ` +
 					`replacement: Nelm does not migrate release history between backends, so an in-place ` +
 					`switch would install into an empty new backend and orphan the old release records. ` +
-					`RequiresReplace makes destroy use the OLD backend and create use the new one.`,
+					`RequiresReplace makes destroy use the OLD backend and create use the new one; apply ` +
+					`it destroy-first, since under create_before_destroy Create refuses to install while ` +
+					`the release is still deployed in the old backend.`,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

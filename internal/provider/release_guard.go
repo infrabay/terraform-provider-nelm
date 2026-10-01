@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -105,6 +106,86 @@ func installGuardDiags(plan releaseModel, h *nelmclient.ReleaseHistory, isCreate
 				h.Revision, h.Status, takeoverAfter),
 		)
 	}
+
+	return diags
+}
+
+// otherStorageDriver names the release storage backend that driver does NOT
+// select. The schema accepts exactly two backends, each under two aliases:
+// "secret"/"secrets" and "configmap"/"configmaps".
+func otherStorageDriver(driver string) string {
+	switch driver {
+	case "configmap", "configmaps":
+		return "secret"
+	default:
+		return "configmap"
+	}
+}
+
+// otherBackendDiags is the Create-side check installGuardDiags cannot make
+// from the configured backend's history alone: whether the release is still
+// deployed in the OTHER storage backend (otherStorageDriver). That is the
+// create half of a create_before_destroy replacement that changes
+// release_storage_driver (secret -> configmap, set directly or inherited
+// from a dependent resource): the configured backend is empty, so Install
+// would write revision 1 there and take the release's live objects over (their
+// release-name/namespace annotations match), and the deposed object's
+// destroy would then uninstall the release from the old backend — deleting
+// those objects — with a green apply. createOrUpdate runs it only on Create,
+// and only when the configured backend has no deployed revision (otherwise
+// installGuardDiags has already decided).
+//
+// adopt_existing does not override it: Nelm does not migrate history between
+// backends, so a release in the other backend cannot be taken over, only
+// shadowed by a second release over the same objects. A read the credentials
+// are not allowed to make (RBAC that covers only the configured backend)
+// only warns, so such deployers can still create releases.
+func (r *releaseResource) otherBackendDiags(ctx context.Context, plan releaseModel, timeout time.Duration) diag.Diagnostics {
+	var diags diag.Diagnostics
+
+	ns := plan.Namespace.ValueString()
+	name := plan.Name.ValueString()
+	driver := plan.ReleaseStorageDriver.ValueString()
+	other := otherStorageDriver(driver)
+
+	h, err := r.client.History(ctx, name, ns, other, timeout)
+
+	switch {
+	case nelmclient.IsForbidden(err):
+		diags.AddWarning(
+			fmt.Sprintf("Could not check the %s storage backend for nelm release %s/%s", other, ns, name),
+			fmt.Sprintf("Reading the release records in the %q backend is forbidden, so this create cannot tell "+
+				"whether the release is still deployed there. If this create is half of a create_before_destroy "+
+				"replacement that changes release_storage_driver, the destroy that follows uninstalls the release "+
+				"from the old backend. Installing anyway.\n\n%s",
+				other, err),
+		)
+
+		return diags
+
+	case err != nil:
+		diags.AddError("Failed to read nelm release history", fmt.Sprintf("%s storage backend: %s", other, err))
+		return diags
+	}
+
+	if h == nil || !h.Deployed {
+		return diags
+	}
+
+	diags.AddError(
+		fmt.Sprintf("nelm release %s/%s already exists in the %s storage backend", ns, name, other),
+		fmt.Sprintf("A release named %q is deployed in namespace %q (revision %d, status %q), but its records are "+
+			"in the %q storage backend, not in the %q backend release_storage_driver selects. Nelm does not migrate "+
+			"release history between backends: this create would install a second release over the same objects, "+
+			"and when it is half of a create_before_destroy replacement that changes release_storage_driver, the "+
+			"destroy that follows would uninstall the release from the old backend, deleting those objects. "+
+			"Nothing was changed; adopt_existing does not override this.\n\n"+
+			"To move the release to the %q backend, apply the release_storage_driver change destroy-first: "+
+			"remove create_before_destroy (including where it is inherited from a dependent resource), so the "+
+			"apply uninstalls the release and then installs it from scratch. To keep managing the release where "+
+			"it is, set release_storage_driver = %q.",
+			name, ns, h.Revision, h.Status, other, driver, driver, other),
+	)
 
 	return diags
 }

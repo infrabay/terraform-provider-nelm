@@ -319,7 +319,8 @@ func installedButUnreadWarnings(diags diag.Diagnostics) diag.Diagnostics {
 //
 // prior is the Update's prior state, nil on Create. Before installing, the
 // release's stored history is checked by installGuardDiags: Create never
-// silently adopts an existing release, and neither path installs over a
+// silently adopts an existing release (nor, via otherBackendDiags, one still
+// deployed in the other storage backend), and neither path installs over a
 // pending-* revision another operation still holds.
 func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel, prior *releaseModel, timeout timeoutKind) (state releaseModel, hasState bool, diags diag.Diagnostics) {
 	spec, d := plan.toReleaseSpec(ctx)
@@ -363,6 +364,16 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 	diags.Append(installGuardDiags(plan, history, prior == nil, pendingTakeoverAge(opTimeout), time.Now())...)
 	if diags.HasError() {
 		return releaseModel{}, false, diags
+	}
+
+	// A Create whose backend holds no deployed revision may still be the
+	// create half of a create_before_destroy release_storage_driver change,
+	// with the release deployed in the other backend.
+	if prior == nil && !history.Deployed {
+		diags.Append(r.otherBackendDiags(ctx, plan, readTimeout)...)
+		if diags.HasError() {
+			return releaseModel{}, false, diags
+		}
 	}
 
 	installErr := r.client.Install(ctx, spec, opTimeout)

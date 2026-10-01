@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +13,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	k8sschema "k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
 )
@@ -245,6 +249,183 @@ func TestCreate_TakesOverKilledFirstInstall(t *testing.T) {
 
 	if client.installs != 1 {
 		t.Fatalf("Install called %d times, want 1", client.installs)
+	}
+}
+
+func TestOtherStorageDriver(t *testing.T) {
+	for driver, want := range map[string]string{
+		"secret":     "configmap",
+		"secrets":    "configmap",
+		"configmap":  "secret",
+		"configmaps": "secret",
+	} {
+		if got := otherStorageDriver(driver); got != want {
+			t.Errorf("otherStorageDriver(%q) = %q, want %q", driver, got, want)
+		}
+	}
+}
+
+// TestCreate_RefusesReleaseInOtherBackend is the G3.1 regression test for a
+// create_before_destroy release_storage_driver change: Create only read the
+// configured (new, empty) backend, so it installed revision 1 there over the
+// live objects, and the deposed object's destroy then uninstalled the
+// release from the old backend with a green apply.
+func TestCreate_RefusesReleaseInOtherBackend(t *testing.T) {
+	deployed := &nelmclient.ReleaseHistory{Revision: 3, Status: "deployed", LastDeployed: time.Now().Add(-time.Hour), Deployed: true}
+
+	tests := []struct {
+		name          string
+		driver        string
+		stored        map[string]*nelmclient.ReleaseHistory
+		adoptExisting bool
+		wantError     string
+		wantReads     []string
+	}{
+		{
+			name:      "secret -> configmap",
+			driver:    "configmap",
+			stored:    map[string]*nelmclient.ReleaseHistory{"secret": deployed},
+			wantError: "already exists in the secret storage backend",
+			wantReads: []string{"configmap", "secret"},
+		},
+		{
+			name:      "configmaps -> secrets",
+			driver:    "secrets",
+			stored:    map[string]*nelmclient.ReleaseHistory{"configmap": deployed},
+			wantError: "already exists in the configmap storage backend",
+			wantReads: []string{"secrets", "configmap"},
+		},
+		{
+			name:          "adopt_existing cannot take a release over from another backend",
+			driver:        "configmap",
+			stored:        map[string]*nelmclient.ReleaseHistory{"secret": deployed},
+			adoptExisting: true,
+			wantError:     "already exists in the secret storage backend",
+			wantReads:     []string{"configmap", "secret"},
+		},
+		{
+			// A destroy-first driver change: the destroy has uninstalled the
+			// release from the old backend before the create runs.
+			name:      "release uninstalled from the other backend",
+			driver:    "configmap",
+			stored:    map[string]*nelmclient.ReleaseHistory{"secret": {Revision: 3, Status: "uninstalled"}},
+			wantReads: []string{"configmap", "secret"},
+		},
+		{
+			name:      "nothing stored anywhere",
+			driver:    "secret",
+			stored:    map[string]*nelmclient.ReleaseHistory{},
+			wantReads: []string{"secret", "configmap"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeReleaseClient{historyByDriver: tt.stored, getInfo: deployedInfo(1, "deployed")}
+
+			plan := plannedCreateModel()
+			plan.ReleaseStorageDriver = types.StringValue(tt.driver)
+			plan.AdoptExisting = types.BoolValue(tt.adoptExisting)
+
+			resp := runCreate(t, client, plan)
+
+			assertOneDiag(t, resp.Diagnostics, diag.SeverityError, tt.wantError)
+
+			if !slices.Equal(client.historyDrivers, tt.wantReads) {
+				t.Errorf("History read drivers %q, want %q", client.historyDrivers, tt.wantReads)
+			}
+
+			wantInstalls := 1
+			if tt.wantError != "" {
+				wantInstalls = 0
+			}
+
+			if client.installs != wantInstalls {
+				t.Errorf("Install called %d times, want %d", client.installs, wantInstalls)
+			}
+
+			if tt.wantError != "" && !resp.State.Raw.IsNull() {
+				t.Error("a refused create must not persist any state")
+			}
+		})
+	}
+}
+
+func TestCreate_OtherBackendErrorSaysHowToRecover(t *testing.T) {
+	client := &fakeReleaseClient{historyByDriver: map[string]*nelmclient.ReleaseHistory{
+		"secret": {Revision: 2, Status: "deployed", Deployed: true},
+	}}
+
+	plan := plannedCreateModel()
+	plan.ReleaseStorageDriver = types.StringValue("configmap")
+
+	resp := runCreate(t, client, plan)
+	if !resp.Diagnostics.HasError() {
+		t.Fatal("expected the other-backend guard to refuse")
+	}
+
+	for _, want := range []string{"create_before_destroy", "destroy-first", `release_storage_driver = "secret"`, "adopt_existing does not override"} {
+		if !strings.Contains(resp.Diagnostics[0].Detail(), want) {
+			t.Errorf("error detail does not mention %q:\n%s", want, resp.Diagnostics[0].Detail())
+		}
+	}
+}
+
+// TestCreate_OtherBackendForbiddenOnlyWarns: credentials whose RBAC covers
+// only the configured backend must still be able to create releases.
+func TestCreate_OtherBackendForbiddenOnlyWarns(t *testing.T) {
+	forbidden := apierrors.NewForbidden(k8sschema.GroupResource{Resource: "configmaps"}, "", errors.New(`User "deployer" cannot list resource "configmaps"`))
+	client := &fakeReleaseClient{
+		historyErrs: map[string]error{"configmap": fmt.Errorf("build release history: %w", forbidden)},
+		getInfo:     deployedInfo(1, "deployed"),
+	}
+
+	resp := runCreate(t, client, plannedCreateModel())
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	assertOneDiag(t, resp.Diagnostics, diag.SeverityWarning, "Could not check the configmap storage backend")
+
+	if client.installs != 1 {
+		t.Errorf("Install called %d times, want 1", client.installs)
+	}
+}
+
+func TestCreate_OtherBackendReadFailureChangesNothing(t *testing.T) {
+	client := &fakeReleaseClient{historyErrs: map[string]error{"configmap": errors.New("connection reset by peer")}}
+
+	resp := runCreate(t, client, plannedCreateModel())
+
+	assertOneDiag(t, resp.Diagnostics, diag.SeverityError, "release history")
+
+	if client.installs != 0 {
+		t.Errorf("Install called %d times, want 0", client.installs)
+	}
+}
+
+// TestUpdate_ReadsOnlyItsOwnBackend: the other-backend check is Create-only
+// (an Update never changes release_storage_driver, which forces replacement).
+func TestUpdate_ReadsOnlyItsOwnBackend(t *testing.T) {
+	client := &fakeReleaseClient{
+		historyByDriver: map[string]*nelmclient.ReleaseHistory{"secret": {Revision: 4, Status: "deployed", Deployed: true}},
+		getInfo:         deployedInfo(5, "deployed"),
+	}
+
+	plan := appliedModel(4, "deployed")
+	plan.Status = types.StringUnknown()
+	plan.Revision = types.Int64Unknown()
+	plan.Metadata = types.ObjectUnknown(metadataAttrTypes)
+
+	resp := runUpdate(t, client, plan, appliedModel(4, "deployed"))
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	if !slices.Equal(client.historyDrivers, []string{"secret"}) {
+		t.Errorf("History read drivers %q, want only the configured secret backend", client.historyDrivers)
 	}
 }
 

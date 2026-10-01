@@ -4,10 +4,10 @@ package provider_test
 // scenarios: Create refusing to adopt an existing release (G3.1/F07),
 // replacement of a tainted release (F03), a namespace move reusing the
 // replaced release's cluster-scoped object names (F03), and a
-// create_before_destroy replacement failing safe instead of uninstalling the
-// release (G3.1). Same
-// harness and triple safety guard as release_resource_test.go
-// (provider_test.go).
+// create_before_destroy replacement — same backend, or a
+// release_storage_driver change — failing safe instead of uninstalling the
+// release (G3.1). Same harness and triple safety guard as
+// release_resource_test.go (provider_test.go).
 
 import (
 	"fmt"
@@ -210,6 +210,76 @@ func TestAccReleaseResource_createBeforeDestroyFailsSafe(t *testing.T) {
 				Config:    releaseConfig(name, namespace, chart, ""),
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("status"), knownvalue.StringExact("deployed")),
+				},
+			},
+		},
+	})
+}
+
+// TestAccReleaseResource_createBeforeDestroyStorageDriverChange: a
+// create_before_destroy replacement that changes release_storage_driver used
+// to install the release into the new (empty) backend over its live objects
+// and then uninstall it from the old backend as the deposed object, with a
+// green apply (G3.1). The create half must be refused while the release is
+// still deployed in the old backend; applied destroy-first, the change moves
+// the release to the new backend.
+func TestAccReleaseResource_createBeforeDestroyStorageDriverChange(t *testing.T) {
+	namespace := uniqueNamespace("cbd-driver")
+	const name = "cbd-driver"
+
+	chart := chartPath(t)
+	cbd := "\n  lifecycle {\n    create_before_destroy = true\n  }"
+	configmap := `  release_storage_driver = "configmap"`
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckReleaseDestroyed(namespace, name),
+		Steps: []resource.TestStep{
+			{
+				Config: releaseConfig(name, namespace, chart, cbd),
+			},
+			{
+				Config:      releaseConfig(name, namespace, chart, configmap+cbd),
+				ExpectError: regexp.MustCompile(`already\s+exists\s+in\s+the\s+secret\s+storage\s+backend`),
+			},
+			{
+				// Still installed in the secret backend; without
+				// create_before_destroy the driver change is destroy-first.
+				PreConfig: func() { assertReleaseStored(t, namespace, name) },
+				Config:    releaseConfig(name, namespace, chart, configmap),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{
+						plancheck.ExpectResourceAction(resourceAddr, plancheck.ResourceActionDestroyBeforeCreate),
+					},
+				},
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("release_storage_driver"), knownvalue.StringExact("configmap")),
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("status"), knownvalue.StringExact("deployed")),
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("revision"), knownvalue.Int64Exact(1)),
+				},
+				Check: func(_ *terraform.State) error {
+					selector := fmt.Sprintf("owner=helm,name=%s", name)
+
+					out, err := kubectl("get", "configmap", "-n", namespace, "-l", selector, "-o", "name")
+					if err != nil {
+						return fmt.Errorf("list release ConfigMaps: %w\n%s", err, out)
+					}
+
+					if strings.TrimSpace(out) == "" {
+						return fmt.Errorf("release %s/%s has no release-storage ConfigMaps after the driver change", namespace, name)
+					}
+
+					out, err = kubectl("get", "secret", "-n", namespace, "-l", selector, "-o", "name")
+					if err != nil {
+						return fmt.Errorf("list release Secrets: %w\n%s", err, out)
+					}
+
+					if s := strings.TrimSpace(out); s != "" {
+						return fmt.Errorf("release %s/%s still has release-storage Secrets after the driver change:\n%s", namespace, name, s)
+					}
+
+					return nil
 				},
 			},
 		},
