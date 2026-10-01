@@ -85,9 +85,16 @@ intentionally skipped — see `docs/DEVELOPMENT.md`).
   a different Helm release or were created out-of-band. Not required to
   import plain-helm-installed releases (see Caveats below). Defaults to
   `false`.
-- `no_remove_manual_changes` (Boolean) Preserve fields manually added to
-  live resources that are not present in the chart manifests, instead of
-  removing them on update. Defaults to `false`.
+- `no_remove_manual_changes` (Boolean) Preserve fields added to live
+  resources with `kubectl edit` (field manager `kubectl-edit`) that the chart
+  does not render. Defaults to `false` (Nelm's own default), which differs
+  from `helm_release`: Nelm takes such fields over to its own `helm` field
+  manager already during `terraform plan`, and the next apply that updates
+  the release removes them — **without the removal appearing in the
+  `resources` diff**. Setting it to `true` afterwards does not bring them
+  back (the flag change is itself an update). Set it before the first plan
+  if you rely on `kubectl edit` hotfixes surviving upgrades; see "Fields
+  added out of band" below.
 - `no_install_crds` (Boolean) Skip installing CustomResourceDefinitions
   from the chart's `crds/` directory. Defaults to `false`.
 - `release_history_limit` (Number) Maximum number of release revisions
@@ -230,7 +237,10 @@ correctly:
   a controller-populated default) is **not** shown as drift; only changes
   to, and removals of, chart-managed fields are. This is deliberate: it is
   exactly what prevents the API server's own server-side defaulting from
-  showing as a permanent phantom diff on every plan.
+  showing as a permanent phantom diff on every plan. Not shown is not the
+  same as kept, though: a field added with `kubectl edit` is removed by the
+  next apply that updates the release unless `no_remove_manual_changes =
+  true` — see "Fields added out of band" below.
 - `resources` is set explicitly on **every** plan, including plans with
   no other changes, specifically so that drift stays visible on
   no-change plans too.
@@ -320,6 +330,32 @@ manager, or an old werf-prefixed manager name from a pre-server-side-apply
 werf/Nelm version. `managedFields` are stripped by the normalization
 pipeline before entering `resources`, so even when this rewrite does
 occur, it never shows up as diff noise in `terraform plan` output.
+
+### Fields added out of band
+
+Because the live side of `resources` is projected onto the chart's rendered
+shape, a field added out of band that the chart does not render is never
+shown as drift (see "How `resources` drives `terraform plan`"). A field the
+chart *does* render is reverted to the chart's value by the next apply, and
+that drift is shown. What happens to a field the chart does not render
+depends on the field manager that added it:
+
+- **`kubectl edit`** (manager `kubectl-edit`): with the default
+  `no_remove_manual_changes = false`, Nelm takes the field over to its own
+  `helm` manager during `terraform plan` (see above), and its server-side
+  apply then **removes** it on the next apply that updates the release for
+  any reason — with nothing in that plan's `resources` diff saying so.
+  Setting `no_remove_manual_changes = true` afterwards does not restore it:
+  ownership has already moved, and the flag change is itself an update.
+  This is a deliberate difference from `helm_release`, whose Helm 3
+  three-way merge only removes fields that were in the previous manifest,
+  so such edits survive its upgrades. If you rely on `kubectl edit`
+  hotfixes surviving until the chart is fixed, set
+  `no_remove_manual_changes = true` before the first plan (for an adopted
+  release, in the configuration you import with).
+- **Any other manager** (`kubectl patch`/`label`/`annotate`/`apply`,
+  controllers, admission webhooks): the field stays owned by that manager
+  and survives Nelm's applies, as it does Helm's.
 
 ### Secret data in state
 
