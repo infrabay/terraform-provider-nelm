@@ -214,6 +214,53 @@ func TestModifyPlan_CreateLiveConflictIsAdvisory(t *testing.T) {
 	}
 }
 
+// TestModifyPlan_IdentityChangeLiveConflictIsAdvisory: Terraform core plans
+// a name/namespace/release_storage_driver change FIRST with the real prior
+// state and only then re-plans the create with a null prior, so the
+// non-null-prior call must already treat the change as a create. A live
+// conflict with the release being replaced (here a fixed-name ClusterRole
+// still owned by the old namespace's release) used to fail that first call,
+// so such a move could not be planned at all.
+func TestModifyPlan_IdentityChangeLiveConflictIsAdvisory(t *testing.T) {
+	tests := map[string]func(prior *releaseModel){
+		"namespace": func(prior *releaseModel) {
+			prior.Namespace = types.StringValue("ingress-old")
+			prior.ID = types.StringValue("ingress-old/my-release")
+		},
+		"name": func(prior *releaseModel) {
+			prior.Name = types.StringValue("old-release")
+			prior.ID = types.StringValue("default/old-release")
+		},
+		"release_storage_driver": func(prior *releaseModel) {
+			prior.ReleaseStorageDriver = types.StringValue("configmap")
+		},
+	}
+
+	for attr, change := range tests {
+		t.Run(attr, func(t *testing.T) {
+			client := &fakeReleaseClient{planErr: adoptionConflict(), renderObjs: renderedObjects()}
+			prior := appliedModel(3, "deployed")
+			change(&prior)
+
+			resp := runModifyPlan(t, client, baseTestReleaseModel(), &prior)
+
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("a live conflict must not fail the plan of a %s change, got: %v", attr, resp.Diagnostics)
+			}
+
+			assertOneDiag(t, resp.Diagnostics, diag.SeverityWarning, "re-checked at apply")
+
+			if got := plannedResources(t, resp.Plan); len(got) != len(renderedObjects()) {
+				t.Errorf("planned resources = %v, want the %d rendered objects", got, len(renderedObjects()))
+			}
+
+			if len(client.renderSpecs) != 1 || !client.renderSpecs[0].RenderAsFirstInstall {
+				t.Error("the new release must render as a first install")
+			}
+		})
+	}
+}
+
 func TestModifyPlan_UpdateLiveConflictStillFails(t *testing.T) {
 	client := &fakeReleaseClient{planErr: adoptionConflict(), renderObjs: renderedObjects()}
 	prior := appliedModel(1, "deployed")
@@ -254,6 +301,15 @@ func TestModifyPlan_CreateOverExistingReleaseWarns(t *testing.T) {
 
 	fresh := &fakeReleaseClient{planResult: &nelmclient.PlanResult{DeployType: "Initial"}, renderObjs: renderedObjects()}
 	assertOneDiag(t, runModifyPlan(t, fresh, baseTestReleaseModel(), nil).Diagnostics, diag.SeverityWarning, "")
+
+	// A namespace move onto a release that already exists in the target
+	// namespace: the destroy removes the OLD release, not that one, so the
+	// create is refused at apply. Only the first, non-null-prior call's
+	// warnings reach the plan output.
+	moved := appliedModel(3, "deployed")
+	moved.Namespace = types.StringValue("old")
+	moved.ID = types.StringValue("old/my-release")
+	assertOneDiag(t, runModifyPlan(t, client, baseTestReleaseModel(), &moved).Diagnostics, diag.SeverityWarning, "already exists")
 }
 
 func TestModifyPlan_PendingReleaseWarns(t *testing.T) {
@@ -266,4 +322,16 @@ func TestModifyPlan_PendingReleaseWarns(t *testing.T) {
 	}
 
 	assertOneDiag(t, resp.Diagnostics, diag.SeverityWarning, "locked by a pending operation")
+
+	// A namespace move destroys the pending release instead of updating it,
+	// and destroy takes no lock: no lock warning.
+	prior.Namespace = types.StringValue("old")
+	prior.ID = types.StringValue("old/my-release")
+
+	resp = runModifyPlan(t, client, baseTestReleaseModel(), &prior)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	assertOneDiag(t, resp.Diagnostics, diag.SeverityWarning, "")
 }

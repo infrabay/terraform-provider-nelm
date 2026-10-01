@@ -85,6 +85,23 @@ chart-managed fields from live ones.
   release without the failed apply, do it in two steps:
   `terraform destroy -target=...`, then `terraform apply`.
 
+- **A replacement's conflicts with live objects are only warnings at plan
+  time.** The create half of a replacement (a `name`/`namespace`/
+  `release_storage_driver` change, a tainted resource) is planned while the
+  old release still owns its objects, so Nelm's ownership and
+  immutable-field checks against live objects only warn there and run for
+  real after the destroy. A conflict with an object the old release does
+  NOT own (another release's, or one created outside Helm) therefore fails
+  the apply after the old release was uninstalled. Read the objects the
+  `re-checked at apply` warning names before applying. Telling the two
+  apart needs owner information Nelm's error does not carry in structured
+  form.
+
+- **`-replace` cannot get past an immutable-field change.** Terraform plans
+  `-replace` as an update of the same release first, and Nelm's
+  immutable-field check fails that plan. Use `terraform taint` (planned as
+  a plain create) or `terraform destroy -target=...` then `terraform apply`.
+
 - **A create plan lists the chart's `crds/` CRDs even with
   `no_install_crds = true`.** The planned `resources` of a create is the
   chart's render, which includes `crds/`; the first refresh after the apply

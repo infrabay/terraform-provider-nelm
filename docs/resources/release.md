@@ -92,12 +92,12 @@ intentionally skipped — see `docs/DEVELOPMENT.md`).
   from the chart's `crds/` directory. Defaults to `false`.
 - `adopt_existing` (Boolean) Allow Create to take over a release of the
   same name that already exists in the namespace (one with a deployed
-  revision, or whose last revision is `pending-*`). Defaults to `false`:
-  Create then fails instead, like `helm_release` without `upgrade_install`,
-  so a forgotten import, a duplicate resource, or a `create_before_destroy`
-  replacement can never silently adopt — and then uninstall — a live
-  release. Prefer `terraform import`. Only Create reads it; see "Creating a
-  resource for an existing release" below.
+  revision). Defaults to `false`: Create then fails instead, like
+  `helm_release` without `upgrade_install`, so a forgotten import, a
+  duplicate resource, or a `create_before_destroy` replacement can never
+  silently adopt — and then uninstall — a live release. Prefer `terraform import`. It does not override the `pending-*`
+  lock. Only Create reads it; see "Creating a resource for an existing
+  release" below.
 - `release_history_limit` (Number) Maximum number of release revisions
   kept in storage. Null or `0` uses Nelm's own default (10). Only release
   metadata is pruned; cluster resources are unaffected. Must be `0` or
@@ -326,8 +326,8 @@ When `nelm_release` is **created** — a new resource, or the create half of
 a replacement — the provider first reads the release's stored history. If
 a release of that name already exists in the namespace and Nelm would
 *upgrade* it (it has a deployed or superseded revision since its last
-uninstall), or its last revision is `pending-*`, the apply fails with
-`nelm release <namespace>/<name> already exists` and nothing is changed.
+uninstall), the apply fails with `nelm release <namespace>/<name> already
+exists` and nothing is changed.
 This is `helm install`'s "cannot re-use a name that is still in use", and
 it catches:
 
@@ -346,7 +346,11 @@ in place); set it only for the apply that adopts the release.
 A release whose history holds only failed or uninstalled revisions — a
 first install that failed, or a `helm uninstall --keep-history` — does not
 count as existing: Create installs over it, so retrying a failed first
-install keeps working.
+install keeps working. The same goes for a first install that was killed
+mid-way and left only a `pending-install` revision, once that revision is
+stale; a younger one is refused as a lock (see
+[Pending releases](#pending-releases-helms-release-lock)), with or without
+`adopt_existing`.
 
 The plan warns (`a release with this name already exists`) when it can see
 this coming. It cannot fail at plan time: a destroy-first replacement
@@ -358,6 +362,30 @@ Changing `name`, `namespace` or `release_storage_driver`, tainting the
 resource, or `terraform apply -replace=...` replaces the release: Terraform
 destroys (uninstalls) it and then creates (installs) it again in the same
 apply, with downtime in between.
+
+The create is planned while the old release is still installed. When the
+new release reuses the names of objects the old one owns — a namespace move
+of a chart whose cluster-scoped objects (ClusterRoles, webhook
+configurations, CRDs) have fixed names, or a rename with
+`fullnameOverride` — Nelm's ownership and immutable-field checks fail
+against the old objects. The plan shows that as a warning (`the live-cluster
+plan for this create failed (it is re-checked at apply)`) instead of an
+error, because the destroy removes those objects before the create runs.
+Read the objects that warning names: the apply re-runs the checks only
+**after** the destroy, so a conflict with anything else — an object owned by
+a third release, or created outside Helm — fails the create once the old
+release is already uninstalled. Resolve such a conflict (or set
+`force_adoption`) before applying.
+
+`-replace` is the exception: Terraform plans it as an update of the same
+release first, so a change Nelm refuses to apply in place (an immutable
+field, such as a Deployment's `selector` or a StatefulSet's
+`volumeClaimTemplates`, on an object without
+`werf.io/delete-policy: before-creation-if-immutable`) still fails the plan
+with `immutable fields change in resource ...`. To replace the release over
+such a change, taint it instead (`terraform taint <address>`, then
+`terraform apply`), which Terraform plans as a plain create, or run
+`terraform destroy -target=<address>` and then `terraform apply`.
 
 `create_before_destroy` is **not supported** for a replacement that keeps
 the same `name` and `namespace`: the new and the old object are the same
@@ -409,6 +437,14 @@ between is not detected.
   (partly) installed, and the next apply replaces it: uninstall, then
   install. To retry in place instead, `terraform untaint` it; a release that
   is not cleanly deployed always re-plans as an update.
+- **A create that was killed** mid-install (a cancelled CI job, a crashed
+  `terraform`) leaves a `pending-install` revision and no Terraform state.
+  The next apply creates the resource again: it fails with `is locked by
+  another operation` while that revision is younger than the lock age (see
+  [Pending releases](#pending-releases-helms-release-lock)) and installs
+  over it, with a warning, once it is older. A kill after Nelm already
+  recorded a later revision (for example `deployed`) leaves a release that
+  exists: import it.
 - **An install that succeeded but could not be read back** right away (for
   example a transient API error) does not fail the apply: it warns, and the
   next refresh fills in `status`, `revision` and `metadata`.

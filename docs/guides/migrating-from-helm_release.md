@@ -148,6 +148,18 @@ and makes the first apply write a new revision for nothing. If the original
 inputs are lost, `helm get values <name> -n <namespace>` (without `-a`)
 returns only the user-supplied values.
 
+**Pin `version`, even if the `helm_release` did not.** An unset `version`
+means the newest chart version, and the plan does not say which one that is
+(only the `resources` changes it brings). When the `helm_release` has no
+`version`, the handover apply installs the newest chart, which can be an
+upgrade (even across a major version) on top of the migration: after an
+import (`chart` is null, so the first apply always installs), and after a
+`moved` block too (the plan changes `version` from the moved value to null,
+which installs again). Set `version` to the chart version the release runs
+now (`terraform state show helm_release.x` before the handover, or the chart
+column of `helm list -n <namespace>`), and drop the pin in a later apply if
+tracking the newest version is intended.
+
 Make removals, chart bumps and other changes in a **later** apply, after the
 handover has been applied once. This also matters for field ownership: see
 [Field managers](#field-managers).
@@ -157,7 +169,7 @@ handover has been applied once. This also matters for field ownership: see
 | `helm_release` | `nelm_release` | Notes |
 |---|---|---|
 | `name`, `namespace` | `name`, `namespace` | Both force replacement when changed. |
-| `chart`, `repository`, `version` | `chart`, `repository`, `version` | For OCI charts prefer the full reference in `chart` (`oci://host/path/name`) over `repository = "oci://..."` plus a bare chart name. |
+| `chart`, `repository`, `version` | `chart`, `repository`, `version` | For OCI charts prefer the full reference in `chart` (`oci://host/path/name`) over `repository = "oci://..."` plus a bare chart name. Set `version` even where the `helm_release` left it unset — see [Values](#values-carry-them-over-verbatim). |
 | `values` | `values` | Same list of YAML documents. |
 | `set`, `set_sensitive` | `set`, `set_sensitive` | Same `{ name, value, type }` objects; `type` also accepts `"json"`. |
 | `set_list`, `set_wo` | — | Express them in `values` (or `set` with `type = "json"`). |

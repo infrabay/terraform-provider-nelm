@@ -28,6 +28,7 @@ func TestInstallGuardDiags(t *testing.T) {
 	freshPending := &nelmclient.ReleaseHistory{Revision: 5, Status: "pending-rollback", LastDeployed: now.Add(-2 * time.Minute), Deployed: true}
 	stalePending := &nelmclient.ReleaseHistory{Revision: 5, Status: "pending-upgrade", LastDeployed: now.Add(-2 * time.Hour), Deployed: true}
 	staleFirstInstall := &nelmclient.ReleaseHistory{Revision: 1, Status: "pending-install", LastDeployed: now.Add(-2 * time.Hour)}
+	freshFirstInstall := &nelmclient.ReleaseHistory{Revision: 1, Status: "pending-install", LastDeployed: now.Add(-time.Minute)}
 	untimedPending := &nelmclient.ReleaseHistory{Revision: 2, Status: "pending-upgrade", Deployed: true}
 
 	tests := []struct {
@@ -48,7 +49,8 @@ func TestInstallGuardDiags(t *testing.T) {
 		{name: "create over a fresh pending revision is a lock", history: freshPending, isCreate: true, wantError: "locked by another operation"},
 		{name: "adopt_existing does not override the lock", history: freshPending, isCreate: true, adoptExisting: true, wantError: "locked by another operation"},
 		{name: "create over a stale pending revision still needs adopt_existing", history: stalePending, isCreate: true, wantError: "already exists"},
-		{name: "create over a stale pending-install only still needs adopt_existing", history: staleFirstInstall, isCreate: true, wantError: "already exists"},
+		{name: "create takes a killed first install's stale pending-install over", history: staleFirstInstall, isCreate: true, wantWarning: "stale pending"},
+		{name: "create over a fresh pending-install is a lock", history: freshFirstInstall, isCreate: true, wantError: "locked by another operation"},
 		{name: "create with adopt_existing takes a stale pending revision over", history: stalePending, isCreate: true, adoptExisting: true, wantWarning: "stale pending"},
 		{name: "update of a deployed release", history: deployed},
 		{name: "update over a fresh pending revision is a lock", history: freshPending, wantError: "locked by another operation"},
@@ -217,6 +219,29 @@ func TestCreate_RetriesFailedFirstInstall(t *testing.T) {
 	if resp.Diagnostics.HasError() {
 		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 	}
+
+	if client.installs != 1 {
+		t.Fatalf("Install called %d times, want 1", client.installs)
+	}
+}
+
+// TestCreate_TakesOverKilledFirstInstall: a first create killed mid-install
+// leaves only a pending-install revision and no Terraform state, so neither
+// import nor an update can reach it. Once that revision is stale, Create
+// installs over it like over a failed first install.
+func TestCreate_TakesOverKilledFirstInstall(t *testing.T) {
+	client := &fakeReleaseClient{
+		history: &nelmclient.ReleaseHistory{Revision: 1, Status: "pending-install", LastDeployed: time.Now().Add(-3 * time.Hour)},
+		getInfo: deployedInfo(2, "deployed"),
+	}
+
+	resp := runCreate(t, client, plannedCreateModel())
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	assertOneDiag(t, resp.Diagnostics, diag.SeverityWarning, "stale pending")
 
 	if client.installs != 1 {
 		t.Fatalf("Install called %d times, want 1", client.installs)

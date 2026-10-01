@@ -37,13 +37,14 @@ func pendingTakeoverAge(opTimeout time.Duration) time.Duration {
 //     (the operation that wrote it is gone), which keeps a killed apply's own
 //     leftover recoverable.
 //   - On Create (isCreate) without adopt_existing, an EXISTING release is
-//     refused: one with a deployed revision (nelm would upgrade it) or a
-//     pending-* last revision. Create's install would otherwise silently take
-//     the release over — a forgotten import, a duplicate resource — and under
-//     create_before_destroy the deposed object's destroy then uninstalls the
-//     release Create just adopted. A history of only failed or uninstalled
-//     revisions (a failed first install) is installed over, as nelm does, so
-//     recovering from it keeps working.
+//     refused: one with a deployed revision (nelm would upgrade it). Create's
+//     install would otherwise silently take the release over — a forgotten
+//     import, a duplicate resource — and under create_before_destroy the
+//     deposed object's destroy then uninstalls the release Create just
+//     adopted. A history of only failed or uninstalled revisions (a failed
+//     first install) is installed over, as nelm does, so recovering from it
+//     keeps working; so is a stale pending-install left by a first install
+//     that was killed, which left no Terraform state to import or update.
 //
 // Import is unaffected: an imported resource is only ever Updated.
 func installGuardDiags(plan releaseModel, h *nelmclient.ReleaseHistory, isCreate bool, takeoverAfter time.Duration, now time.Time) diag.Diagnostics {
@@ -77,7 +78,7 @@ func installGuardDiags(plan releaseModel, h *nelmclient.ReleaseHistory, isCreate
 		return diags
 	}
 
-	if isCreate && !plan.AdoptExisting.ValueBool() && (h.Deployed || h.IsPending()) {
+	if isCreate && !plan.AdoptExisting.ValueBool() && h.Deployed {
 		diags.AddError(
 			fmt.Sprintf("nelm release %s/%s already exists", ns, name),
 			fmt.Sprintf("A release named %q already exists in namespace %q (revision %d, status %q), and this resource "+

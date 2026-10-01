@@ -32,10 +32,12 @@ var metadataAttrTypes = map[string]attr.Type{
 // unknownCheckStringPaths/unknownCheckBoolPaths are the top-level scalar
 // config attributes design §2.2 step 2 says must never be guessed at: if any
 // is Unknown, the whole diff surface degrades to Unknown rather than being
-// computed against a guessed value. release_history_limit and auto_rollback
-// are deliberately excluded: toReleaseSpec already treats an unknown/null
-// history limit as "omit" (release_model.go), and auto_rollback has no
-// effect on Client.Plan's inputs at all (it is an Install-only option).
+// computed against a guessed value. release_history_limit, auto_rollback and
+// adopt_existing are deliberately excluded: toReleaseSpec already treats an
+// unknown/null history limit as "omit" (release_model.go), auto_rollback has
+// no effect on Client.Plan's inputs at all (it is an Install-only option),
+// and adopt_existing is read by Create alone (an unknown value only
+// suppresses ModifyPlan's existing-release warning).
 var (
 	unknownCheckStringPaths = []string{"chart", "repository", "version", "name", "namespace", "release_storage_driver"}
 	unknownCheckBoolPaths   = []string{"force_adoption", "no_remove_manual_changes", "no_install_crds"}
@@ -164,9 +166,10 @@ func setModelsEqual(a, b []setModel) bool {
 
 // releaseWillReinstall reports whether the planned apply will re-run nelm's
 // Install in a way that can bump the release revision (and change its
-// status/metadata) — i.e. whether ANYTHING is actually changing: a fresh
-// create, out-of-band drift (the planned resources map differs from prior), or
-// any chart-rendering config input differing from prior state.
+// status/metadata) — i.e. whether ANYTHING is actually changing: a create
+// (isCreate, ModifyPlan's createPlan), out-of-band drift (the planned
+// resources map differs from prior), or any chart-rendering config input
+// differing from prior state.
 //
 // It is deliberately BROADER than "nelm reported a resource-level change". A
 // values/set/set_sensitive/version edit that changes the coalesced release
@@ -179,8 +182,8 @@ func setModelsEqual(a, b []setModel) bool {
 // returns false the config and rendered resources both match prior state, so
 // nelm skips the install, the revision does not move, and leaving
 // status/revision/metadata untouched yields the clean, empty no-change plan.
-func releaseWillReinstall(plan, priorState releaseModel, planned, prior map[string]string, stateIsNull bool) bool {
-	return stateIsNull ||
+func releaseWillReinstall(plan, priorState releaseModel, planned, prior map[string]string, isCreate bool) bool {
+	return isCreate ||
 		// A prior release that is not cleanly deployed (failed, pending-*) is
 		// ALWAYS re-installed by nelm: IsReleaseUpToDate returns false purely
 		// on status != deployed, so Install never takes its skip branch and
@@ -188,7 +191,7 @@ func releaseWillReinstall(plan, priorState releaseModel, planned, prior map[stri
 		// eternally-empty plan (never retried without -replace), and any
 		// no-op-rendering config edit (e.g. only timeouts) aborts with
 		// "inconsistent result after apply" when the retry bumps the revision.
-		(!stateIsNull && priorState.Status.ValueString() != "deployed") ||
+		(!isCreate && priorState.Status.ValueString() != "deployed") ||
 		// Chart-rendering / values inputs (change the coalesced config).
 		plan.Chart.ValueString() != priorState.Chart.ValueString() ||
 		plan.Repository.ValueString() != priorState.Repository.ValueString() ||
@@ -222,6 +225,16 @@ func releaseWillReinstall(plan, priorState releaseModel, planned, prior map[stri
 		!plan.Timeouts.Object.Equal(priorState.Timeouts.Object) ||
 		// Out-of-band drift: the planned resources differ from prior state.
 		!maps.Equal(planned, prior)
+}
+
+// releaseIdentityChanged reports whether plan addresses a different release
+// than priorState: a change of name, namespace or release_storage_driver,
+// the RequiresReplace attributes. The plan then installs a release that does
+// not exist yet, like a create, while the prior one is destroyed.
+func releaseIdentityChanged(plan, priorState releaseModel) bool {
+	return !plan.Name.Equal(priorState.Name) ||
+		!plan.Namespace.Equal(priorState.Namespace) ||
+		!plan.ReleaseStorageDriver.Equal(priorState.ReleaseStorageDriver)
 }
 
 // releaseID computes the "id" attribute value: a pure, deterministic
@@ -325,6 +338,29 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	// -replace, a name/namespace/release_storage_driver change).
 	stateIsNull := req.State.Raw.IsNull()
 
+	// State values are always fully known (Terraform state never stores
+	// Unknown), so reflecting the whole prior state into releaseModel here is
+	// safe.
+	var priorState releaseModel
+
+	if !stateIsNull {
+		resp.Diagnostics.Append(req.State.Get(ctx, &priorState)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
+
+	// createPlan: this plan installs a release that does not exist yet. That
+	// is every null-prior plan, and also a change of the release's identity
+	// (releaseIdentityChanged): Terraform core plans such a replacement FIRST
+	// with the real prior state, and re-plans it with a null prior only after
+	// seeing the RequiresReplace. The first call is the one that can fail the
+	// plan and whose warnings are shown (core keeps only the errors of the
+	// re-plan), so it must already treat the change as the create it is.
+	// ModifyPlan cannot see the RequiresReplace itself: the framework hands
+	// it an empty resp.RequiresReplace.
+	createPlan := stateIsNull || releaseIdentityChanged(plan, priorState)
+
 	planRes, planErr := r.client.Plan(ctx, spec, readTimeout)
 	if planErr != nil {
 		// 5a. Cluster unreachable at plan time: degrade (helm-parity),
@@ -341,7 +377,7 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		}
 
 		// 5b. Anything else (bad chart, bad values, render error, ...)
-		// is a hard error — except, on a null-prior plan, a conflict with
+		// is a hard error — except, on a create plan, a conflict with
 		// objects that are live right now (nelmclient.IsLiveConflict). During
 		// a replacement those objects belong to the release being replaced,
 		// whose destroy removes them before the create runs (e.g. a namespace
@@ -350,7 +386,7 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		// 6c), once the render below has shown the chart and values
 		// themselves are valid. Scrub set_sensitive values first: nelm echoes
 		// the raw --set-json/--set argument in parse errors.
-		if !stateIsNull || !nelmclient.IsLiveConflict(planErr) {
+		if !createPlan || !nelmclient.IsLiveConflict(planErr) {
 			resp.Diagnostics.AddError("nelm_release plan failed", plan.scrubSensitive(planErr.Error()))
 
 			return
@@ -360,26 +396,19 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	// 6. prior is the resources map already in state — empty (not
 	// missing) on create, since nelm's Changes only ever describes
 	// *changed* resources; BuildPlannedResources needs a base map to
-	// merge them into either way. State values are always fully known
-	// (Terraform state never stores Unknown), so reflecting the whole
-	// prior state into releaseModel here is safe.
+	// merge them into either way.
 	prior := map[string]string{}
 
-	var priorState releaseModel
-
-	if !stateIsNull {
-		resp.Diagnostics.Append(req.State.Get(ctx, &priorState)...)
+	if !stateIsNull && !priorState.Resources.IsNull() && !priorState.Resources.IsUnknown() {
+		resp.Diagnostics.Append(priorState.Resources.ElementsAs(ctx, &prior, false)...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
+	}
 
-		if !priorState.Resources.IsNull() && !priorState.Resources.IsUnknown() {
-			resp.Diagnostics.Append(priorState.Resources.ElementsAs(ctx, &prior, false)...)
-			if resp.Diagnostics.HasError() {
-				return
-			}
-		}
-
+	// The lock warning is about the release this plan updates; a replacement
+	// destroys the prior release instead (and destroy takes no lock).
+	if !createPlan {
 		resp.Diagnostics.Append(pendingReleaseWarning(ctx, plan, priorState)...)
 	}
 
@@ -394,7 +423,7 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	// other used the render would itself manufacture an inconsistent-final-plan
 	// abort.
 	//
-	// A null-prior plan renders as a FIRST install (no release history),
+	// A create plan renders as a FIRST install (no release history),
 	// which is exactly what Install renders whenever the create actually
 	// runs: on a fresh create, and after a replacement's destroy has
 	// uninstalled the old release. Rendering against the old release's
@@ -402,7 +431,7 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	// (.Release.Revision, .Release.IsUpgrade) different inputs at plan time
 	// (old release still live) and at the apply-time re-plan (already gone).
 	renderSpec := spec
-	renderSpec.RenderAsFirstInstall = stateIsNull
+	renderSpec.RenderAsFirstInstall = createPlan
 
 	renderObjs, err := r.client.Render(ctx, renderSpec, readTimeout)
 	if err != nil {
@@ -416,7 +445,7 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		return
 	}
 
-	// 6c. The planned "resources" value. On a null-prior plan it is the
+	// 6c. The planned "resources" value. On a create plan it is the
 	// first-install render itself. Terraform plans a replacement's create
 	// TWICE — at plan time while the old release's objects are still live,
 	// and again at apply after its destroy removed them — and nelm's
@@ -451,11 +480,11 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 			resp.Diagnostics.AddWarning(fmt.Sprintf("nelm_release: blind apply for %s", w.Resource), plan.scrubSensitive(w.Reason))
 		}
 
-		if !stateIsNull {
+		if !createPlan {
 			planned = built
 		}
 
-		if stateIsNull && planRes.DeployType == nelmclient.DeployTypeUpgrade && !plan.AdoptExisting.ValueBool() {
+		if createPlan && planRes.DeployType == nelmclient.DeployTypeUpgrade && !plan.AdoptExisting.ValueBool() {
 			resp.Diagnostics.Append(existingReleaseWarning(ns, name))
 		}
 	}
@@ -473,7 +502,7 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	// unconditional overwrite here is the ONLY thing that makes
 	// out-of-band cluster drift visible on an otherwise no-change plan
 	// (design §2.2 step 7). This call must NOT be made conditional on
-	// hasChanges/stateIsNull below.
+	// hasChanges/createPlan below.
 	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("resources"), plannedMap)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -488,7 +517,7 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	// (the "inconsistent result after apply" bug). On a true no-op this is
 	// false and prior status/revision/metadata are left entirely untouched —
 	// the clean no-change plan.
-	if releaseWillReinstall(plan, priorState, planned, prior, stateIsNull) {
+	if releaseWillReinstall(plan, priorState, planned, prior, createPlan) {
 		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("status"), types.StringUnknown())...)
 		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("revision"), types.Int64Unknown())...)
 		resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("metadata"), types.ObjectUnknown(metadataAttrTypes))...)

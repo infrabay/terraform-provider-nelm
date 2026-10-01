@@ -32,7 +32,11 @@ unit tests can substitute an offline fake; `Configure` always stores a
 `*plan.ResourceChange` (from `github.com/werf/nelm/pkg/plan`) passes through
 `PlanResult.Changes` **opaquely** — `internal/planconv` consumes it directly
 from Nelm's own type; nothing re-derives Nelm's create/update/delete/"blind
-apply" classification.
+apply" classification. Test-only exception: `internal/provider`'s unit tests
+may import `github.com/werf/nelm/pkg/plan` (and `pkg/resource/spec`) to
+hand-build `PlanResult.Changes` fixtures for the fake `releaseClient`
+(release_plan_create_test.go); the provider code itself only passes them
+through.
 
 ## Seam 2 — `internal/planconv` consumed by both sides of the diff
 
