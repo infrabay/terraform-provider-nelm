@@ -129,11 +129,11 @@ Optional block; all four are Go duration strings (e.g. `"20m"`):
 - `delete` (String) Timeout for the uninstall action backing Delete.
   Defaults to 5m.
 
-`create`, `update` and `read` also bound the download of a remote chart
-that precedes each install, plan or render, separately from the Nelm
-action itself; a stalled chart repository or registry fails the operation
-once the timeout expires instead of hanging it. Each HTTP request to a
-classic chart repository is additionally capped at 2 minutes (Helm's
+`create`, `update` and `read` also bound the remote-chart download that
+precedes each install and each plan-time diffing step, separately from the
+Nelm action itself; a stalled chart repository or registry fails the
+operation once the timeout expires instead of hanging it. Each HTTP request
+to a classic chart repository is additionally capped at 2 minutes (Helm's
 default).
 
 ### Dropped by design (not attributes of this resource)
@@ -447,10 +447,10 @@ is then never resolved against the local filesystem (a same-named local
 directory cannot hijack it), and combining `repository` with a local path
 (`/abs`, `./rel`) is rejected as contradictory.
 
-Every plan, render and apply downloads a remote chart afresh into its own
-private temporary directory, removed when the operation ends. Nothing is
-written to the shared Helm cache (`~/.cache/helm/repository`), so releases
-whose charts share a name and version but come from different
+Each plan and apply step downloads a remote chart afresh into its own
+private temporary directory, removed when the step ends. No chart archive
+is stored in the shared Helm cache (`~/.cache/helm/repository`), so
+releases whose charts share a name and version but come from different
 repositories or registries never pick up each other's archive, even when
 Terraform runs them in parallel or several Terraform runs share a host.
 `repo/name` references are still resolved from the usual `helm repo add`
