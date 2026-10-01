@@ -1,0 +1,17 @@
+# Intentional fake secrets in test fixtures (gitleaks "file:rule:line"
+# fingerprints, which apply to directory and git scans alike).
+#
+# The secret/redaction fixtures under internal/planconv/testdata/secrets/
+# were captured with the obviously fake password "s3cr3t-fake-9f2c" (base64
+# "czNjcjN0LWZha2UtOWYyYw=="); see scripts/smoke/README.md. Fake values in
+# Go test files are marked inline with "gitleaks:allow" (and Postgres-URL
+# fixtures with "trufflehog:ignore") instead.
+internal/planconv/testdata/secrets/NOTES.md:generic-api-key:38
+internal/planconv/testdata/secrets/secret_after.raw.json:generic-api-key:4
+internal/planconv/testdata/secrets/secret_plan.decoded.json:generic-api-key:167
+internal/planconv/testdata/secrets/secret_plan.decoded.json:generic-api-key:496
+internal/planconv/testdata/secrets/secret_plan.decoded.json:generic-api-key:584
+internal/planconv/testdata/secrets/secret_plan.decoded.json:generic-api-key:1070
+internal/planconv/testdata/secrets/secret_plan.decoded.json:generic-api-key:1259
+internal/planconv/testdata/secrets/secret_plan.decoded.json:generic-api-key:1531
+internal/planconv/testdata/secrets/secret_plan.decoded.json:generic-api-key:2125

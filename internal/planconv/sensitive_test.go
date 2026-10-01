@@ -21,7 +21,7 @@ import (
 // The object is hand-built (not a captured-live golden) on purpose: this
 // exercises redaction policy, not server-side-defaulting normalization.
 func TestNormalize_SecretRedactedDespiteSensitiveFalse(t *testing.T) {
-	const secretVal = "c3VwZXItc2VjcmV0LXBhc3N3b3Jk" // base64("super-secret-password")
+	const secretVal = "c3VwZXItc2VjcmV0LXBhc3N3b3Jk" // base64("super-secret-password"), fake; gitleaks:allow
 
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{
 		"apiVersion": "v1",

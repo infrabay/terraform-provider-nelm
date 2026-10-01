@@ -36,6 +36,9 @@ configuration, and the relevant `terraform plan`/`apply` output (with secrets
 redacted). Known limitations are tracked in
 [`docs/guides/known-limitations.md`](docs/guides/known-limitations.md).
 
+Report security vulnerabilities privately, as described in
+[`SECURITY.md`](SECURITY.md), not in a public issue.
+
 ## License
 
 By contributing, you agree that your contributions are licensed under the

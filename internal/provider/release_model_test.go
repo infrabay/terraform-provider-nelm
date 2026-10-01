@@ -140,7 +140,7 @@ func TestScrubSensitive(t *testing.T) {
 		{
 			name:    "base64 echo",
 			entries: [][3]string{{"auth.token", "token-123", ""}},
-			in:      "data.token: dG9rZW4tMTIz",
+			in:      "data.token: dG9rZW4tMTIz", // base64("token-123"), fake; gitleaks:allow
 			want:    "data.token: " + redacted,
 		},
 	}

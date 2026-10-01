@@ -127,8 +127,8 @@ func TestSetSensitiveScrubbedFromResources(t *testing.T) {
 	ctx := context.Background()
 
 	const (
-		dbURL  = "postgres://app:P4ss@10.0.0.5/db"
-		apiKey = "sk_live_TOPSECRET_123"
+		dbURL  = "postgres://app:P4ss@10.0.0.5/db" // fake; trufflehog:ignore
+		apiKey = "sk_live_TOPSECRET_123"           // fake; gitleaks:allow
 	)
 
 	client := &fakeReleaseClient{renderObjs: sensitiveRender(dbURL, apiKey)}
@@ -182,7 +182,7 @@ func TestSetSensitiveScrubbedFromResources(t *testing.T) {
 
 	// Rotating the database URL: both objects change, from one placeholder to
 	// another.
-	const rotatedURL = "postgres://app:N3wP4ss@10.0.0.5/db"
+	const rotatedURL = "postgres://app:N3wP4ss@10.0.0.5/db" // fake; trufflehog:ignore
 
 	client.renderObjs = sensitiveRender(rotatedURL, apiKey)
 	client.planResult = &nelmclient.PlanResult{DeployType: nelmclient.DeployTypeUpgrade}
@@ -221,8 +221,8 @@ func TestCreateOrUpdate_ScrubsSetSensitiveFromLiveReads(t *testing.T) {
 	ctx := context.Background()
 
 	const (
-		dbURL  = "postgres://app:P4ss@10.0.0.5/db"
-		apiKey = "sk_live_TOPSECRET_123"
+		dbURL  = "postgres://app:P4ss@10.0.0.5/db" // fake; trufflehog:ignore
+		apiKey = "sk_live_TOPSECRET_123"           // fake; gitleaks:allow
 	)
 
 	t.Run("diff computed at apply", func(t *testing.T) {
@@ -241,7 +241,7 @@ func TestCreateOrUpdate_ScrubsSetSensitiveFromLiveReads(t *testing.T) {
 	})
 
 	t.Run("failed update rotating a value", func(t *testing.T) {
-		const rotatedURL = "postgres://app:N3wP4ss@10.0.0.5/db"
+		const rotatedURL = "postgres://app:N3wP4ss@10.0.0.5/db" // fake; trufflehog:ignore
 
 		// The install got as far as the Deployment before it failed: it runs
 		// the new value, while the ConfigMap and the stored manifests still
@@ -291,9 +291,9 @@ func TestRead_ScrubsTheValueOfAFailedRotation(t *testing.T) {
 	ctx := context.Background()
 
 	const (
-		dbURL      = "postgres://app:P4ss@10.0.0.5/db"
-		rotatedURL = "postgres://app:N3wP4ss@10.0.0.5/db"
-		apiKey     = "sk_live_TOPSECRET_123"
+		dbURL      = "postgres://app:P4ss@10.0.0.5/db"    // fake; trufflehog:ignore
+		rotatedURL = "postgres://app:N3wP4ss@10.0.0.5/db" // fake; trufflehog:ignore
+		apiKey     = "sk_live_TOPSECRET_123"              // fake; gitleaks:allow
 	)
 
 	for name, previous := range map[string]string{

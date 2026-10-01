@@ -51,7 +51,7 @@ func TestScrubString(t *testing.T) {
 // TestSecretPlaceholderMatchesNelm pins the placeholder to nelm's own Secret
 // redaction format, which the docs describe for both.
 func TestSecretPlaceholderMatchesNelm(t *testing.T) {
-	const value = "postgres://app:P4ss@10.0.0.5/db"
+	const value = "postgres://app:P4ss@10.0.0.5/db" // fake; trufflehog:ignore
 
 	redacted := resource.RedactSensitiveData(&unstructured.Unstructured{Object: map[string]interface{}{
 		"data": map[string]interface{}{"x": value},
@@ -182,7 +182,7 @@ func asLive(obj *unstructured.Unstructured) *unstructured.Unstructured {
 // and still compare equal when nothing changed (a scrubbed map key included),
 // while a rotated value still shows as a change.
 func TestBuildResources_ScrubsSecretsOnBothSides(t *testing.T) {
-	const secret = "postgres://app:P4ss@10.0.0.5/db"
+	const secret = "postgres://app:P4ss@10.0.0.5/db" // fake; trufflehog:ignore
 
 	secrets := []string{secret}
 	scoper := sensitiveScoper()
@@ -240,7 +240,7 @@ func TestBuildResources_ScrubsSecretsOnBothSides(t *testing.T) {
 // TestBuildPlannedResources_ScrubsFallbacks: the arms that normalize nelm's
 // After themselves (no rendered entry) scrub it too.
 func TestBuildPlannedResources_ScrubsFallbacks(t *testing.T) {
-	const secret = "sk_live_TOPSECRET_123"
+	const secret = "sk_live_TOPSECRET_123" // fake; gitleaks:allow
 
 	cm := sensitiveChart(secret)[1]
 	prior, err := NormalizeUnstructured(cm, []string{secret})
