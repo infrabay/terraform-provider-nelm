@@ -92,6 +92,22 @@ func newFakeCluster(t *testing.T) *fakeCluster {
 	return fc
 }
 
+// ambientCluster isolates the kube environment (isolateKubeEnv) and makes a
+// fresh fakeCluster the current-context of the fake ~/.kube/config: the
+// cluster nelm would fall back to if a zero connection Config ever reached
+// it. A test that must not touch any cluster asserts this one saw no
+// requests, so a regression fails offline instead of reaching the operator's
+// real current-context.
+func ambientCluster(t *testing.T) *fakeCluster {
+	t.Helper()
+
+	home := isolateKubeEnv(t)
+	fc := newFakeCluster(t)
+	writeKubeconfig(t, filepath.Join(home, ".kube", "config"), "ambient", map[string]string{"ambient": fc.srv.URL})
+
+	return fc
+}
+
 func (fc *fakeCluster) hits() []string {
 	fc.mu.Lock()
 	defer fc.mu.Unlock()
@@ -164,10 +180,11 @@ func strList(ss ...string) tftypes.Value {
 }
 
 // homePaths resolves a test's env value for variable k: the kubeconfig path
-// variables hold OS-list-separated paths relative to home (a "~/..." entry
-// stays literal, for the provider to expand); anything else is used as is.
+// variables (KUBECONFIG included) hold OS-list-separated paths relative to
+// home (a "~/..." entry stays literal, for the provider to expand); anything
+// else is used as is.
 func homePaths(home, k, v string) string {
-	if k != envKubeConfigPaths && k != envKubeConfigPath {
+	if k != envKubeConfigPaths && k != envKubeConfigPath && k != "KUBECONFIG" {
 		return v
 	}
 
@@ -293,6 +310,12 @@ func TestConfigure_NoConnectionSource_FailsClosed(t *testing.T) {
 			name: "KUBECONFIG alone is not a source",
 			env:  map[string]string{"KUBECONFIG": "staging.yaml"},
 		},
+		{
+			// An ambient KUBE_CTX naming the prod context of ~/.kube/config
+			// must not make the implicit empty provider connect there.
+			name: "KUBE_CTX alone is not a source",
+			env:  map[string]string{envKubeContext: "gke_prod"},
+		},
 		{name: "empty host", attrs: map[string]tftypes.Value{"host": str("")}},
 		{name: "empty kube_context", attrs: map[string]tftypes.Value{"kube_context": str("")}},
 		{name: "only empty kube_config_paths entries", attrs: map[string]tftypes.Value{"kube_config_paths": strList("", "")}},
@@ -312,7 +335,7 @@ func TestConfigure_NoConnectionSource_FailsClosed(t *testing.T) {
 			writeKubeconfig(t, filepath.Join(home, "staging.yaml"), "gke_staging", map[string]string{"gke_staging": "https://staging.invalid"})
 
 			for k, v := range tt.env {
-				t.Setenv(k, filepath.Join(home, v))
+				t.Setenv(k, homePaths(home, k, v))
 			}
 
 			resp := configure(t, tt.attrs, provider.ConfigureProviderClientCapabilities{})
@@ -401,10 +424,18 @@ func TestResolveKubeconfig(t *testing.T) {
 			wantContext: "gke_dev",
 		},
 		{
-			name:        "KUBE_CTX alone uses ~/.kube/config",
+			// Unlike the kube_context attribute, an env var may be exported
+			// ambiently; hashicorp/helm ignores KUBE_CTX without a path too.
+			name:    "KUBE_CTX alone names no cluster",
+			env:     map[string]string{envKubeContext: "gke_dev"},
+			wantErr: "No Kubernetes connection configured",
+		},
+		{
+			name:        "KUBE_CTX selects the context in kube_config_base64",
+			model:       providerModel{KubeConfigBase64: types.StringValue("Zm9v")},
 			env:         map[string]string{envKubeContext: "gke_dev"},
-			wantPaths:   []string{".kube/config"},
 			wantContext: "gke_dev",
+			wantBase64:  "Zm9v",
 		},
 		{
 			name:        "kube_config_base64 takes precedence and skips path resolution",
@@ -657,9 +688,17 @@ func TestConfigure_UnknownConfig_ReturnsPlaceholder(t *testing.T) {
 // the real configuration), while a release already in state cannot be
 // planned without its cluster and fails with nelmclient.ErrConfigUnknown.
 func TestModifyPlan_UnknownProviderConfig(t *testing.T) {
+	ambient := ambientCluster(t)
+
 	ctx := context.Background()
 	plan := buildPlan(t, ctx, baseTestReleaseModel())
 	r := &releaseResource{client: nelmclient.NewUnknownConfigClient()}
+
+	t.Cleanup(func() {
+		if got := ambient.hits(); len(got) != 0 {
+			t.Errorf("~/.kube/config's current-context was contacted: %v", got)
+		}
+	})
 
 	t.Run("create degrades with a warning", func(t *testing.T) {
 		req := resource.ModifyPlanRequest{
@@ -710,6 +749,10 @@ func TestModifyPlan_UnknownProviderConfig(t *testing.T) {
 // release from state (helm_release's behavior on an unreachable cluster) and
 // never read some other cluster.
 func TestRead_UnknownProviderConfig_KeepsState(t *testing.T) {
+	// Without the guard, the zero Config reads this (empty) cluster, finds
+	// no release and drops it from state without any error.
+	ambient := ambientCluster(t)
+
 	ctx := context.Background()
 	plan := buildPlan(t, ctx, baseTestReleaseModel())
 	state := tfsdk.State(plan)
@@ -719,7 +762,15 @@ func TestRead_UnknownProviderConfig_KeepsState(t *testing.T) {
 
 	r.Read(ctx, resource.ReadRequest{State: state}, resp)
 
+	if got := ambient.hits(); len(got) != 0 {
+		t.Fatalf("~/.kube/config's current-context was contacted: %v", got)
+	}
+
 	requireError(t, resp.Diagnostics, "Failed to read nelm release", nil)
+
+	if !strings.Contains(resp.Diagnostics.Errors()[0].Detail(), nelmclient.ErrConfigUnknown.Error()) {
+		t.Fatalf("error detail = %q, want it to explain the unknown provider configuration", resp.Diagnostics.Errors()[0].Detail())
+	}
 
 	if resp.State.Raw.IsNull() {
 		t.Fatal("Read removed the release from state")

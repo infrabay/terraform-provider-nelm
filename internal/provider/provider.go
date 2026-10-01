@@ -99,7 +99,7 @@ func (p *nelmProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp 
 				Optional: true,
 				Description: `Kubeconfig context to use; KUBE_CTX when unset, else the kubeconfig's ` +
 					`current-context. Set without kube_config_paths (or KUBE_CONFIG_PATH(S)), the context is ` +
-					`looked up in "~/.kube/config".`,
+					`looked up in "~/.kube/config"; KUBE_CTX alone (no kubeconfig path) names no cluster.`,
 			},
 			"kube_qps": schema.Int64Attribute{
 				Optional:    true,
@@ -358,9 +358,12 @@ const (
 // the implicit empty default provider Terraform instantiates for a module
 // whose providers mapping was forgotten — must never fall through to nelm's
 // own default of ~/.kube/config's current-context, which on an operator's
-// machine may well be production. An explicit kube_context (or KUBE_CTX) does
+// machine may well be production. An explicit kube_context attribute does
 // name a cluster: it is looked up in ~/.kube/config, made explicit here so it
-// is validated like any other path.
+// is validated like any other path. KUBE_CTX alone does not: like
+// hashicorp/helm, it only selects a context in a kubeconfig named otherwise,
+// so an ambiently exported KUBE_CTX cannot turn that empty default provider
+// into a connection either.
 func resolveKubeconfig(ctx context.Context, model providerModel, cfg *nelmclient.Config) diag.Diagnostics {
 	var diags diag.Diagnostics
 
@@ -422,16 +425,20 @@ func resolveKubeconfig(ctx context.Context, model providerModel, cfg *nelmclient
 	}
 
 	if len(paths) == 0 {
-		if cfg.KubeContext == "" {
-			diags.AddError(
-				"No Kubernetes connection configured",
-				"The nelm provider configuration names no cluster: set host + token (+ cluster_ca_certificate), "+
-					"kube_config_base64, kube_config_paths or kube_context, or export KUBE_CONFIG_PATHS / "+
-					"KUBE_CONFIG_PATH / KUBE_CTX. The provider never falls back to ~/.kube/config's "+
-					"current-context, and $KUBECONFIG is not read. If this provider configuration comes "+
-					"from a module call, check that it passes providers = { nelm = nelm.<alias> }: "+
-					"without it Terraform instantiates an empty default nelm provider.",
-			)
+		if model.KubeContext.ValueString() == "" {
+			detail := "The nelm provider configuration names no cluster: set host + token (+ cluster_ca_certificate), " +
+				"kube_config_base64, kube_config_paths or kube_context, or export KUBE_CONFIG_PATHS / " +
+				"KUBE_CONFIG_PATH. The provider never falls back to ~/.kube/config's current-context, and " +
+				"$KUBECONFIG is not read. If this provider configuration comes from a module call, check that " +
+				"it passes providers = { nelm = nelm.<alias> }: without it Terraform instantiates an empty " +
+				"default nelm provider."
+			if os.Getenv(envKubeContext) != "" {
+				detail += " " + envKubeContext + " is set, but on its own it names no cluster (as with the helm " +
+					"provider): it only selects the context within kube_config_base64, kube_config_paths or " +
+					"KUBE_CONFIG_PATH(S)."
+			}
+
+			diags.AddError("No Kubernetes connection configured", detail)
 
 			return diags
 		}

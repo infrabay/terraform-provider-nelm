@@ -27,8 +27,9 @@ chart-managed fields from live ones.
 - **`$KUBECONFIG` and an in-cluster service account are never used
   implicitly.** The kubeconfig comes from `kube_config_paths` /
   `KUBE_CONFIG_PATH(S)` (or `~/.kube/config` for an explicit
-  `kube_context` / `KUBE_CTX`); a configuration that names no cluster is an
-  error by design. Inside a pod, pass `host` / `token` /
+  `kube_context` attribute — `KUBE_CTX` alone is not enough, as with the
+  `helm` provider); a configuration that names no cluster is an error by
+  design. Inside a pod, pass `host` / `token` /
   `cluster_ca_certificate` explicitly.
 
 ## Diff surface (`resources`)

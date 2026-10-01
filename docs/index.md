@@ -105,7 +105,8 @@ from a data source it is refreshed on every `plan`/`apply`.
 - `kube_context` (String) Kubeconfig context to use; `KUBE_CTX` when unset,
   otherwise the kubeconfig's current-context. Set on its own (no
   `kube_config_paths` / `KUBE_CONFIG_PATH(S)`), the context is looked up in
-  `~/.kube/config`.
+  `~/.kube/config`. `KUBE_CTX` on its own does not do that: it only selects
+  the context in a kubeconfig named some other way.
 - `kube_qps` (Number) Queries-per-second limit for the Kubernetes client.
   Must be at least 1 if set. Nelm defaults to 30 if unset.
 - `kube_burst` (Number) Burst limit for the Kubernetes client. Must be at
@@ -161,9 +162,11 @@ resolves the connection in this order:
    `kube_context`, or `KUBE_CTX` when that attribute is not set, or else the
    files' current-context. A leading `~` is expanded, and every file must
    exist: a typo'd path is a `Configure` error, not a silently skipped file.
-4. Only `kube_context` (or `KUBE_CTX`) set: that context in `~/.kube/config`
+4. Only the `kube_context` attribute set: that context in `~/.kube/config`
    (which must exist). This is the `provider "nelm" { kube_context = "..." }`
-   shape from the example above.
+   shape from the example above. The `KUBE_CTX` variable alone is **not**
+   enough (as with the `helm` provider): an exported variable can be
+   ambient, so it only picks the context in a kubeconfig from 2 or 3.
 5. **Nothing set: `Configure` fails with "No Kubernetes connection
    configured".** The provider never falls back to `~/.kube/config`'s
    current-context.
