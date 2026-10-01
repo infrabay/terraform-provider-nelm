@@ -176,6 +176,16 @@ Make removals, chart bumps and other changes in a **later** apply, after the
 handover has been applied once. This also matters for field ownership: see
 [Field managers](#field-managers).
 
+**Check where secrets go before the first plan.** `helm_release` prints no
+rendered manifest unless `experiments { manifest = true }` is set;
+`nelm_release` prints every object the chart renders in each plan. `Secret`
+data and `set_sensitive` values are replaced by placeholders, but a secret
+passed through `values` or `set` — even from a `sensitive = true` variable —
+is printed wherever the chart renders it outside a `Secret` (a container
+`env` value, a `ConfigMap`). Pass such a value through `set_sensitive`
+instead; the chart renders the same objects either way. See
+[Sensitive values in non-`Secret` resources](../resources/release.md#sensitive-values-in-non-secret-resources).
+
 ## Attribute mapping
 
 | `helm_release` | `nelm_release` | Notes |

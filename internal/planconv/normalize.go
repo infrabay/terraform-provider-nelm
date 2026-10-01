@@ -38,10 +38,19 @@ import (
 //     metadata on every object it installs but not on a chart render, so
 //     keeping it would make a create's or a live object's value differ from
 //     a rendered one for no change at all.
-//  4. Marshal canonical JSON. encoding/json sorts map[string]interface{} keys
+//  4. ScrubSecrets(obj, secrets) — every verbatim occurrence of a sensitive
+//     input value (set_sensitive) in a string or map key is replaced with a
+//     placeholder of step 2's format, so a value a chart renders into a
+//     non-Secret object (an env value, ConfigMap data) does not reach plan
+//     output or state in cleartext either.
+//  5. Marshal canonical JSON. encoding/json sorts map[string]interface{} keys
 //     alphabetically by construction, which combined with never reordering
 //     JSON arrays (semantically ordered, e.g. container lists) gives a
 //     deterministic, canonical byte representation.
+//
+// secrets are the sensitive input values of the configuration the result
+// describes; both sides of the diff MUST pass the same ones (CONTRACTS.md),
+// or an unchanged object compares unequal.
 //
 // It intentionally does NOT strip Kubernetes server-side defaulting fields
 // (empty resources{}, dnsPolicy, Service clusterIP, StatefulSet
@@ -50,7 +59,7 @@ import (
 // list, which only ever covered the handful of kinds in testdata/charts/basic
 // and left every other workload kind (StatefulSet, DaemonSet, Job, ...) with a
 // permanent phantom diff.
-func NormalizeUnstructured(obj *unstructured.Unstructured) (out string, err error) {
+func NormalizeUnstructured(obj *unstructured.Unstructured, secrets []string) (out string, err error) {
 	if obj == nil {
 		return "", fmt.Errorf("planconv: NormalizeUnstructured: nil object")
 	}
@@ -88,7 +97,7 @@ func NormalizeUnstructured(obj *unstructured.Unstructured) (out string, err erro
 
 	stripClientBookkeeping(cleaned)
 
-	canon, err := json.Marshal(cleaned.Object)
+	canon, err := json.Marshal(ScrubSecrets(cleaned.Object, secrets))
 	if err != nil {
 		return "", fmt.Errorf("planconv: NormalizeUnstructured: marshal canonical json: %w", err)
 	}
@@ -157,9 +166,10 @@ func stripClientBookkeeping(obj *unstructured.Unstructured) {
 // resource seen live with no stored desired counterpart, e.g. the first Read
 // after a plain-helm import — no projection is possible and the full
 // normalized live object is returned; subsequent plans converge it (design
-// §2.4).
-func NormalizeLiveAgainst(obj *unstructured.Unstructured, desired string) (string, error) {
-	liveJSON, err := NormalizeUnstructured(obj)
+// §2.4). desired must have been scrubbed of the same secrets, or a map key
+// carrying one would not project.
+func NormalizeLiveAgainst(obj *unstructured.Unstructured, desired string, secrets []string) (string, error) {
+	liveJSON, err := NormalizeUnstructured(obj, secrets)
 	if err != nil {
 		return "", err
 	}
@@ -231,9 +241,10 @@ func unmarshalCanonical(s string) (map[string]interface{}, error) {
 //     value moved in between, which is exactly what restores determinism.
 //
 // priorDesired == "" (no stored desired for this key) or a nil before degrades
-// to plain NormalizeUnstructured(after).
-func NormalizeUpdateAfter(after, before *unstructured.Unstructured, priorDesired string) (string, error) {
-	afterJSON, err := NormalizeUnstructured(after)
+// to plain NormalizeUnstructured(after). after and before are scrubbed of
+// secrets like NormalizeUnstructured does.
+func NormalizeUpdateAfter(after, before *unstructured.Unstructured, priorDesired string, secrets []string) (string, error) {
+	afterJSON, err := NormalizeUnstructured(after, secrets)
 	if err != nil {
 		return "", err
 	}
@@ -242,7 +253,7 @@ func NormalizeUpdateAfter(after, before *unstructured.Unstructured, priorDesired
 		return afterJSON, nil
 	}
 
-	beforeJSON, err := NormalizeUnstructured(before)
+	beforeJSON, err := NormalizeUnstructured(before, secrets)
 	if err != nil {
 		return "", err
 	}

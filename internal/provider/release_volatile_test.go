@@ -91,7 +91,7 @@ func (c *volatileChart) render() []*unstructured.Unstructured {
 func renderedMap(t *testing.T, objs []*unstructured.Unstructured) map[string]string {
 	t.Helper()
 
-	out, err := planconv.BuildRenderedResources(objs, "default", &fakeReleaseClient{})
+	out, err := planconv.BuildRenderedResources(objs, "default", &fakeReleaseClient{}, nil)
 	if err != nil {
 		t.Fatalf("BuildRenderedResources: %v", err)
 	}
@@ -469,7 +469,7 @@ func TestCreateOrUpdate_FillsVolatileResources(t *testing.T) {
 		return m
 	}
 
-	wantDeploy, err := planconv.NormalizeUnstructured(manifest)
+	wantDeploy, err := planconv.NormalizeUnstructured(manifest, nil)
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}

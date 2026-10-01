@@ -61,11 +61,32 @@ chart-managed fields from live ones.
   clears. Cosmetic, self-healing.
 
 - **Secret redaction placeholders embed a truncated unsalted SHA-256 and the
-  value's byte length.** Deterministic placeholders are what make Secret
-  drift visible without cleartext, but they also let someone with plan
-  output/state verify a GUESS of a low-entropy secret offline. Use
+  value's byte length.** This holds for `Secret` data and for scrubbed
+  `set_sensitive` values alike. Deterministic placeholders are what make
+  Secret drift visible without cleartext, but they also let someone with
+  plan output/state verify a GUESS of a low-entropy secret offline. Use
   high-entropy secrets (which are immune); a salted scheme is being
   considered for v1.0.
+
+- **Only `set_sensitive` values are scrubbed from non-`Secret` objects.** A
+  secret that reaches a chart through `values` or `set` — even from a
+  `sensitive = true` variable — appears in cleartext in `resources` (plan
+  output and state) wherever the chart renders it outside a `Secret`:
+  Terraform never tells a provider which inputs are sensitive.
+  `hashicorp/helm`'s `helm_release` prints no rendered manifest by default,
+  so this is new exposure for such configurations; pass these values through
+  `set_sensitive`. `set_sensitive` values themselves are scrubbed only where
+  they are rendered verbatim (or quoted, JSON-escaped or base64-encoded
+  whole), only from strings and keys, and only when at least 4 bytes long; a
+  hashed, partial or otherwise transformed rendering is not recognized. See
+  [Sensitive values in non-`Secret` resources](resources/release.md#sensitive-values-in-non-secret-resources).
+
+- **State can hold a `set_sensitive` value in cleartext right after an
+  import, or after a failed apply that changed one.** Read only knows the
+  `set_sensitive` values stored in state: none after `terraform import`
+  until the first apply, and the previous ones after a failed apply until
+  the next successful one. Self-healing; a `moved` block from `helm_release`
+  carries the values over and is not affected.
 
 ## Release lifecycle
 
@@ -171,11 +192,13 @@ chart-managed fields from live ones.
   provider does guarantee that `set_sensitive` wins over `set` on a name
   conflict. Avoid same-name-different-type entries in a single list.
 
-- **Sensitive-value scrubbing is whole-value.** Errors that echo a
-  *transformed fragment* of a `set_sensitive` value (e.g. helm's strvals
-  splitting on an unescaped comma inside the value) may leak that fragment
-  into a diagnostic. Escape commas in sensitive `set` values, or prefer
-  `values` + a Kubernetes `Secret`.
+- **Diagnostics scrub `set_sensitive` values as Nelm parses them, not every
+  fragment.** Errors and warnings are scrubbed of each value as written, the
+  strings Nelm parses out of it and their quoted and base64 forms. A value
+  Nelm *fails* to parse can still leak the fragment its error names (e.g.
+  `key "word" has no value` for an unescaped comma in `pass,word`). Escape
+  commas in sensitive values (`value = "pass\\,word"` in HCL), or use
+  `type = "literal"`.
 
 ## Timeouts / nelm internals
 

@@ -33,6 +33,11 @@ unit tests can substitute an offline fake; `Configure` always stores a
   pending-* lock check
 - `LiveObjects(ctx, refs)` and `IsNamespaced(gvk)` (the `planconv.KeyScoper`)
 
+plus one package function, `SetValueStrings(setType, arg)`: the strings
+Nelm's own `--set*` parsing (helm strvals) makes of a `set`/`set_sensitive`
+argument — what a chart can render, and so what `releaseModel.sensitiveValues`
+scrubs (seam 2).
+
 `*plan.ResourceChange` (from `github.com/werf/nelm/pkg/plan`) passes through
 `PlanResult.Changes` **opaquely** — `internal/planconv` consumes it directly
 from Nelm's own type; nothing re-derives Nelm's create/update/delete/"blind
@@ -47,15 +52,18 @@ through.
 `internal/planconv` exposes pure functions (no cluster access):
 
 - `Key(ref Ref, releaseNS string, scoper KeyScoper) (string, error)`
-- `NormalizeUnstructured(...)` (Phase B, T-planconv) — planned side
-- `NormalizeLiveAgainst(obj, desired)` (Phase D) — live side; wraps
+- `NormalizeUnstructured(obj, secrets)` (Phase B, T-planconv) — planned side
+- `NormalizeLiveAgainst(obj, desired, secrets)` (Phase D) — live side; wraps
   `NormalizeUnstructured` then projects the live object onto the planned
   shape, stripping Kubernetes' server-side defaulting generically
-- `BuildPlannedResources(prior, changes, releaseNS, scoper, rendered)`
+- `BuildPlannedResources(prior, changes, releaseNS, scoper, rendered, secrets)`
   (Phase B) — every non-delete change takes its value from `rendered`, the
-  chart render (`BuildRenderedResources`)
-- `BuildLiveResources(objs, releaseNS, scoper, desired)` (Phase B; `desired`
-  projection template added in Phase D)
+  chart render (`BuildRenderedResources(objs, releaseNS, scoper, secrets)`)
+- `BuildLiveResources(objs, releaseNS, scoper, desired, secrets)` (Phase B;
+  `desired` projection template added in Phase D)
+- `ScrubSecrets(obj, secrets)` / `ScrubString(s, secrets, placeholder)` —
+  the scrubbing step of the pipeline, and the same span replacement for
+  diagnostics (`releaseModel.scrubSensitive`)
 - `CompareRenders(a, b)` — what two independent renders disagree on
   (volatile objects, planned Unknown on a reinstall, see ModifyPlan step 6e)
 - `NewRenderScoper(renderObjs, scoper)` — the planned side's KeyScoper: the
@@ -68,6 +76,16 @@ install (`meta.helm.sh/release-name`, `meta.helm.sh/release-namespace`,
 `app.kubernetes.io/managed-by`), so a render, a create's After and a live
 object of the same chart output normalize identically.
 
+`secrets` (`releaseModel.sensitiveValues()`: the `set_sensitive` values in
+every form Nelm or a template renders them) are scrubbed from every value
+after redaction and cleaning (`ScrubSecrets`, on the decoded tree: string
+values and map keys, deterministic `<hidden N sensitive bytes, hash ...>`
+placeholders, values shorter than `MinSecretLength` skipped). ModifyPlan and
+Create/Update pass the plan's, Read the state's — the same values whenever
+the state was written by an apply of that configuration. A failed Update's
+live read passes the plan's and the prior state's together, since its
+objects can hold either.
+
 Both `internal/provider/release_plan.go` (ModifyPlan — the **planned** side,
 built from `*plan.ResourceChange`) and `internal/provider/release_crud.go`
 (Read — the **live** side, built from live cluster GETs) build the same
@@ -77,9 +95,10 @@ pipeline and the same key function.
 > **Invariant (bold on purpose): both sides of the diff MUST key through
 > `Key` with the same `KeyScoper` implementation (`RenderScoper` answers
 > exactly like the wrapped scoper for every kind the cluster serves, and the
-> live side never sees an unserved kind), and the live side MUST be
+> live side never sees an unserved kind), the live side MUST be
 > projected onto the planned shape (`NormalizeLiveAgainst`) so server-side
-> defaulting is stripped identically, or phantom diffs result.** A `KeyScoper`
+> defaulting is stripped identically, and both sides MUST scrub the same
+> `secrets` (a projection template included), or phantom diffs result.** A `KeyScoper`
 > mismatch (e.g. one side guessing namespace-scoping instead of asking the
 > cached RESTMapper) is the single most likely source of a permanent,
 > un-fixable noisy diff in this provider.

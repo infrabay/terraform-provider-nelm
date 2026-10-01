@@ -149,7 +149,7 @@ func TestModifyPlan_CreateResourcesIndependentOfLiveState(t *testing.T) {
 		}
 	}
 
-	want, err := planconv.BuildRenderedResources(renderedObjects(), "default", oldReleaseLive)
+	want, err := planconv.BuildRenderedResources(renderedObjects(), "default", oldReleaseLive, nil)
 	if err != nil {
 		t.Fatalf("BuildRenderedResources: %v", err)
 	}

@@ -100,12 +100,12 @@ func TestNormalizeLiveAgainst_GenericKind(t *testing.T) {
 		"status": map[string]interface{}{"replicas": int64(3), "readyReplicas": int64(3)},
 	}}
 
-	desiredNorm, err := NormalizeUnstructured(desired)
+	desiredNorm, err := NormalizeUnstructured(desired, nil)
 	if err != nil {
 		t.Fatalf("NormalizeUnstructured(desired): %v", err)
 	}
 
-	projected, err := NormalizeLiveAgainst(live, desiredNorm)
+	projected, err := NormalizeLiveAgainst(live, desiredNorm, nil)
 	if err != nil {
 		t.Fatalf("NormalizeLiveAgainst(live): %v", err)
 	}
@@ -121,7 +121,7 @@ func TestNormalizeLiveAgainst_GenericKind(t *testing.T) {
 		t.Fatalf("set drifted replicas: %v", err)
 	}
 
-	driftProjected, err := NormalizeLiveAgainst(drift, desiredNorm)
+	driftProjected, err := NormalizeLiveAgainst(drift, desiredNorm, nil)
 	if err != nil {
 		t.Fatalf("NormalizeLiveAgainst(drift): %v", err)
 	}
@@ -192,12 +192,12 @@ func TestNormalizeLiveAgainst_LargeInteger(t *testing.T) {
 		}}
 	}
 
-	desiredNorm, err := NormalizeUnstructured(obj())
+	desiredNorm, err := NormalizeUnstructured(obj(), nil)
 	if err != nil {
 		t.Fatalf("NormalizeUnstructured(desired): %v", err)
 	}
 
-	projected, err := NormalizeLiveAgainst(obj(), desiredNorm)
+	projected, err := NormalizeLiveAgainst(obj(), desiredNorm, nil)
 	if err != nil {
 		t.Fatalf("NormalizeLiveAgainst: %v", err)
 	}

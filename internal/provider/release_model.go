@@ -2,7 +2,10 @@ package provider
 
 import (
 	"context"
-	"strings"
+	"encoding/base64"
+	"encoding/json"
+	"slices"
+	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -10,23 +13,63 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
+	"github.com/infrabay/terraform-provider-nelm/internal/planconv"
 )
 
-// scrubSensitive replaces any set_sensitive value that appears verbatim in s
-// with a placeholder. Nelm echoes the raw "--set-json"/"--set" argument
-// (name=value) in its parse errors (e.g. `failed parsing --set-json data
-// db.password=not-json`), and Terraform's sensitivity metadata does NOT redact
-// arbitrary provider error strings — so any error derived from a nelm
-// plan/install call MUST be run through this before reaching a diagnostic, or a
-// sensitive value leaks into `terraform plan` output and CI logs.
+// scrubSensitive replaces any set_sensitive value (sensitiveValues) that
+// appears in s with a placeholder. Nelm echoes the raw "--set-json"/"--set"
+// argument (name=value) in its parse errors (e.g. `failed parsing --set-json
+// data db.password=not-json`), and Terraform's sensitivity metadata does NOT
+// redact arbitrary provider error strings — so any error derived from a nelm
+// plan/install call MUST be run through this before reaching a diagnostic, or
+// a sensitive value leaks into `terraform plan` output and CI logs. Values
+// are replaced in one pass (planconv.ScrubString): a value that contains
+// another one is replaced whole, whatever their order in set_sensitive.
 func (m releaseModel) scrubSensitive(s string) string {
+	return planconv.ScrubString(s, m.sensitiveValues(), func(string) string { return "(sensitive value redacted)" })
+}
+
+// sensitiveValues returns the strings a set_sensitive value can surface as in
+// nelm's output — an error, a rendered manifest: each value as written, the
+// strings nelm parses out of it (nelmclient.SetValueStrings: escapes
+// resolved, lists split, JSON decoded), and each of those as a template embeds
+// it with quote, toJson or b64enc. These are the secrets scrubbed from both
+// sides of the resources diff (planconv.ScrubSecrets) and from diagnostics.
+// A string shorter than planconv.MinSecretLength gets no derived forms (they
+// would match all over a manifest); the value as written is still scrubbed
+// from diagnostics.
+func (m releaseModel) sensitiveValues() []string {
+	var out []string
+
 	for _, e := range m.SetSensitive {
-		if v := e.Value.ValueString(); v != "" {
-			s = strings.ReplaceAll(s, v, "(sensitive value redacted)")
+		v := e.Value.ValueString()
+		if v == "" {
+			continue
+		}
+
+		out = append(out, v)
+
+		parsed := nelmclient.SetValueStrings(e.Type.ValueString(), e.Name.ValueString()+"="+v)
+		for _, s := range append([]string{v}, parsed...) {
+			if len(s) < planconv.MinSecretLength {
+				continue
+			}
+
+			quoted := strconv.Quote(s)
+			jsonQuoted, _ := json.Marshal(s)
+
+			out = append(out,
+				s,
+				quoted[1:len(quoted)-1],
+				string(jsonQuoted[1:len(jsonQuoted)-1]),
+				base64.StdEncoding.EncodeToString([]byte(s)),
+			)
 		}
 	}
 
-	return s
+	slices.Sort(out)
+
+	return slices.Compact(out)
 }
 
 // setModel mirrors the nested object shared by the "set" and "set_sensitive"

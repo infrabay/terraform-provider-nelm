@@ -68,12 +68,12 @@ func TestNormalizeUnstructured_DropsReleaseOwnershipMetadata(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			render := renderedConfigMap(labels)
 
-			want, err := NormalizeUnstructured(render)
+			want, err := NormalizeUnstructured(render, nil)
 			if err != nil {
 				t.Fatalf("normalize render: %v", err)
 			}
 
-			got, err := NormalizeUnstructured(installed(render))
+			got, err := NormalizeUnstructured(installed(render), nil)
 			if err != nil {
 				t.Fatalf("normalize installed: %v", err)
 			}
@@ -99,7 +99,7 @@ func TestBuildPlannedResources_ValueIndependentOfChangeType(t *testing.T) {
 	scoper := basicScoper()
 	render := renderedConfigMap(map[string]interface{}{"app.kubernetes.io/name": "app"})
 
-	rendered, err := BuildRenderedResources([]*unstructured.Unstructured{render}, "ns", scoper)
+	rendered, err := BuildRenderedResources([]*unstructured.Unstructured{render}, "ns", scoper, nil)
 	if err != nil {
 		t.Fatalf("BuildRenderedResources: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestBuildPlannedResources_ValueIndependentOfChangeType(t *testing.T) {
 			Before:       installed(render),
 		}
 
-		out, _, err := BuildPlannedResources(map[string]string{}, []*plan.ResourceChange{change}, "ns", scoper, rendered)
+		out, _, err := BuildPlannedResources(map[string]string{}, []*plan.ResourceChange{change}, "ns", scoper, rendered, nil)
 		if err != nil {
 			t.Fatalf("%s: BuildPlannedResources: %v", typ, err)
 		}

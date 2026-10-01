@@ -128,9 +128,12 @@ func applyReleaseInfo(model *releaseModel, info *nelmclient.ReleaseInfo) diag.Di
 // the stored values, or the release manifests); each live object is
 // projected onto its desired counterpart so Kubernetes' server-side
 // defaulting is stripped generically (planconv.NormalizeLiveAgainst). A live
-// object without one is normalized in full.
-func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclient.ResourceRef, releaseNS string, desired map[string]string, timeout time.Duration) (types.Map, diag.Diagnostics) {
-	resourcesMap, diags := r.liveResources(ctx, refs, releaseNS, desired, timeout)
+// object without one is normalized in full. secrets are the set_sensitive
+// values (releaseModel.sensitiveValues) of the configuration the map is
+// stored with, scrubbed like ModifyPlan scrubs the planned side, and desired
+// must have been built with them.
+func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclient.ResourceRef, releaseNS string, desired map[string]string, secrets []string, timeout time.Duration) (types.Map, diag.Diagnostics) {
+	resourcesMap, diags := r.liveResources(ctx, refs, releaseNS, desired, secrets, timeout)
 	if diags.HasError() {
 		return types.MapNull(types.StringType), diags
 	}
@@ -142,7 +145,7 @@ func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclien
 }
 
 // liveResources is liveResourcesMap's body, returning the plain map.
-func (r *releaseResource) liveResources(ctx context.Context, refs []nelmclient.ResourceRef, releaseNS string, desired map[string]string, timeout time.Duration) (map[string]string, diag.Diagnostics) {
+func (r *releaseResource) liveResources(ctx context.Context, refs []nelmclient.ResourceRef, releaseNS string, desired map[string]string, secrets []string, timeout time.Duration) (map[string]string, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	// Bound the live GET phase: LiveObjects' client-go calls honour ctx, so
@@ -165,7 +168,7 @@ func (r *releaseResource) liveResources(ctx context.Context, refs []nelmclient.R
 		objs = append(objs, obj)
 	}
 
-	resourcesMap, err := planconv.BuildLiveResources(objs, releaseNS, r.client, desired)
+	resourcesMap, err := planconv.BuildLiveResources(objs, releaseNS, r.client, desired, secrets)
 	if err != nil {
 		diags.AddError("Failed to build live resources map", err.Error())
 		return nil, diags
@@ -230,12 +233,13 @@ func unknownResourceKeys(m types.Map) map[string]bool {
 // Projecting a live object onto either strips the server's defaulting the
 // same way, so the result has the chart's shape instead of carrying every
 // live-only field. The manifests are best-effort: if they cannot be keyed,
-// those objects are normalized in full.
-func (r *releaseResource) projectionTemplate(ctx context.Context, stored types.Map, info *nelmclient.ReleaseInfo, releaseNS string) (map[string]string, diag.Diagnostics) {
+// those objects are normalized in full. They are scrubbed of secrets, which
+// must be the ones stored was built with.
+func (r *releaseResource) projectionTemplate(ctx context.Context, stored types.Map, info *nelmclient.ReleaseInfo, releaseNS string, secrets []string) (map[string]string, diag.Diagnostics) {
 	out := map[string]string{}
 
 	if info != nil && len(info.Manifests) > 0 {
-		if manifests, err := planconv.BuildRenderedResources(info.Manifests, releaseNS, r.client); err == nil {
+		if manifests, err := planconv.BuildRenderedResources(info.Manifests, releaseNS, r.client, secrets); err == nil {
 			out = manifests
 		}
 	}
@@ -263,8 +267,9 @@ func (r *releaseResource) projectionTemplate(ctx context.Context, stored types.M
 // persisted values have the chart's shape. A failed live read must not fail
 // the successful install (see installedButUnreadWarnings): an object it
 // could not read keeps its manifest value, or "" when it has none, and the
-// next Read rebuilds it.
-func (r *releaseResource) appliedResources(ctx context.Context, planned types.Map, info *nelmclient.ReleaseInfo, releaseNS string, timeout time.Duration) (types.Map, diag.Diagnostics) {
+// next Read rebuilds it. secrets are the plan's set_sensitive values, which
+// the planned values were scrubbed of.
+func (r *releaseResource) appliedResources(ctx context.Context, planned types.Map, info *nelmclient.ReleaseInfo, releaseNS string, secrets []string, timeout time.Duration) (types.Map, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	wholeUnknown := planned.IsUnknown() || planned.IsNull()
@@ -274,7 +279,7 @@ func (r *releaseResource) appliedResources(ctx context.Context, planned types.Ma
 		return planned, diags
 	}
 
-	template, tdiags := r.projectionTemplate(ctx, planned, info, releaseNS)
+	template, tdiags := r.projectionTemplate(ctx, planned, info, releaseNS, secrets)
 	if tdiags.HasError() {
 		diags.Append(installedButUnreadWarnings(tdiags)...)
 	} else {
@@ -286,7 +291,7 @@ func (r *releaseResource) appliedResources(ctx context.Context, planned types.Ma
 		refs = refsWithKeys(info.Resources, releaseNS, r.client, unknownKeys)
 	}
 
-	live, ldiags := r.liveResources(ctx, refs, releaseNS, template, timeout)
+	live, ldiags := r.liveResources(ctx, refs, releaseNS, template, secrets, timeout)
 	if ldiags.HasError() {
 		diags.Append(installedButUnreadWarnings(ldiags)...)
 		live = nil
@@ -605,12 +610,18 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 		// of the release, but still fail the apply. The plan's known resources
 		// are the projection template, the stored manifests fill in the rest.
 		// A failed Update keeps the PRIOR configuration so the change is
-		// retried (failedUpdateState).
+		// retried (failedUpdateState). Its objects can carry either the
+		// prior's or the plan's set_sensitive values, so both are scrubbed.
 		diags.Append(rdiags...)
 
-		desired, ddiags := r.projectionTemplate(ctx, plan.Resources, info, ns)
+		secrets := plan.sensitiveValues()
+		if prior != nil {
+			secrets = append(secrets, prior.sensitiveValues()...)
+		}
+
+		desired, ddiags := r.projectionTemplate(ctx, plan.Resources, info, ns, secrets)
 		diags.Append(ddiags...)
-		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, desired, readTimeout)
+		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, desired, secrets, readTimeout)
 		diags.Append(mdiags...)
 		refreshed.Resources = resMap
 
@@ -637,7 +648,7 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 	diags.Append(rdiags...)
 	state = refreshed
 
-	resMap, mdiags := r.appliedResources(ctx, plan.Resources, info, ns, readTimeout)
+	resMap, mdiags := r.appliedResources(ctx, plan.Resources, info, ns, plan.sensitiveValues(), readTimeout)
 	diags.Append(mdiags...)
 	state.Resources = resMap
 
@@ -722,14 +733,18 @@ func (r *releaseResource) Read(ctx context.Context, req resource.ReadRequest, re
 	// first Read after an import or a moved block) is projected onto its
 	// stored release manifest instead of being kept in full: a volatile
 	// object (ModifyPlan step 6e) only keeps its value when it has the
-	// chart's shape.
-	desired, ddiags := r.projectionTemplate(ctx, state.Resources, info, state.Namespace.ValueString())
+	// chart's shape. The state's set_sensitive values are scrubbed, as
+	// ModifyPlan scrubs the plan's from the planned side (CONTRACTS.md seam
+	// 2); state has none right after an import, until the first apply.
+	secrets := state.sensitiveValues()
+
+	desired, ddiags := r.projectionTemplate(ctx, state.Resources, info, state.Namespace.ValueString(), secrets)
 	resp.Diagnostics.Append(ddiags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	resMap, rdiags := r.liveResourcesMap(ctx, info.Resources, state.Namespace.ValueString(), desired, readTimeout)
+	resMap, rdiags := r.liveResourcesMap(ctx, info.Resources, state.Namespace.ValueString(), desired, secrets, readTimeout)
 	resp.Diagnostics.Append(rdiags...)
 	if resp.Diagnostics.HasError() {
 		return

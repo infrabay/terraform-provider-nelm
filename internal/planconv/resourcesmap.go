@@ -49,7 +49,10 @@ type Warning struct {
 // changes == nil (a no-change plan; nelm's plan artifact stores this as a
 // JSON null "changes" field) is a no-op: ranging over a nil slice yields
 // zero iterations, so the result is exactly a copy of prior.
-func BuildPlannedResources(prior map[string]string, changes []*plan.ResourceChange, releaseNS string, scoper KeyScoper, rendered map[string]string) (map[string]string, []Warning, error) {
+//
+// secrets are scrubbed from what this normalizes itself (see
+// NormalizeUnstructured); rendered must have been built with the same ones.
+func BuildPlannedResources(prior map[string]string, changes []*plan.ResourceChange, releaseNS string, scoper KeyScoper, rendered map[string]string, secrets []string) (map[string]string, []Warning, error) {
 	out := make(map[string]string, len(prior))
 	for k, v := range prior {
 		out[k] = v
@@ -105,7 +108,7 @@ func BuildPlannedResources(prior map[string]string, changes []*plan.ResourceChan
 				break
 			}
 
-			normalized, err := NormalizeUpdateAfter(change.After, change.Before, out[key])
+			normalized, err := NormalizeUpdateAfter(change.After, change.Before, out[key], secrets)
 			if err != nil {
 				return nil, nil, fmt.Errorf("planconv: BuildPlannedResources: normalize update %s: %w", key, err)
 			}
@@ -120,7 +123,7 @@ func BuildPlannedResources(prior map[string]string, changes []*plan.ResourceChan
 			if r, ok := rendered[key]; ok {
 				out[key] = r
 			} else {
-				normalized, err := NormalizeUnstructured(change.After)
+				normalized, err := NormalizeUnstructured(change.After, secrets)
 				if err != nil {
 					return nil, nil, fmt.Errorf("planconv: BuildPlannedResources: normalize %s: %w", key, err)
 				}
@@ -196,7 +199,8 @@ func plannedRef(change *plan.ResourceChange) Ref {
 // skipped, mirroring both the planned side's hook exclusion and Read's live
 // side (which never sees hooks). Keys use the same scope-fallback as the
 // planned side so a CR whose CRD ships in this very release still keys.
-func BuildRenderedResources(objs []*unstructured.Unstructured, releaseNS string, scoper KeyScoper) (map[string]string, error) {
+// secrets are scrubbed from every value (see NormalizeUnstructured).
+func BuildRenderedResources(objs []*unstructured.Unstructured, releaseNS string, scoper KeyScoper, secrets []string) (map[string]string, error) {
 	out := make(map[string]string, len(objs))
 
 	for _, obj := range objs {
@@ -219,7 +223,7 @@ func BuildRenderedResources(objs []*unstructured.Unstructured, releaseNS string,
 			return nil, fmt.Errorf("planconv: BuildRenderedResources: key for %s %q: %w", ref.GroupVersionKind, ref.Name, err)
 		}
 
-		normalized, err := NormalizeUnstructured(obj)
+		normalized, err := NormalizeUnstructured(obj, secrets)
 		if err != nil {
 			return nil, fmt.Errorf("planconv: BuildRenderedResources: normalize %s: %w", key, err)
 		}
@@ -242,7 +246,8 @@ func BuildRenderedResources(objs []*unstructured.Unstructured, releaseNS string,
 // AND normalizes byte-identically to the planned side when nothing actually
 // drifted. A live key with no desired counterpart (desired == nil, or a newly
 // appeared resource) is normalized in full and converges on the next plan.
-func BuildLiveResources(objs []*unstructured.Unstructured, releaseNS string, scoper KeyScoper, desired map[string]string) (map[string]string, error) {
+// secrets MUST be the ones the planned side scrubbed (CONTRACTS.md seam 2).
+func BuildLiveResources(objs []*unstructured.Unstructured, releaseNS string, scoper KeyScoper, desired map[string]string, secrets []string) (map[string]string, error) {
 	out := make(map[string]string, len(objs))
 
 	for _, obj := range objs {
@@ -261,7 +266,7 @@ func BuildLiveResources(objs []*unstructured.Unstructured, releaseNS string, sco
 			return nil, fmt.Errorf("planconv: BuildLiveResources: key for %s %q: %w", ref.GroupVersionKind, ref.Name, err)
 		}
 
-		normalized, err := NormalizeLiveAgainst(obj, desired[key])
+		normalized, err := NormalizeLiveAgainst(obj, desired[key], secrets)
 		if err != nil {
 			return nil, fmt.Errorf("planconv: BuildLiveResources: normalize %s: %w", key, err)
 		}

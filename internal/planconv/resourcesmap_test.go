@@ -45,7 +45,7 @@ func TestBuildPlannedResources_SkipsHooks(t *testing.T) {
 	out, warns, err := BuildPlannedResources(
 		nil,
 		[]*plan.ResourceChange{mk("regular", false), mk("the-hook", true)},
-		"ns", scoper, nil,
+		"ns", scoper, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("BuildPlannedResources: %v", err)
@@ -81,7 +81,7 @@ func TestBuildPlannedResources_UpdatePrefersRender(t *testing.T) {
 	}
 
 	// Rendered desired: chart manages image v2 AND (newly) replicas=5.
-	renderedNorm, err := NormalizeUnstructured(dep("web:v2", 5))
+	renderedNorm, err := NormalizeUnstructured(dep("web:v2", 5), nil)
 	if err != nil {
 		t.Fatalf("normalize rendered: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestBuildPlannedResources_UpdatePrefersRender(t *testing.T) {
 
 	// Poisoned prior: import's first Read stored the FULL live object,
 	// including an HPA-owned replicas=3 the old chart never set.
-	poisonedPrior, err := NormalizeUnstructured(dep("web:v1", 3))
+	poisonedPrior, err := NormalizeUnstructured(dep("web:v1", 3), nil)
 	if err != nil {
 		t.Fatalf("normalize prior: %v", err)
 	}
@@ -112,13 +112,13 @@ func TestBuildPlannedResources_UpdatePrefersRender(t *testing.T) {
 	prior := map[string]string{key: poisonedPrior}
 
 	// Plan phase: HPA at 3.
-	planPhase, _, err := BuildPlannedResources(prior, mkUpdate(3), "ns", scoper, rendered)
+	planPhase, _, err := BuildPlannedResources(prior, mkUpdate(3), "ns", scoper, rendered, nil)
 	if err != nil {
 		t.Fatalf("BuildPlannedResources (plan phase): %v", err)
 	}
 
 	// Apply phase re-plan: HPA moved to 7 in between.
-	applyPhase, _, err := BuildPlannedResources(prior, mkUpdate(7), "ns", scoper, rendered)
+	applyPhase, _, err := BuildPlannedResources(prior, mkUpdate(7), "ns", scoper, rendered, nil)
 	if err != nil {
 		t.Fatalf("BuildPlannedResources (apply phase): %v", err)
 	}

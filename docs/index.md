@@ -19,9 +19,12 @@ reinstall by following
 release.
 
 Unlike `helm_release`, every plan renders the chart and shows each object's
-changes and out-of-band drift. Charts whose templates generate random or
-time-based values are handled, but a few template patterns can never converge
-or abort the apply; check
+changes and out-of-band drift. `Secret` data and `set_sensitive` values are
+redacted from that diff, but a secret passed through `values` or `set` is
+shown wherever the chart renders it outside a `Secret` — see
+[Sensitive values in non-`Secret` resources](resources/release.md#sensitive-values-in-non-secret-resources).
+Charts whose templates generate random or time-based values are handled, but
+a few template patterns can never converge or abort the apply; check
 [Non-deterministic charts](resources/release.md#non-deterministic-charts)
 before migrating, and set `diff_mode = "none"` on such a release for
 `helm_release`-style plans.

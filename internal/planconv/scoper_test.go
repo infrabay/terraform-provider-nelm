@@ -81,7 +81,7 @@ func TestRenderScoper_ScopesUnservedKindsFromTheChartsCRDs(t *testing.T) {
 
 	scoper := NewRenderScoper(objs, &unservedScoper{unserved: []schema.GroupVersionKind{gvkClusterIssuer, gvkCertificate, gvkWidget}})
 
-	rendered, err := BuildRenderedResources(objs, "issuers", scoper)
+	rendered, err := BuildRenderedResources(objs, "issuers", scoper, nil)
 	if err != nil {
 		t.Fatalf("BuildRenderedResources: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestRenderScoper_ScopesUnservedKindsFromTheChartsCRDs(t *testing.T) {
 
 	// A kind whose CRD the chart does not contain is still guessed, and
 	// reported.
-	guessed, err := BuildRenderedResources([]*unstructured.Unstructured{cr(gvkWidget, "w")}, "issuers", scoper)
+	guessed, err := BuildRenderedResources([]*unstructured.Unstructured{cr(gvkWidget, "w")}, "issuers", scoper, nil)
 	if err != nil {
 		t.Fatalf("BuildRenderedResources: %v", err)
 	}

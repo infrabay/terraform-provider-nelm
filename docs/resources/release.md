@@ -205,7 +205,9 @@ and only ever set by the provider:
   `"<apiVersion>/<Kind>/<namespace>/<name>"` (cluster-scoped kinds use an
   empty namespace segment, e.g.
   `rbac.authorization.k8s.io/v1/ClusterRole//my-role`) to canonical,
-  redacted JSON of that resource. An object whose render changes on every
+  redacted JSON of that resource: `Secret` data and `set_sensitive` values
+  are replaced by placeholders (see "Sensitive values in non-`Secret`
+  resources" below). An object whose render changes on every
   render is known after apply whenever the release is reinstalled; with
   `diff_mode = "none"` the whole map is. See "How `resources` drives
   `terraform plan`" below.
@@ -224,7 +226,8 @@ correctly:
   (sensitive-path redaction, then stripping runtime metadata such as
   `status`, `managedFields`, `resourceVersion`, and `uid`, and the release
   ownership metadata Nelm adds at install — `meta.helm.sh/release-name`,
-  `meta.helm.sh/release-namespace` and `app.kubernetes.io/managed-by`) to a
+  `meta.helm.sh/release-namespace` and `app.kubernetes.io/managed-by` —
+  then replacing `set_sensitive` values with placeholders) to a
   deterministic, key-sorted JSON string per resource. The render is free of
   server defaulting and of live-mutable fields (an HPA-owned `replicas`,
   controller-written annotations), which Nelm's own plan value — the API
@@ -554,29 +557,65 @@ sensitive by definition; the opt-out is deliberately ignored.
 
 ### Sensitive values in non-`Secret` resources
 
-Redaction is driven by the *resource kind* (a `Secret`, or an object
-explicitly annotated sensitive), **not** by which values you supplied via
-`set_sensitive`. If a chart renders a value you passed through
-`set_sensitive` into a **non-`Secret`** resource — e.g. a `ConfigMap`
-`data` entry, or a container `env` value — that value appears **in
-cleartext** in the `resources` diff surface, in both `terraform plan`
-output and `terraform.tfstate`. Marking `set_sensitive.value` sensitive
-protects the input attribute, but it cannot follow the value through Helm
-templating into an arbitrary rendered manifest.
+Redaction by kind only covers `Secret`s and objects annotated sensitive. A
+value passed through `set_sensitive` is also scrubbed from every other
+object a chart renders it into — a `ConfigMap` `data` entry, a container
+`env` value or argument, an annotation, a key: each occurrence, also inside
+a longer string, is replaced by a placeholder of the same form as `Secret`
+data, on the planned side of `resources` and on the refreshed one alike:
 
-This is inherent to a provider whose primary feature is showing a readable
-resource-level diff: the alternative — marking the whole `resources` map
-sensitive — would collapse the entire diff to `(sensitive value)` and
-defeat that feature, while *not* protecting state at rest (Terraform's
-sensitive flag masks CLI output but does not encrypt state). Practical
-guidance:
+```
+"value": "<hidden 31 sensitive bytes, hash 1a2b3c4d5e6f>"
+```
 
-- Put sensitive data in Kubernetes `Secret`s (which are always redacted),
-  not in `ConfigMap`s or inline `env` values. This is good Kubernetes
-  hygiene regardless of Terraform — such data is stored in cleartext in
-  the cluster too.
-- Treat `terraform.tfstate` as sensitive and use an encrypted backend, as
-  HashiCorp recommends for all providers.
+An unchanged value therefore plans no change, and a rotated one shows as a
+change of placeholder. Scrubbed are each `set_sensitive` value as written,
+the strings Nelm parses out of it (escaped commas resolved, `{a,b}` lists
+split, every string and number of a `type = "json"` value), and each of
+those as a template embeds it with `quote`, `toJson` or `b64enc`. The same
+forms are scrubbed from error and warning messages.
+
+What is **not** scrubbed, and appears in cleartext in plan output and in
+state:
+
+- **Values passed through `values` or `set`**, even from a variable marked
+  `sensitive = true`. Terraform hides such values in its own output, but it
+  never tells a provider which of its inputs are sensitive, so the provider
+  cannot know them. Pass a secret that a chart renders into a non-`Secret`
+  object through `set_sensitive` instead:
+  `set_sensitive = [{ name = "auth.password", value = var.password }]`.
+- A value shorter than 4 bytes (it would match all over the manifest), and
+  numbers and booleans rendered as such (`port: 5432`): only strings and
+  keys are searched.
+- Any other transformation of a value: a part of it, `sha256sum`, `upper`,
+  `b64enc` of a string the value is only part of, and so on.
+- The `resources` map keys themselves (an object *named* after a secret).
+
+`hashicorp/helm`'s `helm_release` shows no rendered manifest at all unless
+`experiments { manifest = true }` is set, and with it scrubs none of these
+values (it hashes the `set_sensitive` *names*), so a secret it never printed
+can show up in this provider's plans after a migration: move such values to
+`set_sensitive` first.
+
+Two windows in which state can still hold a `set_sensitive` value in
+cleartext (a plan does not print an unchanged map element, so they reach
+state rather than plan output):
+
+- **After `terraform import`.** Imported state has no `set_sensitive`
+  values until the first apply, so the refreshes up to then cannot scrub
+  them. A `moved` block from `helm_release` carries them over and is not
+  affected.
+- **After a failed apply that changed a `set_sensitive` value.** The state
+  keeps the previous configuration so that the change is retried, and the
+  refreshes until the next successful apply scrub only the previous value.
+
+The placeholders carry a truncated SHA-256 of the value; see
+[Known limitations](../KNOWN_LIMITATIONS.md) for what that means for
+low-entropy secrets. Put sensitive data in Kubernetes `Secret`s where you
+control the chart (such data is stored in cleartext in the cluster
+otherwise too), and treat `terraform.tfstate` as sensitive with an
+encrypted backend, as HashiCorp recommends for all providers: the
+`Sensitive` flag masks output, it does not encrypt state.
 
 ### Non-deterministic charts
 

@@ -293,9 +293,10 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 					`changes on every render (random or time-based template functions) is known after ` +
 					`apply whenever the release is reinstalled, and otherwise keeps its value; with ` +
 					`diff_mode = "none" the whole map is known after apply whenever the release is ` +
-					`reinstalled. Secret data is redacted, but a sensitive value rendered into a ` +
-					`non-Secret resource appears here in cleartext — see "Sensitive values in ` +
-					`non-Secret resources" in the docs.`,
+					`reinstalled. Secret data is redacted, and so is every set_sensitive value ` +
+					`rendered into any other object; a sensitive value passed through values or ` +
+					`set appears here in cleartext — see "Sensitive values in non-Secret ` +
+					`resources" in the docs.`,
 			},
 		},
 		Blocks: map[string]schema.Block{

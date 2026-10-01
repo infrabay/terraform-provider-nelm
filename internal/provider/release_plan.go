@@ -465,13 +465,18 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	// itself renders; a kind that still has to be guessed is handled in 6d.
 	scoper := planconv.NewRenderScoper(renderObjs, r.client)
 
-	rendered, err := planconv.BuildRenderedResources(renderObjs, ns, scoper)
+	// set_sensitive values the chart renders into a non-Secret object are
+	// scrubbed from the planned values, exactly as Read scrubs the live ones
+	// (with the state's set_sensitive, which an apply makes equal to these).
+	secrets := plan.sensitiveValues()
+
+	rendered, err := planconv.BuildRenderedResources(renderObjs, ns, scoper, secrets)
 	if err != nil {
 		resp.Diagnostics.AddError("nelm_release: failed to build the rendered resources map", err.Error())
 		return
 	}
 
-	probe, err := planconv.BuildRenderedResources(probeObjs, ns, scoper)
+	probe, err := planconv.BuildRenderedResources(probeObjs, ns, scoper, secrets)
 	if err != nil {
 		resp.Diagnostics.AddError("nelm_release: failed to build the rendered resources map", err.Error())
 		return
@@ -505,7 +510,7 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 				"conflict is still there.\n\n"+plan.scrubSensitive(planErr.Error()),
 		)
 	} else {
-		built, warns, err := planconv.BuildPlannedResources(prior, planRes.Changes, ns, scoper, rendered)
+		built, warns, err := planconv.BuildPlannedResources(prior, planRes.Changes, ns, scoper, rendered, secrets)
 		if err != nil {
 			resp.Diagnostics.AddError("nelm_release: failed to build the planned resources map", err.Error())
 			return
