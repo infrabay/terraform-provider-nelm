@@ -30,9 +30,14 @@ import (
 //     redaction happens before anything else touches the object, so cleartext
 //     Secret data never reaches a later step, let alone Terraform state.
 //  3. spec.CleanUnstruct with {CleanRuntimeData, CleanHelmShAnnos,
-//     CleanWerfIoAnnos, CleanManagedFields} — the same cleaning nelm's own
-//     UDiff uses; removes status, managedFields, creationTimestamp, and helm/
-//     werf bookkeeping annotations.
+//     CleanWerfIoAnnos, CleanManagedFields, CleanReleaseAnnosLabels} — the
+//     same cleaning nelm's own UDiff uses; removes status, managedFields,
+//     creationTimestamp, helm/werf bookkeeping annotations, and the release
+//     ownership metadata (meta.helm.sh/release-name, meta.helm.sh/release-
+//     namespace, app.kubernetes.io/managed-by). nelm stamps that ownership
+//     metadata on every object it installs but not on a chart render, so
+//     keeping it would make a create's or a live object's value differ from
+//     a rendered one for no change at all.
 //  4. Marshal canonical JSON. encoding/json sorts map[string]interface{} keys
 //     alphabetically by construction, which combined with never reordering
 //     JSON arrays (semantically ordered, e.g. container lists) gives a
@@ -74,10 +79,11 @@ func NormalizeUnstructured(obj *unstructured.Unstructured) (out string, err erro
 	redacted := resource.RedactSensitiveData(obj, paths)
 
 	cleaned := spec.CleanUnstruct(redacted, spec.CleanUnstructOptions{
-		CleanRuntimeData:   true,
-		CleanHelmShAnnos:   true,
-		CleanWerfIoAnnos:   true,
-		CleanManagedFields: true,
+		CleanRuntimeData:        true,
+		CleanHelmShAnnos:        true,
+		CleanWerfIoAnnos:        true,
+		CleanManagedFields:      true,
+		CleanReleaseAnnosLabels: true,
 	})
 
 	stripClientBookkeeping(cleaned)
@@ -103,6 +109,9 @@ func NormalizeUnstructured(obj *unstructured.Unstructured) (out string, err erro
 //     INCLUDING a Secret's cleartext data, which our path-based data.*/
 //     stringData.* redaction does not reach. It is never chart-rendered, so
 //     stripping it both closes that leak and avoids diff noise.
+//   - an annotations or labels map left empty by the cleaning: the API
+//     server never returns an empty map, so a rendered object whose only
+//     label was app.kubernetes.io/managed-by must not keep "labels": {}.
 func stripClientBookkeeping(obj *unstructured.Unstructured) {
 	m := obj.Object
 
@@ -120,8 +129,10 @@ func stripClientBookkeeping(obj *unstructured.Unstructured) {
 		unstructured.RemoveNestedField(m, "metadata", "annotations", anno)
 	}
 
-	if annos, found, _ := unstructured.NestedMap(m, "metadata", "annotations"); found && len(annos) == 0 {
-		unstructured.RemoveNestedField(m, "metadata", "annotations")
+	for _, field := range []string{"annotations", "labels"} {
+		if v, found, _ := unstructured.NestedMap(m, "metadata", field); found && len(v) == 0 {
+			unstructured.RemoveNestedField(m, "metadata", field)
+		}
 	}
 }
 

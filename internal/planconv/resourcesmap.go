@@ -29,18 +29,22 @@ type Warning struct {
 //     included unchanged entries, since normalize(After) for an unchanged
 //     resource is idempotent with what's already there)
 //   - Type == "delete" deletes the key
-//   - Type == "create" / "recreate" / "update" / "blind apply" sets
-//     key = NormalizeUnstructured(After)
+//   - Type == "create" / "recreate" / "update" / "blind apply" sets the key
+//     to the rendered value (see below)
 //   - "blind apply" (Before nil, possibly carrying a DryApplyErr in Reason)
 //     is treated as a create for the map, plus it emits a Warning naming the
 //     resource and the Reason so the caller can surface it as a plan warning.
 //
 // rendered is the chart-desired shape from BuildRenderedResources (nil when
-// the render was unavailable): for an "update" change the rendered value is
-// authoritative — nelm's update After is the server dry-run merge, and only
-// the actual chart render can say which fields the chart manages. Without a
-// rendered entry the update falls back to the three-way NormalizeUpdateAfter
-// heuristic.
+// the render was unavailable), and it is authoritative for every change
+// type: nelm's update After is the server dry-run merge, and only the actual
+// chart render can say which fields the chart manages; a create/recreate/
+// blind-apply After is nelm's own render of the same object, so taking the
+// rendered value there too keeps the planned value independent of how nelm
+// classified the change (a webhook timing out between the plan and apply
+// phases turns an update into a blind apply). Without a rendered entry an
+// update falls back to the three-way NormalizeUpdateAfter heuristic and the
+// other types to NormalizeUnstructured(After).
 //
 // changes == nil (a no-change plan; nelm's plan artifact stores this as a
 // JSON null "changes" field) is a no-op: ranging over a nil slice yields
@@ -85,13 +89,16 @@ func BuildPlannedResources(prior map[string]string, changes []*plan.ResourceChan
 
 			// An update's After is the server-side dry-run merge, which
 			// carries live fields the chart never set. The RENDERED manifest
-			// is the authoritative chart-desired value: a pure function of
-			// configuration, deterministic across the plan->apply window, and
-			// the only source that can distinguish "chart manages this field"
-			// from "this field lives on the cluster" (heuristics over
-			// After/Before/prior provably cannot — see NormalizeUpdateAfter's
-			// doc for the counterexamples). Fall back to the three-way
-			// heuristic only when no rendered entry exists for this key.
+			// is the authoritative chart-desired value: a function of
+			// configuration, and the only source that can distinguish "chart
+			// manages this field" from "this field lives on the cluster"
+			// (heuristics over After/Before/prior provably cannot — see
+			// NormalizeUpdateAfter's doc for the counterexamples). It is NOT
+			// necessarily the same at the plan and the apply phase: a
+			// template using randAlphaNum, genCA, now, ... renders a
+			// different value every time, which the caller detects with
+			// CompareRenders. Fall back to the three-way heuristic only when
+			// no rendered entry exists for this key.
 			if r, ok := rendered[key]; ok {
 				out[key] = r
 
@@ -110,12 +117,16 @@ func BuildPlannedResources(prior map[string]string, changes []*plan.ResourceChan
 				return nil, nil, fmt.Errorf("planconv: BuildPlannedResources: change type %q for %s has nil After", change.Type, key)
 			}
 
-			normalized, err := NormalizeUnstructured(change.After)
-			if err != nil {
-				return nil, nil, fmt.Errorf("planconv: BuildPlannedResources: normalize %s: %w", key, err)
-			}
+			if r, ok := rendered[key]; ok {
+				out[key] = r
+			} else {
+				normalized, err := NormalizeUnstructured(change.After)
+				if err != nil {
+					return nil, nil, fmt.Errorf("planconv: BuildPlannedResources: normalize %s: %w", key, err)
+				}
 
-			out[key] = normalized
+				out[key] = normalized
+			}
 
 			if change.Type == "blind apply" {
 				warnings = append(warnings, Warning{
