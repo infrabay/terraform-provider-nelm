@@ -261,6 +261,36 @@ Details and workarounds for all of these are in the resource docs
   StatefulSet carries `werf.io/track-termination-mode: NonBlocking`.
   `werf.io/fail-mode` does not help.
 
+## Field ownership
+
+- **Fields added with `kubectl edit` are removed by the next update, and the
+  diff does not show it.** With the default `no_remove_manual_changes =
+  false`, nelm's plan already moves the `kubectl-edit` field manager's fields
+  to its own `helm` manager (a real `managedFields` patch), and the next apply
+  that updates the release for any reason removes the ones the chart does not
+  render. The `resources` diff never shows them, because the live side is
+  projected onto the chart's shape. `helm_release` (Helm 3 three-way merge)
+  keeps such fields. Turning the flag on afterwards does not bring them back,
+  and the flag change is itself an update. Set `no_remove_manual_changes =
+  true` before the first plan if you rely on `kubectl edit` hotfixes; other
+  managers (`kubectl patch`/`label`/`annotate`/`apply`) are not affected. A
+  plan-time warning for removals the diff cannot show is being considered.
+
+- **The `helm_release` field-manager hand-over runs at apply, not plan.**
+  Objects written by hashicorp/helm carry a `terraform-provider-helm_*`
+  field manager that nelm does not recognize; the provider renames it to
+  `helm` right before each install so nelm's own Helm 3 hand-over prunes what
+  the chart no longer renders, and `terraform plan` adds no write of its own.
+  The plan already shows those removals (its planned side is the chart
+  render). If an admission webhook is unavailable during the hand-over, the
+  object is skipped with a warning and a later apply that updates the release
+  finishes it, removing fields the chart stopped rendering in between; that
+  later diff does not show them. nelm's Helm 3 hand-over also dry-runs the
+  previous revision's manifest, so a `helm_release` revision that recorded a
+  resource under an API version the cluster no longer serves fails that first
+  apply, exactly as it fails a `helm_release` upgrade; clean up the stored
+  manifest first (e.g. `helm mapkubeapis`).
+
 ## Values precedence
 
 - **Ordering across `set` types is not preserved.** nelm merges the underlying

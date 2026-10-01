@@ -16,7 +16,10 @@ managed by `hashicorp/helm`'s `helm_release` are handed over without a
 reinstall by following
 [Migrating from `helm_release`](guides/migrating-from-helm_release.md);
 **never** just rename `helm_release` to `nelm_release`, which uninstalls the
-release.
+release. The resource docs' "Migrating from `helm_release`" section covers
+how field ownership is handed over, and the one default that differs
+(`no_remove_manual_changes`: fields added with `kubectl edit` are removed on
+the next update).
 
 Unlike `helm_release`, every plan renders the chart and shows each object's
 changes and out-of-band drift. `Secret` data and `set_sensitive` values are

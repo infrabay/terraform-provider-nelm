@@ -31,6 +31,15 @@ unit tests can substitute an offline fake; `Configure` always stores a
   — the stored-revision summary behind Create's adoption guards (the
   configured storage backend and, on Create, the other one) and the
   pending-* lock check
+- `HandOverHelmProviderFieldManagers(ctx, name, namespace, storageDriver string, timeout) ([]string, error)`
+  — Create/Update call it right before `Install`, after the History guards
+  (a refused Create writes nothing), sharing the operation's timeout budget,
+  and NEVER from ModifyPlan: it renames hashicorp/helm's
+  `terraform-provider-helm*`/Update managedFields entries on the release's
+  live objects to `helm`/Update so nelm's own Helm 3 field-ownership
+  hand-over takes over (a real `managedFields` patch, which a plan must not
+  add to nelm's own). The returned strings name objects skipped because an
+  admission webhook was unavailable (surfaced as a warning).
 - `LiveObjects(ctx, refs)` and `IsNamespaced(gvk)` (the `planconv.KeyScoper`)
 
 plus one package function, `SetValueStrings(setType, arg)`: the strings
@@ -41,10 +50,10 @@ scrubs (seam 2).
 While the provider configuration is not fully known at plan time, Configure
 hands resources the `nelmclient.NewUnknownConfigClient()` placeholder instead
 (`ConfigUnknown()` reports it). It carries no connection settings, and every
-cluster-facing method (the four above plus `Render`, `LiveObjects`,
-`IsNamespaced`) returns `nelmclient.ErrConfigUnknown` before calling Nelm: a
-zero `Config` must never reach Nelm, whose defaults load `~/.kube/config`'s
-current-context. Any new cluster-facing method must keep that guard.
+cluster-facing method above returns `nelmclient.ErrConfigUnknown` before
+calling Nelm: a zero `Config` must never reach Nelm, whose defaults load
+`~/.kube/config`'s current-context. Any new cluster-facing method must keep
+that guard.
 
 `*plan.ResourceChange` (from `github.com/werf/nelm/pkg/plan`) passes through
 `PlanResult.Changes` **opaquely** — `internal/planconv` consumes it directly

@@ -52,6 +52,14 @@ type fakeReleaseClient struct {
 	historyErrs     map[string]error
 	historyDrivers  []string
 
+	// handOverSkipped/handOverErr answer HandOverHelmProviderFieldManagers;
+	// handOvers counts its calls and installsAtHandOver records how many
+	// installs had already run at each one.
+	handOverSkipped    []string
+	handOverErr        error
+	handOvers          int
+	installsAtHandOver []int
+
 	installErr error
 	installs   int
 
@@ -150,6 +158,13 @@ func (f *fakeReleaseClient) History(_ context.Context, _, _, driver string, _ ti
 	}
 
 	return h, nil
+}
+
+func (f *fakeReleaseClient) HandOverHelmProviderFieldManagers(context.Context, string, string, string, time.Duration) ([]string, error) {
+	f.handOvers++
+	f.installsAtHandOver = append(f.installsAtHandOver, f.installs)
+
+	return f.handOverSkipped, f.handOverErr
 }
 
 func (f *fakeReleaseClient) LiveObjects(_ context.Context, refs []nelmclient.ResourceRef) (map[nelmclient.ResourceRef]*unstructured.Unstructured, error) {

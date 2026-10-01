@@ -31,6 +31,7 @@ type releaseClient interface {
 	Uninstall(ctx context.Context, name, namespace, storageDriver string, timeout time.Duration) error
 	Get(ctx context.Context, name, namespace, storageDriver string, timeout time.Duration) (*nelmclient.ReleaseInfo, error)
 	History(ctx context.Context, name, namespace, storageDriver string, timeout time.Duration) (*nelmclient.ReleaseHistory, error)
+	HandOverHelmProviderFieldManagers(ctx context.Context, name, namespace, storageDriver string, timeout time.Duration) ([]string, error)
 	LiveObjects(ctx context.Context, refs []nelmclient.ResourceRef) (map[nelmclient.ResourceRef]*unstructured.Unstructured, error)
 }
 

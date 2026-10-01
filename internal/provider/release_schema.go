@@ -192,8 +192,12 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 				Optional: true,
 				Computed: true,
 				Default:  booldefault.StaticBool(false),
-				Description: "Preserve fields manually added to live resources that are not present " +
-					"in the chart manifests, instead of removing them on update.",
+				Description: "Preserve fields added to live resources with `kubectl edit` (field manager " +
+					"\"kubectl-edit\") that the chart does not render. With false (nelm's default) nelm " +
+					"takes such fields over already during plan, and the next update of the release " +
+					"removes them without the removal showing in the resources diff; hashicorp/helm's " +
+					"helm_release keeps them. Set it before the first plan if you rely on such edits: " +
+					"enabling it later does not bring removed fields back.",
 			},
 			"no_install_crds": schema.BoolAttribute{
 				Optional: true,

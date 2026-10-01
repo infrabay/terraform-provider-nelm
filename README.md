@@ -16,9 +16,11 @@ computed from Nelm's own plan engine, not just "this release will change".
 
 - **`nelm_release`** — manage a chart release like `helm_release`, but with a
   field-level plan diff surfaced through a computed `resources` map.
-- **Drift detection** — out-of-band changes to managed resources (`kubectl
-  edit`/`scale`, a controller mutating a chart-set field) show up on the next
-  plan.
+- **Drift detection** — out-of-band changes to fields the chart sets
+  (`kubectl edit`/`scale`, a controller mutating a chart-set field) show up on
+  the next plan. Fields added out of band that the chart does not render are
+  not drift; note that ones added with `kubectl edit` are removed on the next
+  update unless `no_remove_manual_changes = true` (see the resource docs).
 - **`terraform import`** — adopt releases created by plain `helm install`
   (Helm 3 **or** Helm 4) or by Nelm, with zero storage conversion. Moving
   off `hashicorp/helm`? Follow
