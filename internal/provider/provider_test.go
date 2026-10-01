@@ -14,8 +14,9 @@ package provider_test
 // ambient current-context or $KUBECONFIG; every Terraform provider block a
 // test config builds sets kube_context and kube_config_paths to that same
 // pinned context and file explicitly (see providerBlock below). The pinned
-// context comes from NELM_TEST_KUBE_CONTEXT ("orbstack" locally via the
-// GNUmakefile default, "kind-nelm-acc" in CI) and testAccPreCheck
+// context comes from NELM_TEST_KUBE_CONTEXT ("kind-nelm-acc" via the
+// GNUmakefile default and in CI, or any other local context such as
+// "orbstack") and testAccPreCheck
 // hard-verifies it resolves, in that file, to a LOCAL (127.0.0.1, ::1 or
 // localhost) API server before anything runs.
 

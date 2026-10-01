@@ -1,14 +1,12 @@
 # Developing terraform-provider-nelm
 
 This page is for contributors. To use the provider, install it from the
-Terraform Registry as the [README](README.md#installation) shows — until the
-first release is published, from a mirror (see
-[Installing before the first Registry release](#installing-before-the-first-registry-release)).
+Terraform Registry as the [README](README.md#installation) shows.
 
 Local iteration uses Terraform's `dev_overrides` mechanism with a locally
 built binary (no `terraform init`), the real Nelm Go library, and — for
 acceptance tests and manual end-to-end runs — a real but disposable local
-Kubernetes cluster: **OrbStack (`kube_context = "orbstack"`) or kind, never a
+Kubernetes cluster: **kind or OrbStack (`kube_context = "orbstack"`), never a
 cloud context**. CI runs the same unit and acceptance tests on every pull
 request (see [Continuous integration](#continuous-integration)), and pushing a
 version tag publishes a Registry release (see [Releasing](#releasing)).
@@ -23,8 +21,9 @@ version tag publishes a Registry release (see [Releasing](#releasing)).
 - helm CLI (used to author/lint/render `testdata/charts/basic`, and by the
   acceptance tests to install a plain-helm release for the import test).
 - A local Kubernetes cluster whose kubeconfig context lives in
-  `~/.kube/config` (OrbStack's `orbstack`, or a kind cluster), for anything
-  beyond `go build` / `go test` (unit tests never touch a cluster).
+  `~/.kube/config` (a kind cluster such as the `kind-nelm-acc` context CI
+  uses, or OrbStack's `orbstack`), for anything beyond `go build` /
+  `go test` (unit tests never touch a cluster).
 
 ## Building and installing locally
 
@@ -99,8 +98,9 @@ invocation never activates.
 ## Acceptance tests (`TF_ACC=1`, strictly local clusters)
 
 ```sh
-make testacc                                      # default: kube context "orbstack"
-make testacc NELM_TEST_KUBE_CONTEXT=kind-nelm-acc # e.g. a kind cluster
+kind create cluster --name nelm-acc               # once: context "kind-nelm-acc"
+make testacc                                      # default: kube context "kind-nelm-acc" (as in CI)
+make testacc NELM_TEST_KUBE_CONTEXT=orbstack      # any other LOCAL context, e.g. OrbStack
 ```
 
 This exports `TF_ACC=1` and `NELM_TEST_KUBE_CONTEXT=<context>`. Test code
@@ -161,71 +161,12 @@ One-time setup for the Terraform Registry:
    type), add its ASCII-armored public key in the Registry's publisher
    settings (Signing Keys), and store the private key and its passphrase as
    the `GPG_PRIVATE_KEY` and `PASSPHRASE` secrets.
-3. Once the repository is public, move those secrets into a `release`
-   environment (deployment tags `v*`, required reviewers) and uncomment
-   `environment: release` in `release.yml`; on the GitHub Free plan,
-   environment protection rules (and branch and tag rulesets) are only
-   available to public repositories.
+3. Keep those secrets in a `release` environment (deployment tags `v*`,
+   required reviewers) and uncomment `environment: release` in
+   `release.yml`, so that only a protected tag push can read them.
 4. Sign in to the Registry with GitHub and publish the provider from this
    repository. The Registry adds a webhook that picks up every later
    release.
-
-## Installing before the first Registry release
-
-No release has been published yet — the repository is private, and the
-public Registry only serves public repositories — so `terraform init`
-cannot download `infrabay/nelm` from `registry.terraform.io`. Until it can,
-install the provider from a mirror. A mirror serves the provider under its
-own address, `registry.terraform.io/infrabay/nelm`, so configurations, lock
-files and state need no change once the Registry serves it:
-
-1. Get the release archives: push a `vX.Y.Z` tag (the release workflow
-   attaches `terraform-provider-nelm_X.Y.Z_<os>_<arch>.zip` to a GitHub
-   release, in a private repository too). The workflow signs `SHA256SUMS`
-   and fails at its GPG import step without the `GPG_PRIVATE_KEY` and
-   `PASSPHRASE` secrets, so create the key and those secrets (item 2 of the
-   one-time setup above) before pushing the tag, even while the repository
-   is private; registering the key with the Registry, and the other
-   Registry items, can wait.
-2. Put the archive of every platform Terraform runs on into a filesystem
-   mirror (the packed layout):
-
-   ```
-   <mirror>/registry.terraform.io/infrabay/nelm/terraform-provider-nelm_X.Y.Z_linux_amd64.zip
-   ```
-
-   and point Terraform at it with a CLI configuration file named by
-   `TF_CLI_CONFIG_FILE`:
-
-   ```hcl
-   provider_installation {
-     filesystem_mirror {
-       path    = "/path/to/mirror"
-       include = ["registry.terraform.io/infrabay/nelm"]
-     }
-     direct {
-       exclude = ["registry.terraform.io/infrabay/nelm"]
-     }
-   }
-   ```
-
-   In CI the mirror can live in the repository that runs Terraform, with
-   `TF_CLI_CONFIG_FILE` set to a path inside the checkout. A
-   `network_mirror` — an HTTPS server or bucket serving
-   the
-   [provider network mirror protocol](https://developer.hashicorp.com/terraform/internals/provider-network-mirror-protocol)'s
-   `index.json` and `X.Y.Z.json` next to the archives — works the same way;
-   Terraform authenticates to it with that host's `TF_TOKEN_<host>`
-   credentials.
-3. Record the hashes of every platform in `.terraform.lock.hcl`:
-   `terraform providers lock -fs-mirror=/path/to/mirror -platform=linux_amd64 -platform=darwin_arm64`.
-
-Mirror the tagged release's archives, not a snapshot build: the Registry
-later serves the same files, so the lock files stay valid when the mirror
-is removed. An HCP Terraform private registry works too, but under another
-address (`app.terraform.io/<organization>/nelm`), which
-`terraform state replace-provider` then has to change in every state when
-moving to the public Registry.
 
 ## Nelm source reference
 

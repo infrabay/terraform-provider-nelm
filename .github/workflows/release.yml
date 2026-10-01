@@ -7,11 +7,9 @@ name: release
 #                     with the Terraform Registry publisher (Settings -> Signing
 #                     Keys). This is what signs the SHA256SUMS.
 #   PASSPHRASE      - passphrase for that GPG key.
-# They are repository secrets while the repository is private. Once it is
-# public, move them into a 'release' environment (deployment tags v*,
-# required reviewers) and uncomment `environment: release` below: on the
-# GitHub Free plan environment protection rules are only available to public
-# repositories.
+# Keep them in a 'release' environment (deployment tags v*, required
+# reviewers) and uncomment `environment: release` below, so that only a
+# protected tag push can read them.
 on:
   push:
     tags:
