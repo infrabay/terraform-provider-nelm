@@ -90,6 +90,14 @@ intentionally skipped — see `docs/DEVELOPMENT.md`).
   removing them on update. Defaults to `false`.
 - `no_install_crds` (Boolean) Skip installing CustomResourceDefinitions
   from the chart's `crds/` directory. Defaults to `false`.
+- `adopt_existing` (Boolean) Allow Create to take over a release of the
+  same name that already exists in the namespace (one with a deployed
+  revision, or whose last revision is `pending-*`). Defaults to `false`:
+  Create then fails instead, like `helm_release` without `upgrade_install`,
+  so a forgotten import, a duplicate resource, or a `create_before_destroy`
+  replacement can never silently adopt — and then uninstall — a live
+  release. Prefer `terraform import`. Only Create reads it; see "Creating a
+  resource for an existing release" below.
 - `release_history_limit` (Number) Maximum number of release revisions
   kept in storage. Null or `0` uses Nelm's own default (10). Only release
   metadata is pruned; cluster resources are unaffected. Must be `0` or
@@ -138,9 +146,10 @@ meaningless or actively misleading:
 - `create_namespace` — Nelm's `ReleaseInstall` always auto-creates the
   target namespace if it is missing; a toggle to disable that would not
   do anything, so it is not offered.
-- `upgrade_install` / a separate "adopt existing release" toggle — Nelm
-  install is natively idempotent install-or-upgrade; there is no
-  install/upgrade split to select between.
+- `upgrade_install` — Nelm install is natively idempotent
+  install-or-upgrade, so there is no install/upgrade split to select
+  between. Its safety role is covered by `adopt_existing`: Create refuses
+  an existing release unless that is set.
 - `wait` / readiness-tracking knobs — Nelm tracks resource readiness
   natively; only the overall operation timeout (`timeouts` block) is
   exposed.
@@ -195,8 +204,12 @@ correctly:
   your current configuration and normalizing each resulting resource
   (sensitive-path redaction, then stripping runtime metadata such as
   `status`, `managedFields`, `resourceVersion`, and `uid`) to a
-  deterministic, key-sorted JSON string per resource. For *create*d
-  resources this is Nelm's client-side render, free of server defaulting.
+  deterministic, key-sorted JSON string per resource. When the plan
+  creates the release — a new resource, or the create half of a
+  replacement — the planned map is the chart's own first-install render,
+  free of server defaulting and independent of what is live in the cluster
+  (so it is the same at plan time, while a replaced release still exists,
+  and at apply time, after its destroy removed it).
   For *update*d resources Nelm's plan value is the API server's dry-run
   merge, which carries live fields (server defaults, an HPA-owned
   `replicas`, controller-written annotations) — the provider projects
@@ -285,12 +298,115 @@ import, and both matter for the first plan you run afterward:
   them in configuration (or leave `version` unset to always track
   latest).
 
-**Recommendation:** before writing the Terraform configuration for a
-release you're about to import, capture its current effective values —
-either from `metadata.values_json` after the import completes, or via
-`helm get values -a <name> -n <namespace>` beforehand — and seed your
-`values`/`set` blocks from that, so the first post-import plan is clean
-rather than surprising.
+`chart` is not recoverable either, so it is null right after the import:
+the **first plan after an import is always an in-place update**, and its
+apply runs `nelm install` for real — a new revision, and the chart's
+upgrade hooks run as on any `helm upgrade`.
+
+**Recommendation:** write the configuration for an imported release from
+the inputs that installed it — when migrating from `helm_release`, copy its
+`chart`, `version`, `values`, `set` and `set_sensitive` verbatim (see the
+[migration guide](../guides/migrating-from-helm_release.md)). If those are
+lost, `helm get values <name> -n <namespace>` returns the user-supplied
+values. Do not seed them from `helm get values -a` or
+`metadata.values_json`: those are the coalesced values, chart defaults
+included, which pins every default in your configuration.
+
+An import never goes through Create, so `adopt_existing` plays no part in
+it; ImportState seeds it as `false`.
+
+### Creating a resource for an existing release
+
+When `nelm_release` is **created** — a new resource, or the create half of
+a replacement — the provider first reads the release's stored history. If
+a release of that name already exists in the namespace and Nelm would
+*upgrade* it (it has a deployed or superseded revision since its last
+uninstall), or its last revision is `pending-*`, the apply fails with
+`nelm release <namespace>/<name> already exists` and nothing is changed.
+This is `helm install`'s "cannot re-use a name that is still in use", and
+it catches:
+
+- a release installed elsewhere (by the `helm` CLI, by `helm_release`, by
+  another Terraform configuration) that should have been imported — see the
+  [migration guide](../guides/migrating-from-helm_release.md);
+- two `nelm_release` resources, in one or several root modules, for the
+  same release;
+- a `create_before_destroy` replacement (below).
+
+To manage such a release with Terraform, import it (`terraform import
+nelm_release.x <namespace>/<name>`, or an `import` block).
+`adopt_existing = true` lets Create take it over instead (Nelm upgrades it
+in place); set it only for the apply that adopts the release.
+
+A release whose history holds only failed or uninstalled revisions — a
+first install that failed, or a `helm uninstall --keep-history` — does not
+count as existing: Create installs over it, so retrying a failed first
+install keeps working.
+
+The plan warns (`a release with this name already exists`) when it can see
+this coming. It cannot fail at plan time: a destroy-first replacement
+legitimately plans the create while the old release is still there.
+
+### Replacement and `create_before_destroy`
+
+Changing `name`, `namespace` or `release_storage_driver`, tainting the
+resource, or `terraform apply -replace=...` replaces the release: Terraform
+destroys (uninstalls) it and then creates (installs) it again in the same
+apply, with downtime in between.
+
+`create_before_destroy` is **not supported** for a replacement that keeps
+the same `name` and `namespace`: the new and the old object are the same
+Helm release, so the create would take over the live release and the
+destroy of the old object would then uninstall it. The create is refused
+instead (see above): the apply fails, Terraform keeps the old object, and
+nothing is uninstalled. Remove `create_before_destroy` and apply again.
+Terraform also turns `create_before_destroy` on implicitly for a resource
+when anything that depends on it has it (including through a module's
+`depends_on`), so look for `+/-` ("create replacement and then destroy")
+rather than `-/+` in the plan. Never combine `adopt_existing = true` with
+such a replacement: the opt-in disables the refusal.
+
+### Pending releases (Helm's release lock)
+
+Helm marks a release's newest revision `pending-install`,
+`pending-upgrade` or `pending-rollback` while an operation runs, and refuses
+to start another operation on that release until it has finished. Nelm
+itself treats a pending revision as failed and installs over it; this
+provider restores Helm's behavior. When the release's last revision is
+`pending-*` and was written less than the operation's timeout ago (and at
+least 15 minutes), the apply fails with `nelm release <namespace>/<name>
+is locked by another operation` and changes nothing — so a CI apply cannot
+override, say, an on-call `helm rollback --wait` that is still waiting for
+its pods. The plan warns when the refreshed release is pending.
+
+A pending revision older than that is assumed to be left behind by an
+operation that was killed (a cancelled CI job, a crashed process) and is
+taken over with a warning, so a stuck release recovers on the next apply
+after that. To recover sooner, once you are sure nothing is still running:
+
+- roll back to the last good revision: `helm rollback <name> <revision> -n
+  <namespace>` (find it with `helm history <name> -n <namespace>`); or
+- delete the stuck revision's record: `kubectl delete secret
+  sh.helm.release.v1.<name>.v<revision> -n <namespace>` (the
+  `configmap` driver stores it as a ConfigMap of the same name).
+
+Destroy does not check the lock (neither does `helm uninstall`). The check
+reads the history right before installing, so an operation that starts in
+between is not detected.
+
+### Failed applies
+
+- **A failed update** (the install failed, or failed and was rolled back by
+  `auto_rollback`) saves the refreshed `status`/`revision`/`resources`, but
+  keeps the configuration that was in state before the apply, so the next
+  plan shows the same change again and retries it.
+- **A failed create** leaves the resource tainted if the release was
+  (partly) installed, and the next apply replaces it: uninstall, then
+  install. To retry in place instead, `terraform untaint` it; a release that
+  is not cleanly deployed always re-plans as an update.
+- **An install that succeeded but could not be read back** right away (for
+  example a transient API error) does not fail the apply: it warns, and the
+  next refresh fills in `status`, `revision` and `metadata`.
 
 `ImportStateVerify`-style equality checks intentionally ignore `values`,
 `set`, `set_sensitive`, `repository`, `version`, and `resources` for the
@@ -379,6 +495,10 @@ e.g. generating a password or certificate with `randAlphaNum`, `genCA`, or
 time, so a saved plan (`terraform plan -out=…` then `terraform apply
 <file>`) can fail its consistency check with "Provider produced an
 inconsistent final plan". This is inherent to any plan-based Helm tool.
+The same goes for a **replacement** of a chart whose templates read live
+cluster state with `lookup` (e.g. "reuse the existing password Secret"):
+at plan time the old release's objects still exist, at apply time the
+destroy has removed them, so the two renders differ.
 Prefer charts that read such secrets from existing Kubernetes `Secret`s or
 `lookup`-guarded templates so a value is generated once and reused, rather
 than regenerated on every render.
