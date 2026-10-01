@@ -510,26 +510,35 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	}
 
 	// 6c. The planned "resources" value. On a create plan it is the
-	// first-install render itself. Terraform plans a replacement's create
-	// TWICE — at plan time while the old release's objects are still live,
-	// and again at apply after its destroy removed them — and nelm's
-	// live-relative Changes differ between the two (unchanged objects are
-	// omitted, then every object is a create that also carries
-	// release-ownership metadata). Building the map from them aborted every
-	// replacement with "Provider produced inconsistent final plan" after the
-	// uninstall had already run; the render is identical in both phases. On
-	// an update, prior plus nelm's Changes stays authoritative. nelm's Changes
-	// still drive the blind-apply warnings either way.
+	// first-install render itself, never nelm's Changes. Terraform plans a
+	// replacement's create TWICE — at plan time while the old release's
+	// objects are still live, and again at apply after its destroy removed
+	// them — and nelm's live-relative Changes differ between the two
+	// (unchanged objects are omitted, then every object is a create that also
+	// carries release-ownership metadata). Building the map from them aborted
+	// every replacement with "Provider produced inconsistent final plan" after
+	// the uninstall had already run. A render that reads the live cluster can
+	// differ between the two phases as well, which is why a create whose
+	// release is live plans no known map at all (6c'). On an update, prior
+	// plus nelm's Changes stays authoritative. nelm's Changes still drive the
+	// blind-apply warnings either way.
 	planned := rendered
+
+	// existingWarned: a warning above already tells the user that this
+	// create's release is live (6c' adds none of its own then).
+	existingWarned := false
 
 	if planErr != nil {
 		resp.Diagnostics.AddWarning(
 			"nelm_release: the live-cluster plan for this create failed (it is re-checked at apply)",
 			"nelm could not plan this create against the objects currently live in the cluster. When this "+
 				"plan replaces the resource, those objects belong to the release being replaced, and its destroy "+
-				"removes them before the create runs. The apply re-runs the same checks and fails if the "+
-				"conflict is still there.\n\n"+plan.scrubSensitive(planErr.Error()),
+				"removes them before the create runs, so this create's \"resources\" are computed at apply. The "+
+				"apply re-runs the same checks and fails if the conflict is still there.\n\n"+
+				plan.scrubSensitive(planErr.Error()),
 		)
+
+		existingWarned = true
 	} else {
 		built, warns, err := planconv.BuildPlannedResources(prior, planRes.Changes, ns, scoper, rendered, secrets)
 		if err != nil {
@@ -550,7 +559,44 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 
 		if createPlan && planRes.DeployType == nelmclient.DeployTypeUpgrade && !plan.AdoptExisting.ValueBool() {
 			resp.Diagnostics.Append(existingReleaseWarning(ns, name))
+
+			existingWarned = true
 		}
+	}
+
+	// 6c'. A create whose release is live right now: the release being
+	// replaced (a tainted resource, -replace, or a destroy-first
+	// release_storage_driver change, whose release is in the other backend),
+	// a release adopt_existing takes over, or objects another release still
+	// owns (planErr: a name or namespace move onto fixed object names). A
+	// template that reads the live cluster — lookup, behind which Bitnami
+	// charts and grafana keep their generated passwords — sees those objects
+	// now and nothing once a replacement's destroy has removed them, so the
+	// apply-time re-plan renders other values than a known map planned here,
+	// and Terraform would abort the apply after the uninstall ("was known,
+	// but now unknown"). The map is computed at apply instead: the re-plan
+	// after the destroy finds no release and plans the known render, and
+	// Unknown to known is allowed. Under create_before_destroy both phases
+	// see the release and degrade alike, and Create refuses it
+	// (installGuardDiags, otherBackendDiags). The render above still ran: it
+	// is what fails a bad chart or bad values at plan time.
+	if createPlan && (planErr != nil || planRes.DeployType != nelmclient.DeployTypeInitial ||
+		r.releaseInOtherBackend(ctx, plan, readTimeout)) {
+		degradeDiffToUnknown(ctx, resp)
+
+		if !existingWarned {
+			resp.Diagnostics.AddWarning(
+				"nelm_release: this create's release is live, its resources are computed at apply",
+				fmt.Sprintf("Release %q has records in namespace %q while this plan creates nelm_release for it: "+
+					"the release this plan replaces (a tainted resource, -replace, a release_storage_driver change), "+
+					"one adopt_existing takes over, or one left behind by a failed or interrupted install. Templates "+
+					"that read live objects (lookup) render differently once a replacement's destroy has removed "+
+					"them, so \"resources\" is known after apply.",
+					name, ns),
+			)
+		}
+
+		return
 	}
 
 	// 6d. A key set that may change before the apply phase cannot be
@@ -726,7 +772,8 @@ func existingReleaseWarning(namespace, name string) diag.Diagnostic {
 		"nelm_release: a release with this name already exists",
 		fmt.Sprintf("Release %q already exists in namespace %q and this plan creates nelm_release for it. "+
 			"That is expected when the plan replaces the resource destroy-first (\"-/+\", e.g. a tainted resource "+
-			"or -replace): the destroy uninstalls the old release before the create runs.\n\n"+
+			"or -replace): the destroy uninstalls the old release before the create runs. As the release is live "+
+			"while this plan runs, the create's \"resources\" are computed at apply.\n\n"+
 			"In every other case the apply refuses to take the existing release over: a new nelm_release for a "+
 			"release installed elsewhere (e.g. migrating from helm_release without an import), a duplicate "+
 			"resource, or a create_before_destroy replacement (\"+/-\", also when create_before_destroy is "+

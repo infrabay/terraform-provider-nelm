@@ -2,9 +2,10 @@ package provider_test
 
 // release_volatile_acc_test.go covers charts whose render changes on every
 // render (F01, G2.1) — testdata/charts/volatile: a lookup-guarded generated
-// password, a rollme annotation and a deploy-date timestamp — and
-// diff_mode = "none" for a chart that can never converge. Same harness and
-// triple safety guard as release_resource_test.go (provider_test.go).
+// password, a rollme annotation and a deploy-date timestamp — their
+// replacement (F03), and diff_mode = "none" for a chart that can never
+// converge. Same harness and triple safety guard as release_resource_test.go
+// (provider_test.go).
 
 import (
 	"path/filepath"
@@ -72,6 +73,58 @@ func TestAccReleaseResource_volatileChart(t *testing.T) {
 				},
 				ConfigStateChecks: []statecheck.StateCheck{
 					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("revision"), knownvalue.Int64Exact(2)),
+				},
+			},
+		},
+	})
+}
+
+// TestAccReleaseResource_replaceLookupChart: replacing a release whose chart
+// reads its own live objects with lookup (the volatile chart's Secret keeps
+// its generated password once it exists) used to uninstall the release and
+// then abort with "Provider produced inconsistent final plan": the plan
+// rendered the password lookup found on the old release's Secret, the
+// apply-time re-plan, after the destroy, a newly generated one (F03). While
+// the replaced release is live, the create's resources are now known after
+// apply. Covers a taint and a destroy-first release_storage_driver change
+// (whose replaced release lives in the other backend).
+func TestAccReleaseResource_replaceLookupChart(t *testing.T) {
+	namespace := uniqueNamespace("vol-replace")
+	const name = "vol-replace"
+
+	chart := volatileChartPath(t)
+	configmap := `  release_storage_driver = "configmap"`
+
+	replaced := []plancheck.PlanCheck{
+		plancheck.ExpectResourceAction(resourceAddr, plancheck.ResourceActionDestroyBeforeCreate),
+		plancheck.ExpectUnknownValue(resourceAddr, tfjsonpath.New("resources")),
+	}
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckReleaseDestroyed(namespace, name),
+		Steps: []resource.TestStep{
+			{
+				Config: releaseConfig(name, namespace, chart, ""),
+			},
+			{
+				Config:           releaseConfig(name, namespace, chart, ""),
+				Taint:            []string{resourceAddr},
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: replaced},
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("status"), knownvalue.StringExact("deployed")),
+					// The destroy purged the release history: a fresh install.
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("revision"), knownvalue.Int64Exact(1)),
+				},
+			},
+			{
+				Config:           releaseConfig(name, namespace, chart, configmap),
+				ConfigPlanChecks: resource.ConfigPlanChecks{PreApply: replaced},
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("release_storage_driver"), knownvalue.StringExact("configmap")),
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("status"), knownvalue.StringExact("deployed")),
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("revision"), knownvalue.Int64Exact(1)),
 				},
 			},
 		},

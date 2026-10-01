@@ -17,6 +17,11 @@ import (
 // history at all, or "Install", only failed/uninstalled history).
 const DeployTypeUpgrade = string(common.DeployTypeUpgrade)
 
+// DeployTypeInitial is PlanResult.DeployType when the release has no stored
+// record at all in the configured backend: nelm plans its first install.
+// Every other deploy type means a release of that name exists there.
+const DeployTypeInitial = string(common.DeployTypeInitial)
+
 // ReleaseHistory summarizes a release's stored revision history: what the
 // provider's pre-install guards need and ReleaseGet does not expose (whether
 // nelm would upgrade rather than install, and when the last record was

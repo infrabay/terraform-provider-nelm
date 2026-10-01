@@ -101,7 +101,7 @@ func (f *fakeReleaseClient) Plan(context.Context, nelmclient.ReleaseSpec, time.D
 	}
 
 	if f.planResult == nil {
-		return &nelmclient.PlanResult{DeployType: "Initial"}, nil
+		return &nelmclient.PlanResult{DeployType: nelmclient.DeployTypeInitial}, nil
 	}
 
 	return f.planResult, nil

@@ -30,7 +30,9 @@ unit tests can substitute an offline fake; `Configure` always stores a
 - `History(ctx, name, namespace, storageDriver string, timeout) (*ReleaseHistory, error)`
   — the stored-revision summary behind Create's adoption guards (the
   configured storage backend and, on Create, the other one) and the
-  pending-* lock check
+  pending-* lock check; ModifyPlan also reads the other backend's on a
+  create plan nelm plans as `DeployTypeInitial` (a release still live there
+  makes the create's `resources` Unknown, step 6c')
 - `HandOverHelmProviderFieldManagers(ctx, name, namespace, storageDriver string, timeout) ([]string, error)`
   — Create/Update call it right before `Install`, after the History guards
   (a refused Create writes nothing), sharing the operation's timeout budget,

@@ -122,6 +122,21 @@ func otherStorageDriver(driver string) string {
 	}
 }
 
+// releaseInOtherBackend reports whether the release has records in the
+// storage backend release_storage_driver does NOT select. On a create plan
+// that is the release a destroy-first release_storage_driver change
+// replaces, whose objects stay live until its destroy (ModifyPlan step 6c').
+// A read that fails, or that the credentials may not make, reports false:
+// ModifyPlan only uses the answer to plan more conservatively, and must not
+// degrade at the apply-time re-plan what the plan phase planned known.
+func (r *releaseResource) releaseInOtherBackend(ctx context.Context, plan releaseModel, timeout time.Duration) bool {
+	other := otherStorageDriver(plan.ReleaseStorageDriver.ValueString())
+
+	h, err := r.client.History(ctx, plan.Name.ValueString(), plan.Namespace.ValueString(), other, timeout)
+
+	return err == nil && h.Exists()
+}
+
 // otherBackendDiags is the Create-side check installGuardDiags cannot make
 // from the configured backend's history alone: whether the release is still
 // deployed in the OTHER storage backend (otherStorageDriver). That is the

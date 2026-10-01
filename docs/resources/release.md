@@ -269,9 +269,11 @@ and only ever set by the provider:
   redacted JSON of that resource: `Secret` data and `set_sensitive` values
   are replaced by placeholders (see "Sensitive values in non-`Secret`
   resources" below). An object whose render changes on every
-  render is known after apply whenever the release is reinstalled; with
-  `diff_mode = "none"` the whole map is. See "How `resources` drives
-  `terraform plan`" below.
+  render is known after apply whenever the release is reinstalled. The
+  whole map is known after apply whenever the release is reinstalled with
+  `diff_mode = "none"`, and on a create whose release is live while the
+  plan runs (the create half of a replacement, an `adopt_existing`
+  create). See "How `resources` drives `terraform plan`" below.
 
 ## How `resources` drives `terraform plan`
 
@@ -297,10 +299,15 @@ correctly:
   controller keeps changing it, so it shows as drift on every plan (see
   [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#drift-and-out-of-band-changes)).
   When the plan creates the release — a new resource, or the create half of
-  a replacement — the planned map is the chart's first-install render,
-  independent of what is live in the cluster (so it is the same at plan
-  time, while a replaced release still exists, and at apply time, after its
-  destroy removed it).
+  a replacement — the planned map is the chart's first-install render, not
+  Nelm's live-relative plan. While the release is live as the plan runs —
+  the create half of a replacement (the old release still exists, in this
+  or the other storage backend), an `adopt_existing` create, objects
+  another release still owns — the whole map (with `status`, `revision`
+  and `metadata`) is known after apply instead, with a warning: a template
+  that reads live objects with `lookup` renders differently once the
+  replacement's destroy has removed them, and the apply's re-plan computes
+  the map after that destroy.
 - The chart is rendered twice per plan; an object the two renders disagree
   on (random or time-based template functions) is handled as described in
   [Non-deterministic charts](#non-deterministic-charts).
@@ -454,12 +461,10 @@ it catches:
 To manage such a release with Terraform, import it (`terraform import
 nelm_release.x <namespace>/<name>`, or an `import` block).
 `adopt_existing = true` lets Create take it over instead (Nelm upgrades it
-in place); set it only for the apply that adopts the release. The planned
-`resources` of that create are a first-install render, while the apply
-upgrades the release, so a chart whose manifests use `.Release.Revision`
-or `.Release.IsUpgrade` shows those objects as changed outside Terraform on
-the refresh after the adopting apply. That is cosmetic: the refresh records
-the live objects.
+in place); set it only for the apply that adopts the release. The plan of
+that create cannot show the object diff: the release is live, so
+`resources` is known after apply (with a warning) and read back from the
+cluster after the upgrade.
 
 When the configured storage backend holds no deployed revision, Create also
 reads the **other** backend (`configmap` when `release_storage_driver` is
@@ -487,10 +492,11 @@ stale; a younger one is refused as a lock (see
 The plan warns (`a release with this name already exists`) when it can see
 this coming (not with `diff_mode = "none"`, whose plan does not ask Nelm).
 It cannot fail at plan time: a destroy-first replacement
-legitimately plans the create while the old release is still there. There
-is no warning for a release in the other storage backend, nor for a
-`-replace`: Terraform plans a `-replace` as an update first and keeps only
-the errors, not the warnings, of its replacement re-plan. A taint, a
+legitimately plans the create while the old release is still there. A
+release in the other storage backend only gets the more general `this
+create's release is live` warning, and a `-replace` no warning at all:
+Terraform plans a `-replace` as an update first and keeps only the errors,
+not the warnings, of its replacement re-plan. A taint, a
 `name`/`namespace` change or a plain create does show the warning. The
 apply refuses in every case.
 
@@ -502,9 +508,20 @@ destroys (uninstalls) it and then creates (installs) it again in the same
 apply, with downtime in between.
 
 The create is planned while the old release is still installed. When the
-new release reuses the names of objects the old one owns — a namespace move
-of a chart whose cluster-scoped objects (ClusterRoles, webhook
-configurations, CRDs) have fixed names, or a rename with
+new release is the same Helm release — a taint, `-replace`, a
+`release_storage_driver` change — or its objects collide with the old
+one's (below), the create's `resources`, `status`, `revision` and
+`metadata` are known after apply, with a warning. A chart that reads live
+objects with `lookup` (a `lookup`-guarded generated password, as in
+Bitnami charts or `grafana`) finds the old release's objects at plan time
+and nothing once the destroy has removed them, so the plan cannot commit
+to the new objects; the apply computes them after the destroy. A `name` or
+`namespace` change whose objects do not collide plans the new release's
+render as usual.
+
+When the new release reuses the names of objects the old one owns — a
+namespace move of a chart whose cluster-scoped objects (ClusterRoles,
+webhook configurations, CRDs) have fixed names, or a rename with
 `fullnameOverride` — Nelm's ownership and immutable-field checks fail
 against the old objects. The plan shows that as a warning (`the live-cluster
 plan for this create failed (it is re-checked at apply)`) instead of an
@@ -849,13 +866,14 @@ such release blocks the whole root module. Before migrating, check the
 charts' templates for `rand`, `uuid`, `gen`, `derivePassword`, `now`, `date`
 and `.Release.Revision`.
 
-A **replacement** (taint, `-replace`, a `name`/`namespace`/
-`release_storage_driver` change) of a chart whose templates read live
-cluster state with `lookup` — including a `lookup`-guarded generated
-password — is still affected: at plan time the old release's objects exist
-and the guard reuses their values, at apply time the destroy has removed
-them and the chart generates new ones, so the apply aborts after the
-uninstall (see [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md)).
+A **replacement** (taint, `-replace`, a `release_storage_driver` change, a
+`name`/`namespace` change whose objects collide with the old release's) is
+planned while the old release's objects exist, so a `lookup` guard finds
+them at plan time and nothing at apply time, after the destroy. Its
+`resources` are therefore known after apply as a whole (see
+[Replacement and `create_before_destroy`](#replacement-and-create_before_destroy)),
+and the apply installs freshly generated values — a new generated
+password, as `helm uninstall` followed by `helm install` would.
 
 ### Readiness tracking and `wait`
 

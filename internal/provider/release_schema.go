@@ -321,12 +321,13 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 					`invocation, including no-change plans, so cluster drift is always visible ` +
 					`(MarkComputedNilsAsUnknown is skipped on no-change plans). An object whose render ` +
 					`changes on every render (random or time-based template functions) is known after ` +
-					`apply whenever the release is reinstalled, and otherwise keeps its value; with ` +
-					`diff_mode = "none" the whole map is known after apply whenever the release is ` +
-					`reinstalled. Secret data is redacted, and so is every set_sensitive value ` +
-					`rendered into any other object; a sensitive value passed through values or ` +
-					`set appears here in cleartext — see "Sensitive values in non-Secret ` +
-					`resources" in the docs.`,
+					`apply whenever the release is reinstalled, and otherwise keeps its value. The whole ` +
+					`map is known after apply whenever the release is reinstalled with diff_mode = ` +
+					`"none", and on a create whose release is live while the plan runs (the create half ` +
+					`of a replacement, an adopt_existing create). Secret data is redacted, and so is ` +
+					`every set_sensitive value rendered into any other object; a sensitive value passed ` +
+					`through values or set appears here in cleartext — see "Sensitive values in ` +
+					`non-Secret resources" in the docs.`,
 			},
 		},
 		Blocks: map[string]schema.Block{

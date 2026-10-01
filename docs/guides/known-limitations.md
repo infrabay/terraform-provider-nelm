@@ -312,14 +312,20 @@ before moving production releases.
   [Pending releases](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#pending-releases-helms-release-lock)
   for manual recovery.
 
-- **Replacing a release whose chart `lookup`s live objects can abort.** A
-  replacement's create is planned while the old release still exists and
-  re-planned after its destroy removed it; a template whose output depends
-  on `lookup` (a `lookup`-guarded generated password included) renders
-  differently in the two, and Terraform aborts with "Provider produced
-  inconsistent final plan" after the uninstall ran; the next apply installs
-  the release. To replace such a release without the failed apply, do it in
-  two steps: `terraform destroy -target=...`, then `terraform apply`.
+- **A replacement's plan does not show the new release's objects.** The
+  create half of a taint, `-replace` or `release_storage_driver` change —
+  and of a `name`/`namespace` change whose objects collide with the old
+  release's — is planned while the old release is still live, where a
+  chart's `lookup`s (a `lookup`-guarded generated password) find the old
+  objects; after the destroy they find nothing. Its `resources`, `status`,
+  `revision` and `metadata` are therefore known after apply, with a
+  warning, and computed by the apply after the destroy. An `adopt_existing`
+  create is planned the same way. A `release_storage_driver` change is
+  recognized by reading the old backend's release records; if that read
+  fails, the create is planned as a fresh install, and a chart with
+  `lookup`-dependent templates can abort that apply after the uninstall
+  ("Provider produced inconsistent final plan"; the next apply installs
+  the release).
 
 - **A replacement's conflicts with live objects are only warnings at plan
   time.** The create half of a replacement (a `name`/`namespace`/

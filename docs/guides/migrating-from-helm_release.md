@@ -311,9 +311,10 @@ release drops out of the state at the refresh and is planned as a new
 resource. Take such a release over without an import: keep the `removed`
 block, and give the new `nelm_release`
 `release_storage_driver = "configmap"` and `adopt_existing = true` for that
-one apply. Its plan is a create, so it shows the chart's full render instead
-of a diff against the live objects; the apply upgrades the existing release
-in place. Remove `adopt_existing` afterwards. ConfigMap release records, values included,
+one apply. Its plan is a create of a live release, so it shows no object
+diff (`resources` is known after apply, with a warning); the apply upgrades
+the existing release in place and records its objects. Remove
+`adopt_existing` afterwards. ConfigMap release records, values included,
 can be read with the built-in `view` role; see
 [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#storage-driver-and-import).
 

@@ -2,9 +2,11 @@ package provider
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -14,7 +16,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/werf/nelm/pkg/plan"
 	"github.com/werf/nelm/pkg/resource/spec"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	k8sschema "k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
 	"github.com/infrabay/terraform-provider-nelm/internal/planconv"
@@ -125,23 +129,22 @@ func plannedResources(t *testing.T, p tfsdk.Plan) map[string]string {
 // "resources" from nelm's Changes made the two disagree ({} vs everything),
 // so every taint/-replace/namespace/storage-driver replacement aborted with
 // "Provider produced inconsistent final plan" — after the uninstall had run.
-// Both phases must now plan the first-install render, byte-identically.
+// While the old release is live the create's map is now Unknown (a render
+// that reads live objects changes once they are gone, see
+// TestModifyPlan_ReplaceOfLiveRelease); the apply-phase re-plan plans the
+// first-install render, and Unknown to known is allowed.
 func TestModifyPlan_CreateResourcesIndependentOfLiveState(t *testing.T) {
 	oldReleaseLive := &fakeReleaseClient{
-		planResult: &nelmclient.PlanResult{DeployType: "Upgrade"},
+		planResult: &nelmclient.PlanResult{DeployType: nelmclient.DeployTypeUpgrade},
 		renderObjs: renderedObjects(),
 	}
 	afterDestroy := &fakeReleaseClient{
-		planResult: &nelmclient.PlanResult{DeployType: "Initial", Changes: installCreateChanges()},
+		planResult: &nelmclient.PlanResult{DeployType: nelmclient.DeployTypeInitial, Changes: installCreateChanges()},
 		renderObjs: renderedObjects(),
 	}
 
-	// adopt_existing only silences the (expected) existing-release warning.
-	model := baseTestReleaseModel()
-	model.AdoptExisting = types.BoolValue(true)
-
-	planPhase := runModifyPlan(t, oldReleaseLive, model, nil)
-	applyPhase := runModifyPlan(t, afterDestroy, model, nil)
+	planPhase := runModifyPlan(t, oldReleaseLive, baseTestReleaseModel(), nil)
+	applyPhase := runModifyPlan(t, afterDestroy, baseTestReleaseModel(), nil)
 
 	for name, resp := range map[string]*resource.ModifyPlanResponse{"plan phase": planPhase, "apply phase": applyPhase} {
 		if resp.Diagnostics.HasError() {
@@ -149,20 +152,138 @@ func TestModifyPlan_CreateResourcesIndependentOfLiveState(t *testing.T) {
 		}
 	}
 
+	planned := plannedResourcesValue(t, planPhase.Plan)
+	if !planned.IsUnknown() {
+		t.Fatalf("plan phase: resources = %v, want Unknown while the replaced release is live", planned)
+	}
+
+	assertComputedUnknown(t, planPhase.Plan, true)
+
 	want, err := planconv.BuildRenderedResources(renderedObjects(), "default", oldReleaseLive, nil)
 	if err != nil {
 		t.Fatalf("BuildRenderedResources: %v", err)
 	}
 
-	gotPlan := plannedResources(t, planPhase.Plan)
-	gotApply := plannedResources(t, applyPhase.Plan)
-
-	if !maps.Equal(gotPlan, gotApply) {
-		t.Fatalf("plan-phase and apply-phase resources differ (inconsistent final plan):\nplan:  %v\napply: %v", gotPlan, gotApply)
+	if got := plannedResources(t, applyPhase.Plan); !maps.Equal(got, want) {
+		t.Fatalf("apply phase: planned resources = %v, want the first-install render %v", got, want)
 	}
 
-	if !maps.Equal(gotPlan, want) {
-		t.Fatalf("planned resources = %v, want the first-install render %v", gotPlan, want)
+	assertCompatible(t, planned, plannedResourcesValue(t, applyPhase.Plan))
+}
+
+// TestModifyPlan_ReplaceOfLiveRelease is the regression test for F03's
+// lookup case. A chart that reads live objects (testdata/charts/volatile's
+// lookup-guarded password, Bitnami's and grafana's generated secrets) renders
+// deterministically at plan time, while the replaced release's Secret still
+// exists, and generates a new password at the apply-time re-plan, after the
+// destroy removed it. Planning the plan-time render as a known map aborted
+// the replacement with "Provider produced inconsistent final plan" after the
+// uninstall, however the release being replaced was live.
+func TestModifyPlan_ReplaceOfLiveRelease(t *testing.T) {
+	stored := base64.StdEncoding.EncodeToString([]byte("stored-password"))
+
+	tests := map[string]struct {
+		model releaseModel
+		// live makes the plan-phase client see the release being replaced.
+		live        func(c *fakeReleaseClient)
+		wantWarning string
+	}{
+		"tainted release, or -replace": {
+			model: baseTestReleaseModel(),
+			live: func(c *fakeReleaseClient) {
+				c.planResult = &nelmclient.PlanResult{DeployType: nelmclient.DeployTypeUpgrade}
+			},
+			wantWarning: "already exists",
+		},
+		"tainted after a failed first install": {
+			model: baseTestReleaseModel(),
+			live: func(c *fakeReleaseClient) {
+				c.planResult = &nelmclient.PlanResult{DeployType: "Install"}
+			},
+			wantWarning: "computed at apply",
+		},
+		"release_storage_driver change": {
+			model: func() releaseModel {
+				m := baseTestReleaseModel()
+				m.ReleaseStorageDriver = types.StringValue("configmap")
+
+				return m
+			}(),
+			live: func(c *fakeReleaseClient) {
+				c.historyByDriver = map[string]*nelmclient.ReleaseHistory{
+					"secret": {Revision: 4, Status: "deployed", Deployed: true},
+				}
+			},
+			wantWarning: "computed at apply",
+		},
+		"objects another release owns": {
+			model: baseTestReleaseModel(),
+			live: func(c *fakeReleaseClient) {
+				c.planErr = adoptionConflict()
+			},
+			wantWarning: "re-checked at apply",
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			// Plan phase: the old release's Secret exists, so lookup reuses its
+			// password in both renders and the Secret looks deterministic.
+			chart := &volatileChart{storedPassword: stored}
+			planClient := &fakeReleaseClient{renderFn: chart.render}
+			tt.live(planClient)
+
+			planPhase := runModifyPlan(t, planClient, tt.model, nil)
+			if planPhase.Diagnostics.HasError() {
+				t.Fatalf("plan phase: unexpected errors: %v", planPhase.Diagnostics)
+			}
+
+			// Apply phase, after the destroy: no release, no Secret to look up.
+			chart.storedPassword = ""
+			applyPhase := runModifyPlan(t, &fakeReleaseClient{renderFn: chart.render}, tt.model, nil)
+			if applyPhase.Diagnostics.HasError() {
+				t.Fatalf("apply phase: unexpected errors: %v", applyPhase.Diagnostics)
+			}
+
+			applied := plannedResourcesValue(t, applyPhase.Plan)
+			if v := applied.Elements()[volatileSecretKey]; v == nil || !v.IsUnknown() {
+				t.Fatalf("apply phase: resources[%q] = %v, want Unknown (a first install generates the password)", volatileSecretKey, v)
+			}
+
+			assertCompatible(t, plannedResourcesValue(t, planPhase.Plan), applied)
+			assertOneDiag(t, planPhase.Diagnostics, diag.SeverityWarning, tt.wantWarning)
+		})
+	}
+}
+
+// TestModifyPlan_FreshCreateChecksOtherBackend: a create whose release exists
+// in neither backend plans the known render after checking the other backend;
+// a failed or forbidden read of it changes nothing (it must never turn an
+// apply-time re-plan Unknown that the plan phase planned known).
+func TestModifyPlan_FreshCreateChecksOtherBackend(t *testing.T) {
+	for name, err := range map[string]error{
+		"no release":     nil,
+		"read forbidden": apierrors.NewForbidden(k8sschema.GroupResource{Resource: "configmaps"}, "", errors.New("rbac")),
+		"read failed":    errors.New("connection reset"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := &fakeReleaseClient{renderObjs: renderedObjects(), historyErrs: map[string]error{"configmap": err}}
+
+			resp := runModifyPlan(t, client, baseTestReleaseModel(), nil)
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+			}
+
+			assertOneDiag(t, resp.Diagnostics, diag.SeverityWarning, "")
+
+			if got := plannedResources(t, resp.Plan); len(got) != len(renderedObjects()) {
+				t.Errorf("planned resources = %v, want the %d rendered objects", got, len(renderedObjects()))
+			}
+
+			if !slices.Equal(client.historyDrivers, []string{"configmap"}) {
+				t.Errorf("History read the %q backends, want the other one (configmap) once", client.historyDrivers)
+			}
+		})
 	}
 }
 
@@ -202,7 +323,8 @@ func adoptionConflict() error {
 
 // TestModifyPlan_CreateLiveConflictIsAdvisory: on a create (e.g. a namespace
 // move whose fixed-name ClusterRole is still owned by the release being
-// replaced) nelm's live adoption check only warns; the render is planned.
+// replaced) nelm's live adoption check only warns, once the render has
+// validated the chart; the objects are live, so the map is computed at apply.
 func TestModifyPlan_CreateLiveConflictIsAdvisory(t *testing.T) {
 	client := &fakeReleaseClient{planErr: adoptionConflict(), renderObjs: renderedObjects()}
 
@@ -214,8 +336,12 @@ func TestModifyPlan_CreateLiveConflictIsAdvisory(t *testing.T) {
 
 	assertOneDiag(t, resp.Diagnostics, diag.SeverityWarning, "re-checked at apply")
 
-	if got := plannedResources(t, resp.Plan); len(got) != len(renderedObjects()) {
-		t.Errorf("planned resources = %v, want the %d rendered objects", got, len(renderedObjects()))
+	if got := plannedResourcesValue(t, resp.Plan); !got.IsUnknown() {
+		t.Errorf("planned resources = %v, want Unknown (computed at apply)", got)
+	}
+
+	if len(client.renderSpecs) != 2 {
+		t.Errorf("Render called %d times, want 2: the render validates the chart", len(client.renderSpecs))
 	}
 }
 
@@ -255,8 +381,8 @@ func TestModifyPlan_IdentityChangeLiveConflictIsAdvisory(t *testing.T) {
 
 			assertOneDiag(t, resp.Diagnostics, diag.SeverityWarning, "re-checked at apply")
 
-			if got := plannedResources(t, resp.Plan); len(got) != len(renderedObjects()) {
-				t.Errorf("planned resources = %v, want the %d rendered objects", got, len(renderedObjects()))
+			if got := plannedResourcesValue(t, resp.Plan); !got.IsUnknown() {
+				t.Errorf("planned resources = %v, want Unknown (computed at apply)", got)
 			}
 
 			if len(client.renderSpecs) != 2 || !client.renderSpecs[0].RenderAsFirstInstall || !client.renderSpecs[1].RenderAsFirstInstall {
@@ -300,11 +426,13 @@ func TestModifyPlan_CreateOverExistingReleaseWarns(t *testing.T) {
 
 	assertOneDiag(t, resp.Diagnostics, diag.SeverityWarning, "already exists")
 
+	// adopt_existing: no refusal to warn about, but the plan still says why
+	// "resources" is known after apply.
 	adopting := baseTestReleaseModel()
 	adopting.AdoptExisting = types.BoolValue(true)
-	assertOneDiag(t, runModifyPlan(t, client, adopting, nil).Diagnostics, diag.SeverityWarning, "")
+	assertOneDiag(t, runModifyPlan(t, client, adopting, nil).Diagnostics, diag.SeverityWarning, "computed at apply")
 
-	fresh := &fakeReleaseClient{planResult: &nelmclient.PlanResult{DeployType: "Initial"}, renderObjs: renderedObjects()}
+	fresh := &fakeReleaseClient{planResult: &nelmclient.PlanResult{DeployType: nelmclient.DeployTypeInitial}, renderObjs: renderedObjects()}
 	assertOneDiag(t, runModifyPlan(t, fresh, baseTestReleaseModel(), nil).Diagnostics, diag.SeverityWarning, "")
 
 	// A namespace move onto a release that already exists in the target
