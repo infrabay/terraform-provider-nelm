@@ -24,9 +24,10 @@ var (
 //  2. pinGates — every nelm feature gate is forced on or off, so the
 //     provider's behaviour never depends on NELM_FEAT_* in the environment
 //     Terraform runs in.
-//  3. A per-process temp-directory root (cleaned up by each action's own
-//     per-op subdirectory; see actions.go), avoiding the temp-dir leak that
-//     results from never setting TempDirPath.
+//  3. A per-process 0700 temp-directory root under which every action gets
+//     its own per-op subdirectory (removed by that action; see actions.go),
+//     avoiding the temp-dir leak that results from never setting
+//     TempDirPath. The root itself is removed by Shutdown.
 //
 // Init is idempotent: the underlying setup runs exactly once via sync.Once,
 // no matter how many times or from how many goroutines Init is called. It
@@ -77,4 +78,22 @@ func pinGates() {
 // Init must have returned successfully before TempRoot is meaningful.
 func TempRoot() string {
 	return tempRoot
+}
+
+// Shutdown removes the per-process temp root Init created, including anything
+// a timed-out nelm worker wrote after its operation's cleanup. main calls it
+// once providerserver.Serve returns — go-plugin's Serve returns (it does not
+// os.Exit) when Terraform shuts the provider down gracefully — so only a
+// SIGKILL or a crash leaves the root behind. Without it every provider
+// process (one per configured provider per plan or apply walk) left a
+// tf-nelm-* directory in $TMPDIR. A no-op when Init never ran; no Client
+// method may be used afterwards.
+func Shutdown() {
+	// Synchronizes with Init's write of tempRoot (sync.Once's Do returns only
+	// after the first call's function has completed).
+	initOnce.Do(func() {})
+
+	if tempRoot != "" {
+		_ = os.RemoveAll(tempRoot)
+	}
 }

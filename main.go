@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 
+	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
 	"github.com/infrabay/terraform-provider-nelm/internal/provider"
 )
 
@@ -26,7 +27,13 @@ func main() {
 		Debug:   debug,
 	}
 
-	if err := providerserver.Serve(context.Background(), provider.New(version), opts); err != nil {
+	err := providerserver.Serve(context.Background(), provider.New(version), opts)
+
+	// Serve returns once Terraform has shut the provider down: remove the
+	// per-process nelm temp root before exiting (log.Fatal skips defers).
+	nelmclient.Shutdown()
+
+	if err != nil {
 		log.Fatal(err.Error())
 	}
 }
