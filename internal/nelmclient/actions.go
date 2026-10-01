@@ -201,19 +201,24 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 		return nil, err
 	}
 
+	repoOpts := chartRepoOptions(spec)
+
+	chartPath, err := fetchChart(opDir, chartRef, spec.Version, repoOpts, registryConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	artifactPath := filepath.Join(opDir, "plan.artifact")
 
 	ctx, buf := captureWarningsCtx(ctx)
 
 	opts := action.ReleasePlanInstallOptions{
-		ChartRepoConnectionOptions: common.ChartRepoConnectionOptions{
-			ChartRepoURL: spec.Repository,
-		},
+		ChartRepoConnectionOptions:   repoOpts,
 		KubeConnectionOptions:        c.toKubeConnectionOptions(),
 		ReleaseInstallRuntimeOptions: runtimeOptions(spec),
 		ValuesOptions:                valuesOpts,
 
-		Chart:                   chartRef,
+		Chart:                   chartPath,
 		ChartVersion:            spec.Version,
 		NoFinalTracking:         true,
 		PlanArtifactPath:        artifactPath,
@@ -264,12 +269,17 @@ func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Dur
 		return err
 	}
 
+	repoOpts := chartRepoOptions(spec)
+
+	chartPath, err := fetchChart(opDir, chartRef, spec.Version, repoOpts, registryConfig)
+	if err != nil {
+		return err
+	}
+
 	ctx, buf := captureCtx(ctx)
 
 	opts := action.ReleaseInstallOptions{
-		ChartRepoConnectionOptions: common.ChartRepoConnectionOptions{
-			ChartRepoURL: spec.Repository,
-		},
+		ChartRepoConnectionOptions:   repoOpts,
 		KubeConnectionOptions:        c.toKubeConnectionOptions(),
 		ReleaseInstallRuntimeOptions: runtimeOptions(spec),
 		TrackingOptions: common.TrackingOptions{
@@ -278,7 +288,7 @@ func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Dur
 		ValuesOptions: valuesOpts,
 
 		AutoRollback:            spec.AutoRollback,
-		Chart:                   chartRef,
+		Chart:                   chartPath,
 		ChartVersion:            spec.Version,
 		RegistryCredentialsPath: registryConfig,
 		TempDirPath:             opDir,

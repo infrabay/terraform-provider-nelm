@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/werf/nelm/pkg/action"
-	"github.com/werf/nelm/pkg/common"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -52,6 +51,13 @@ func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Dura
 		defer cancel()
 	}
 
+	repoOpts := chartRepoOptions(spec)
+
+	chartPath, err := fetchChart(opDir, chartRef, spec.Version, repoOpts, registryConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	ctx, buf := captureCtx(ctx)
 
 	// OutputFilePath is load-bearing: ChartRender ignores OutputNoPrint (nelm
@@ -61,13 +67,11 @@ func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Dura
 	// to a file in the 0700 opDir instead, removed with it by the deferred
 	// cleanup. OutputNoPrint stays set for when nelm starts honouring it.
 	opts := action.ChartRenderOptions{
-		ChartRepoConnectionOptions: common.ChartRepoConnectionOptions{
-			ChartRepoURL: spec.Repository,
-		},
-		KubeConnectionOptions: c.toKubeConnectionOptions(),
-		ValuesOptions:         valuesOpts,
+		ChartRepoConnectionOptions: repoOpts,
+		KubeConnectionOptions:      c.toKubeConnectionOptions(),
+		ValuesOptions:              valuesOpts,
 
-		Chart:                   chartRef,
+		Chart:                   chartPath,
 		ChartVersion:            spec.Version,
 		OutputFilePath:          filepath.Join(opDir, "render.yaml"),
 		OutputNoPrint:           true,

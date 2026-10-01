@@ -88,3 +88,10 @@ the old shape.
   written and deleted in the same function call frame that created them —
   they contain cleartext Secret data and must never outlive the call that
   produced them.
+- Remote charts never reach nelm as remote references:
+  `nelmclient.fetchChart` downloads them into the per-operation directory
+  first and nelm gets the archive's absolute path, because nelm's own
+  download goes to the shared Helm cache under a `<name>-<version>.tgz` name
+  that concurrent operations collide on. `fetchChart` mirrors nelm's
+  downloader setup (`pkg/chart` `newChartDownloader`) and must be
+  re-checked against it on every nelm upgrade.

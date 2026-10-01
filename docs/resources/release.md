@@ -241,10 +241,12 @@ correctly:
 - If the cluster is unreachable at plan time, `resources` (along with
   `status`/`revision`/`metadata`) becomes Unknown and the plan proceeds
   with a warning; the actual diff is only knowable once `apply` reaches a
-  reachable cluster. If your Terraform configuration itself has any
-  unknown inputs (e.g. `chart` computed from another resource not yet
-  applied), the same Unknown degradation applies — the provider never
-  guesses at a diff it can't actually compute.
+  reachable cluster. (A remote chart is downloaded before the cluster is
+  contacted, so its repository or registry must still be reachable; a
+  failed chart download is a plan error.) If your Terraform configuration
+  itself has any unknown inputs (e.g. `chart` computed from another
+  resource not yet applied), the same Unknown degradation applies — the
+  provider never guesses at a diff it can't actually compute.
 
 ## Caveats and Notes
 
@@ -437,6 +439,15 @@ Setting `repository` makes the chart reference unambiguously **remote**: it
 is then never resolved against the local filesystem (a same-named local
 directory cannot hijack it), and combining `repository` with a local path
 (`/abs`, `./rel`) is rejected as contradictory.
+
+Every plan, render and apply downloads a remote chart afresh into its own
+private temporary directory, removed when the operation ends. Nothing is
+written to the shared Helm cache (`~/.cache/helm/repository`), so releases
+whose charts share a name and version but come from different
+repositories or registries never pick up each other's archive, even when
+Terraform runs them in parallel or several Terraform runs share a host.
+`repo/name` references are still resolved from the usual `helm repo add`
+configuration and index cache.
 
 Private **OCI registries** are supported via the provider-level `registries`
 block (see the provider docs' GKE + Artifact Registry example). Out of scope
