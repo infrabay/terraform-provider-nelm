@@ -22,7 +22,7 @@ var (
 //     process, never per-CRUD-call, or nelm's global logging/color/klog
 //     state gets clobbered mid-operation.
 //  2. pinGates — every nelm feature gate is forced on or off, so the
-//     provider's behaviour never depends on NELM_FEAT_* in the environment
+//     provider's behavior never depends on NELM_FEAT_* in the environment
 //     Terraform runs in.
 //  3. A per-process 0700 temp-directory root under which every action gets
 //     its own per-op subdirectory (removed by that action; see actions.go),

@@ -51,9 +51,9 @@ func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Dura
 		defer cancel()
 	}
 
-	repoOpts := chartRepoOptions(spec)
+	repoOpts := chartRepoOptions(spec, timeout)
 
-	chartPath, err := fetchChart(opDir, chartRef, spec.Version, repoOpts, registryConfig)
+	chartPath, err := fetchChart(ctx, opDir, chartRef, spec.Version, repoOpts, registryConfig, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Dura
 	// rendered manifest — Secret data included — to os.Stdout, which inside a
 	// plugin process is a pipe Terraform core logs at WARN. The printout goes
 	// to a file in the 0700 opDir instead, removed with it by the deferred
-	// cleanup. OutputNoPrint stays set for when nelm starts honouring it.
+	// cleanup. OutputNoPrint stays set for when nelm starts honoring it.
 	opts := action.ChartRenderOptions{
 		ChartRepoConnectionOptions: repoOpts,
 		KubeConnectionOptions:      c.toKubeConnectionOptions(),

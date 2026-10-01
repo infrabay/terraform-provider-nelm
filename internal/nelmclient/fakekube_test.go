@@ -79,7 +79,14 @@ func fakeKubeConfig(t *testing.T) Config {
 		t.Fatalf("BuildInlineKubeconfig: %v", err)
 	}
 
-	return Config{KubeConfigBase64: kubeconfig, RequestTimeout: 10 * time.Second}
+	return Config{
+		KubeConfigBase64: kubeconfig,
+		RequestTimeout:   10 * time.Second,
+		// Registry clients then read a per-op config.json holding only this
+		// entry, never the developer's ~/.docker/config.json (nelm resolves
+		// that default from the real HOME at process start).
+		Registries: []RegistryAuth{{URL: "registry.invalid", Username: "test", Password: "test"}},
+	}
 }
 
 // isolateHome points HOME, the kubeconfig/kube-cache locations and helm's

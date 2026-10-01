@@ -1,12 +1,14 @@
 package nelmclient
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/werf/nelm/pkg/common"
 	"github.com/werf/nelm/pkg/helm/pkg/cli"
@@ -17,12 +19,26 @@ import (
 	helmrepo "github.com/werf/nelm/pkg/helm/pkg/repo"
 )
 
+// maxChartRepoRequestTimeout caps one chart-repository HTTP request (helm's
+// own getter default). Left at zero, nelm's downloader applies no timeout at
+// all — http.Client{Timeout: 0} on a transport with no response-header
+// timeout — so a server that accepts the connection and then stops sending
+// hangs the fetch forever.
+const maxChartRepoRequestTimeout = 2 * time.Minute
+
 // chartRepoOptions maps spec onto the chart-repository connection options
 // shared by Plan, Install and Render (both fetchChart and the nelm action
-// get the same ones).
-func chartRepoOptions(spec ReleaseSpec) common.ChartRepoConnectionOptions {
+// get the same ones). timeout is the operation's timeout: one request may
+// take at most that long, and never more than maxChartRepoRequestTimeout.
+func chartRepoOptions(spec ReleaseSpec, timeout time.Duration) common.ChartRepoConnectionOptions {
+	requestTimeout := maxChartRepoRequestTimeout
+	if timeout > 0 && timeout < requestTimeout {
+		requestTimeout = timeout
+	}
+
 	return common.ChartRepoConnectionOptions{
-		ChartRepoURL: spec.Repository,
+		ChartRepoRequestTimeout: requestTimeout,
+		ChartRepoURL:            spec.Repository,
 	}
 }
 
@@ -47,11 +63,59 @@ func chartRepoOptions(spec ReleaseSpec) common.ChartRepoConnectionOptions {
 // oci://, a repository URL plus chart name, and repo/name against the
 // `helm repo add` config and index cache, which stay where nelm reads them.
 // Re-check it against nelm on every nelm upgrade.
-func fetchChart(opDir, chartRef, version string, repo common.ChartRepoConnectionOptions, registryConfig string) (string, error) {
+//
+// The fetch is bounded by ctx and, when positive, by timeout. Helm's download
+// machinery takes no context, and an OCI pull goes through a registry client
+// with no HTTP timeout at all (ChartRepoRequestTimeout bounds only HTTP
+// repositories), so the fetch runs in a goroutine that is abandoned when the
+// bound fires. An abandoned fetch writes only under opDir, which the
+// caller's cleanup removes.
+func fetchChart(ctx context.Context, opDir, chartRef, version string, repo common.ChartRepoConnectionOptions, registryConfig string, timeout time.Duration) (string, error) {
 	if isLocalChartRef(chartRef) {
 		return chartRef, nil
 	}
 
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
+	type fetchResult struct {
+		path string
+		err  error
+	}
+
+	done := make(chan fetchResult, 1)
+
+	go func() {
+		// A panic in helm's download code on this goroutine would otherwise
+		// crash the provider plugin, aborting every concurrent resource.
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fetchResult{err: fmt.Errorf("recovered from a panic: %v", r)}
+			}
+		}()
+
+		path, err := downloadChart(opDir, chartRef, version, repo, registryConfig)
+		done <- fetchResult{path: path, err: err}
+	}()
+
+	select {
+	case res := <-done:
+		if res.err != nil {
+			return "", fmt.Errorf("download chart %q: %w", chartRef, res.err)
+		}
+
+		return res.path, nil
+	case <-ctx.Done():
+		return "", fmt.Errorf("download chart %q: %w", chartRef, context.Cause(ctx))
+	}
+}
+
+// downloadChart is fetchChart's unbounded download of a remote chartRef into
+// <opDir>/chart, returning the archive's path.
+func downloadChart(opDir, chartRef, version string, repo common.ChartRepoConnectionOptions, registryConfig string) (string, error) {
 	credentials := registryConfig
 	if credentials == "" {
 		credentials = common.DefaultRegistryCredentialsPath
@@ -131,7 +195,7 @@ func fetchChart(opDir, chartRef, version string, repo common.ChartRepoConnection
 
 	path, _, err := downloader.DownloadTo(ref, version, dir)
 	if err != nil {
-		return "", fmt.Errorf("download chart %q: %w", chartRef, err)
+		return "", err
 	}
 
 	return path, nil

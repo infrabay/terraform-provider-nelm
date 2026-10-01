@@ -201,9 +201,9 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 		return nil, err
 	}
 
-	repoOpts := chartRepoOptions(spec)
+	repoOpts := chartRepoOptions(spec, timeout)
 
-	chartPath, err := fetchChart(opDir, chartRef, spec.Version, repoOpts, registryConfig)
+	chartPath, err := fetchChart(ctx, opDir, chartRef, spec.Version, repoOpts, registryConfig, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -269,9 +269,9 @@ func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Dur
 		return err
 	}
 
-	repoOpts := chartRepoOptions(spec)
+	repoOpts := chartRepoOptions(spec, timeout)
 
-	chartPath, err := fetchChart(opDir, chartRef, spec.Version, repoOpts, registryConfig)
+	chartPath, err := fetchChart(ctx, opDir, chartRef, spec.Version, repoOpts, registryConfig, timeout)
 	if err != nil {
 		return err
 	}

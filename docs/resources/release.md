@@ -129,6 +129,13 @@ Optional block; all four are Go duration strings (e.g. `"20m"`):
 - `delete` (String) Timeout for the uninstall action backing Delete.
   Defaults to 5m.
 
+`create`, `update` and `read` also bound the download of a remote chart
+that precedes each install, plan or render, separately from the Nelm
+action itself; a stalled chart repository or registry fails the operation
+once the timeout expires instead of hanging it. Each HTTP request to a
+classic chart repository is additionally capped at 2 minutes (Helm's
+default).
+
 ### Dropped by design (not attributes of this resource)
 
 These exist on comparable Helm-based providers but are intentionally not

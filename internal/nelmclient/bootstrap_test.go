@@ -15,7 +15,7 @@ import (
 // following the environment Terraform runs in: an unforced gate reads
 // NELM_FEAT_<NAME>, so an exported NELM_FEAT_PREVIEW_V2=true (common where the
 // nelm CLI is also used) used to switch werf.io/sensitive redaction to its v2
-// data/stringData-only form, among other behaviour changes. After Init only
+// data/stringData-only form, among other behavior changes. After Init only
 // remote-charts may be on, whatever the environment says.
 func TestInit_PinsEveryFeatureGate(t *testing.T) {
 	for _, g := range featgate.FeatGates {

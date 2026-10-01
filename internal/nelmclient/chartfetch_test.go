@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -191,6 +192,169 @@ func TestIsLocalChartRef(t *testing.T) {
 	for ref, want := range cases {
 		if got := isLocalChartRef(ref); got != want {
 			t.Errorf("isLocalChartRef(%q) = %v, want %v", ref, got, want)
+		}
+	}
+}
+
+// stallingHandler accepts a request and then sends nothing until release is
+// closed, the client goes away, or 20s pass: a chart server that stalls
+// mid-request.
+func stallingHandler(release <-chan struct{}) http.HandlerFunc {
+	return func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		case <-time.After(20 * time.Second):
+		}
+	}
+}
+
+// TestRender_StalledChartRepositoryIsBounded is the regression test for
+// ModifyPlan's Render hanging on a stalled chart server: no chart-repo
+// request timeout was set, so nelm's downloader ran with
+// http.Client{Timeout: 0}, and ChartRender (unlike nelm's install/plan
+// actions) has no timeout of its own, so timeouts.read could not interrupt
+// the archive download and `terraform plan` hung until the CI job was
+// killed.
+func TestRender_StalledChartRepositoryIsBounded(t *testing.T) {
+	ctx := context.Background()
+
+	if err := Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	c := NewClient(fakeKubeConfig(t))
+
+	release := make(chan struct{})
+	repo := chartRepoServer(t, "app", "1.0.0", nil, stallingHandler(release))
+	// Registered after the server's Close, so it runs first and lets the
+	// stalled handler return.
+	t.Cleanup(func() { close(release) })
+
+	start := time.Now()
+
+	_, err := c.Render(ctx, ReleaseSpec{
+		Name:       "app",
+		Namespace:  "default",
+		Chart:      "app",
+		Repository: repo.URL,
+		Version:    "1.0.0",
+	}, time.Second)
+
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected an error from a chart download that never completes")
+	}
+
+	if elapsed > 10*time.Second {
+		t.Fatalf("Render took %s against a stalled chart repository; its 1s timeout must bound the download", elapsed)
+	}
+}
+
+// TestFetchChart_StalledOCIRegistryIsBounded covers the OCI half: an OCI pull
+// goes through helm's registry client, which has no HTTP timeout at all
+// (ChartRepoRequestTimeout bounds only HTTP repositories), so only
+// fetchChart's own timeout stops a registry that accepts the connection and
+// then never answers.
+func TestFetchChart_StalledOCIRegistryIsBounded(t *testing.T) {
+	isolateHome(t)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	var (
+		mu    sync.Mutex
+		conns []net.Conn
+	)
+
+	t.Cleanup(func() {
+		_ = ln.Close()
+
+		mu.Lock()
+		defer mu.Unlock()
+
+		for _, conn := range conns {
+			_ = conn.Close()
+		}
+	})
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+
+			mu.Lock()
+			conns = append(conns, conn)
+			mu.Unlock()
+		}
+	}()
+
+	opDir := t.TempDir()
+
+	registryConfig, err := writeRegistryConfig(opDir, []RegistryAuth{{URL: "registry.invalid", Username: "test", Password: "test"}})
+	if err != nil {
+		t.Fatalf("writeRegistryConfig: %v", err)
+	}
+
+	ref := "oci://" + ln.Addr().String() + "/charts/app"
+
+	start := time.Now()
+
+	_, err = fetchChart(context.Background(), opDir, ref, "1.0.0", chartRepoOptions(ReleaseSpec{}, time.Minute), registryConfig, time.Second)
+
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected an error from an OCI pull that never completes")
+	}
+
+	if elapsed > 10*time.Second {
+		t.Fatalf("fetchChart took %s against a stalled OCI registry; its 1s timeout must bound the pull", elapsed)
+	}
+}
+
+// TestFetchChart_HelmPanicIsAnError checks a panic in helm's download code
+// comes back as an error instead of crashing the process: fetchChart runs the
+// download on its own goroutine, where nothing else would recover it. nelm
+// v1.26.2's registry client nil-derefs on a plain-HTTP OCI pull (its
+// ClientOptPlainHTTP assumes a custom HTTP client), which makes a real one;
+// if nelm fixes that, the pull just fails to connect and this still holds.
+func TestFetchChart_HelmPanicIsAnError(t *testing.T) {
+	isolateHome(t)
+
+	opDir := t.TempDir()
+
+	registryConfig, err := writeRegistryConfig(opDir, []RegistryAuth{{URL: "registry.invalid", Username: "test", Password: "test"}})
+	if err != nil {
+		t.Fatalf("writeRegistryConfig: %v", err)
+	}
+
+	repo := chartRepoOptions(ReleaseSpec{}, time.Minute)
+	repo.ChartRepoInsecure = true
+
+	_, err = fetchChart(context.Background(), opDir, "oci://127.0.0.1:1/charts/app", "1.0.0", repo, registryConfig, 10*time.Second)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+
+	t.Logf("fetchChart: %v", err)
+}
+
+func TestChartRepoOptions_RequestTimeout(t *testing.T) {
+	cases := map[time.Duration]time.Duration{
+		0:                maxChartRepoRequestTimeout,
+		30 * time.Second: 30 * time.Second,
+		10 * time.Minute: maxChartRepoRequestTimeout,
+	}
+
+	for op, want := range cases {
+		if got := chartRepoOptions(ReleaseSpec{}, op).ChartRepoRequestTimeout; got != want {
+			t.Errorf("chartRepoOptions(timeout=%s).ChartRepoRequestTimeout = %s, want %s", op, got, want)
 		}
 	}
 }

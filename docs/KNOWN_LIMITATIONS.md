@@ -109,7 +109,11 @@ chart-managed fields from live ones.
   joining the worker; the provider then removes the per-operation temp dir. A
   genuinely stuck worker could briefly outlive cleanup (the provider's log
   capture buffer is mutex-guarded, so this is not a data race on our side).
-  Set generous `timeouts` for very large releases. Upstream in nelm.
+  Set generous `timeouts` for very large releases. Upstream in nelm. The
+  same goes for a remote chart download cut off by its timeout: Helm's
+  download code takes no context, so the abandoned download keeps running
+  in the background — for an OCI pull, whose registry client has no HTTP
+  timeout, until the registry answers or drops the connection.
 
 - **A killed or crashed provider leaves its 0700 temp root behind.** Each
   provider process removes its `tf-nelm-*` temp root when Terraform shuts
