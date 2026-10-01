@@ -72,8 +72,11 @@ func captureCtx(ctx context.Context) (context.Context, *syncBuffer) {
 }
 
 // tailErr folds buf's captured nelm output into err's message, if any was
-// captured, so operators get actionable diagnostics without nelm ever
-// writing to the real process stdout/stderr.
+// captured, so operators get actionable diagnostics without nelm's log
+// output ever reaching the real process stdout/stderr. The capture covers
+// nelm's logger only: anything nelm writes to os.Stdout directly (ChartRender's
+// manifest printout, see render.go) bypasses it and must be redirected at the
+// call site.
 func tailErr(err error, buf *syncBuffer) error {
 	if err == nil {
 		return nil

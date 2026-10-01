@@ -74,6 +74,11 @@ the old shape.
   encrypted plan artifacts would otherwise require).
 - Every Nelm action call passes its own per-operation `TempDirPath` (a fresh
   0700 subdirectory under `nelmclient.TempRoot()`) and `OutputNoPrint: true`
-  discipline. Plan artifacts are read and then deleted in the same function
-  call frame that created them — they contain cleartext Secret data and must
-  never outlive the call that produced them.
+  discipline. `OutputNoPrint` alone is NOT enough for `action.ChartRender`:
+  nelm ignores it there and prints every rendered manifest (Secret data
+  included) to the process stdout — a pipe Terraform core logs — unless
+  `OutputFilePath` is set, so `ChartRender` always gets an `OutputFilePath`
+  inside its per-operation directory. Plan artifacts and render output are
+  written and deleted in the same function call frame that created them —
+  they contain cleartext Secret data and must never outlive the call that
+  produced them.
