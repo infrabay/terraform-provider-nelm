@@ -1,7 +1,8 @@
 package provider
 
-// Offline unit tests for nelmProvider.Configure (review findings F04, F27):
-// which cluster a provider configuration targets and how it fails closed. The
+// Offline unit tests for nelmProvider.Configure (review findings F04, F14,
+// F27): which cluster a provider configuration targets, how it fails closed,
+// and what resources get while the configuration is still Unknown. The
 // "clusters" are local httptest servers; HOME, KUBECACHEDIR and every
 // kubeconfig env var are pinned per test, so neither the real ~/.kube/config
 // nor its current-context is ever read.
@@ -24,6 +25,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -221,7 +223,8 @@ func configure(t *testing.T, attrs map[string]tftypes.Value, caps provider.Confi
 	return resp
 }
 
-// configuredClient asserts Configure succeeded and returns its client.
+// configuredClient asserts Configure succeeded with a real (non-placeholder)
+// client and returns it.
 func configuredClient(t *testing.T, resp provider.ConfigureResponse) *nelmclient.Client {
 	t.Helper()
 
@@ -232,6 +235,10 @@ func configuredClient(t *testing.T, resp provider.ConfigureResponse) *nelmclient
 	c, ok := resp.ResourceData.(*nelmclient.Client)
 	if !ok {
 		t.Fatalf("ResourceData = %T, want *nelmclient.Client", resp.ResourceData)
+	}
+
+	if c.ConfigUnknown() {
+		t.Fatal("ResourceData is the unknown-config placeholder, want a configured client")
 	}
 
 	return c
@@ -572,6 +579,150 @@ func TestConfigure_TargetsConfiguredCluster(t *testing.T) {
 				t.Fatalf("staging never saw bearer token %q", tt.token)
 			}
 		})
+	}
+}
+
+// --- F14: an Unknown configuration defers instead of failing the plan --------
+
+func TestConfigure_UnknownConfig_ReturnsPlaceholder(t *testing.T) {
+	unknownString := tftypes.NewValue(tftypes.String, tftypes.UnknownValue)
+
+	registryType := tftypes.Object{AttributeTypes: map[string]tftypes.Type{
+		"url": tftypes.String, "username": tftypes.String, "password": tftypes.String,
+	}}
+
+	tests := []struct {
+		name  string
+		attrs map[string]tftypes.Value
+	}{
+		{
+			// The GKE cluster is created in the same run.
+			name: "host unknown",
+			attrs: map[string]tftypes.Value{
+				"host":                   unknownString,
+				"token":                  str("t"),
+				"cluster_ca_certificate": unknownString,
+			},
+		},
+		{
+			name:  "kube_config_paths element unknown",
+			attrs: map[string]tftypes.Value{"kube_config_paths": tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{unknownString})},
+		},
+		{
+			name: "registries password unknown",
+			attrs: map[string]tftypes.Value{
+				"kube_context": str("ctx"),
+				"registries": tftypes.NewValue(tftypes.List{ElementType: registryType}, []tftypes.Value{
+					tftypes.NewValue(registryType, map[string]tftypes.Value{
+						"url": str("oci://example.invalid"), "username": str("u"), "password": unknownString,
+					}),
+				}),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		for _, deferral := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/deferral_allowed=%t", tt.name, deferral), func(t *testing.T) {
+				// No kubeconfig and no env at all: resolving the connection
+				// now would fail, so success proves it is not attempted.
+				isolateKubeEnv(t)
+
+				resp := configure(t, tt.attrs, provider.ConfigureProviderClientCapabilities{DeferralAllowed: deferral})
+
+				if resp.Diagnostics.HasError() {
+					t.Fatalf("Configure: unexpected error diagnostics: %v", resp.Diagnostics)
+				}
+
+				c, ok := resp.ResourceData.(*nelmclient.Client)
+				if !ok || !c.ConfigUnknown() {
+					t.Fatalf("ResourceData = %#v, want the unknown-config placeholder client", resp.ResourceData)
+				}
+
+				// The framework rejects a Deferred response the client did
+				// not announce support for.
+				switch {
+				case deferral && (resp.Deferred == nil || resp.Deferred.Reason != provider.DeferredReasonProviderConfigUnknown):
+					t.Fatalf("Deferred = %v, want reason ProviderConfigUnknown", resp.Deferred)
+				case !deferral && resp.Deferred != nil:
+					t.Fatalf("Deferred = %v, want nil when the client does not allow deferral", resp.Deferred)
+				}
+			})
+		}
+	}
+}
+
+// TestModifyPlan_UnknownProviderConfig covers the resource side of F14: a NEW
+// release degrades to an Unknown diff with a warning (apply computes it with
+// the real configuration), while a release already in state cannot be
+// planned without its cluster and fails with nelmclient.ErrConfigUnknown.
+func TestModifyPlan_UnknownProviderConfig(t *testing.T) {
+	ctx := context.Background()
+	plan := buildPlan(t, ctx, baseTestReleaseModel())
+	r := &releaseResource{client: nelmclient.NewUnknownConfigClient()}
+
+	t.Run("create degrades with a warning", func(t *testing.T) {
+		req := resource.ModifyPlanRequest{
+			Plan:  plan,
+			State: tfsdk.State{Raw: tftypes.NewValue(plan.Raw.Type(), nil), Schema: plan.Schema},
+		}
+		resp := &resource.ModifyPlanResponse{Plan: plan}
+
+		r.ModifyPlan(ctx, req, resp)
+
+		if resp.Diagnostics.HasError() {
+			t.Fatalf("unexpected error diagnostics: %v", resp.Diagnostics)
+		}
+
+		if w := resp.Diagnostics.Warnings(); len(w) != 1 || w[0].Summary() != "Provider configuration not known at plan time" {
+			t.Fatalf("warnings = %v, want one \"Provider configuration not known at plan time\"", w)
+		}
+
+		var resources types.Map
+		assertUnknownAttr(t, ctx, resp.Plan, "resources", &resources)
+
+		var status types.String
+		assertUnknownAttr(t, ctx, resp.Plan, "status", &status)
+
+		var revision types.Int64
+		assertUnknownAttr(t, ctx, resp.Plan, "revision", &revision)
+
+		var metadata types.Object
+		assertUnknownAttr(t, ctx, resp.Plan, "metadata", &metadata)
+	})
+
+	t.Run("existing release is a hard error", func(t *testing.T) {
+		req := resource.ModifyPlanRequest{Plan: plan, State: tfsdk.State(plan)}
+		resp := &resource.ModifyPlanResponse{Plan: plan}
+
+		r.ModifyPlan(ctx, req, resp)
+
+		requireError(t, resp.Diagnostics, "nelm_release plan failed", nil)
+
+		if !strings.Contains(resp.Diagnostics.Errors()[0].Detail(), nelmclient.ErrConfigUnknown.Error()) {
+			t.Fatalf("error detail = %q, want it to explain the unknown provider configuration", resp.Diagnostics.Errors()[0].Detail())
+		}
+	})
+}
+
+// TestRead_UnknownProviderConfig_KeepsState: refreshing an existing release
+// while the provider configuration is Unknown must fail, never drop the
+// release from state (helm_release's behavior on an unreachable cluster) and
+// never read some other cluster.
+func TestRead_UnknownProviderConfig_KeepsState(t *testing.T) {
+	ctx := context.Background()
+	plan := buildPlan(t, ctx, baseTestReleaseModel())
+	state := tfsdk.State(plan)
+
+	r := &releaseResource{client: nelmclient.NewUnknownConfigClient()}
+	resp := &resource.ReadResponse{State: state}
+
+	r.Read(ctx, resource.ReadRequest{State: state}, resp)
+
+	requireError(t, resp.Diagnostics, "Failed to read nelm release", nil)
+
+	if resp.State.Raw.IsNull() {
+		t.Fatal("Read removed the release from state")
 	}
 }
 

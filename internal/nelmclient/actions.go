@@ -145,6 +145,10 @@ func runtimeOptions(spec ReleaseSpec) common.ReleaseInstallRuntimeOptions {
 // artifact and its directory before returning, and surfaces the resulting
 // []*plan.ResourceChange as a PlanResult.
 func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Duration) (*PlanResult, error) {
+	if c.configUnknown {
+		return nil, ErrConfigUnknown
+	}
+
 	opDir, cleanup, err := newOpDir("nelm-plan-")
 	if err != nil {
 		return nil, err
@@ -206,6 +210,10 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 // PlanArtifactPath (design §2.3: Create/Update always use a fresh install,
 // never artifact replay).
 func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Duration) error {
+	if c.configUnknown {
+		return ErrConfigUnknown
+	}
+
 	opDir, cleanup, err := newOpDir("nelm-install-")
 	if err != nil {
 		return err
@@ -258,6 +266,10 @@ func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Dur
 // Uninstall runs action.ReleaseUninstall for the given release. Idempotent:
 // a missing release/namespace is not an error (nelm behavior).
 func (c *Client) Uninstall(ctx context.Context, name, namespace, storageDriver string, timeout time.Duration) error {
+	if c.configUnknown {
+		return ErrConfigUnknown
+	}
+
 	opDir, cleanup, err := newOpDir("nelm-uninstall-")
 	if err != nil {
 		return err
@@ -293,6 +305,10 @@ func (c *Client) Uninstall(ctx context.Context, name, namespace, storageDriver s
 // given release and maps the result onto ReleaseInfo. A not-found release
 // surfaces as an error satisfying IsReleaseNotFound (errors.go).
 func (c *Client) Get(ctx context.Context, name, namespace, storageDriver string, timeout time.Duration) (*ReleaseInfo, error) {
+	if c.configUnknown {
+		return nil, ErrConfigUnknown
+	}
+
 	opDir, cleanup, err := newOpDir("nelm-get-")
 	if err != nil {
 		return nil, err

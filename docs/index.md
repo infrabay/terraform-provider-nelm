@@ -137,15 +137,6 @@ from a data source it is refreshed on every `plan`/`apply`.
   credential helper that Nelm's OCI client cannot use (see the GKE example
   above).
 
-None of these attributes may depend on values that are only known after
-apply (e.g. an attribute of another resource created in the same run): the
-provider hard-errors on `Configure` if any of them is Unknown. Data sources
-such as `google_client_config` / `google_container_cluster` are read during
-plan, so using their attributes here is fine. This is a documented v1
-limitation — deferred provider configuration is experimental in the
-underlying plugin framework version this provider uses, and this provider
-does not build on it.
-
 Kubernetes authentication can come either from a kubeconfig
 (`kube_config_paths` / `kube_config_base64` / `kube_context` — client
 certificates and exec-based auth plugins such as cloud-provider token helpers
@@ -198,6 +189,29 @@ implicitly either; inside a pod, pass `host`, `token` and
 > pointed at (possibly production), and a refresh there drops every release
 > it does not find from state. Such configurations now fail at `Configure`;
 > name the cluster explicitly as above.
+
+### Provider configuration known only at apply
+
+The provider configuration may depend on values that are only known after
+apply, e.g. `host` from a `google_container_cluster` resource created in the
+same run, or a cluster data source that is read during apply because it has a
+`depends_on` (resource- or module-level) on something with pending changes.
+In that case:
+
+- a **new** `nelm_release` plans with a warning ("Provider configuration not
+  known at plan time") and an Unknown diff (`resources`, `status`,
+  `revision`, `metadata`); Terraform configures the provider with the real
+  values at apply, and the release is installed there;
+- a release **already in state** cannot be refreshed or planned without its
+  cluster, so the plan fails with an error explaining this. Apply the
+  cluster change first (`terraform apply -target=...`), or — HashiCorp's own
+  recommendation — keep the cluster and the releases on it in separate root
+  modules.
+
+The provider never contacts any cluster while its configuration is unknown.
+Data sources whose inputs are known and that have no such `depends_on` (e.g.
+`google_client_config`, or `google_container_cluster` looked up by a known
+name) are read during plan and are not affected.
 
 ## Local development: `dev_overrides`
 

@@ -245,6 +245,11 @@ correctly:
   unknown inputs (e.g. `chart` computed from another resource not yet
   applied), the same Unknown degradation applies — the provider never
   guesses at a diff it can't actually compute.
+- The same Unknown degradation (with a warning) applies to a **new**
+  release while the provider configuration itself is not yet known (e.g.
+  `host` comes from a cluster created in the same run); a release already
+  in state fails to plan in that case instead. See the provider docs'
+  [Provider configuration known only at apply](../index.md#provider-configuration-known-only-at-apply).
 
 ## Caveats and Notes
 

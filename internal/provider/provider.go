@@ -182,10 +182,14 @@ func (p *nelmProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp 
 // resulting *nelmclient.Client as ResourceData for every nelm_release
 // resource instance.
 //
-// Documented v1 limitation: any Unknown provider-config value (e.g. derived
-// from an unapplied resource/data source) is a hard error. Framework v1.19.0
-// deferred-provider-configuration support is explicitly experimental; this
-// provider does not build on it.
+// A configuration that is not fully known at plan time (e.g. host taken from
+// a GKE cluster created in the same run) is not an error: Terraform
+// configures the provider again with the real values at apply. Until then
+// resources get the nelmclient.NewUnknownConfigClient placeholder, which
+// never reaches a cluster: ModifyPlan defers a new release's diff to apply,
+// and anything that needs an existing release's cluster fails with
+// nelmclient.ErrConfigUnknown. A client that supports deferred actions gets
+// resp.Deferred instead, and the framework then defers every resource.
 func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var model providerModel
 
@@ -194,25 +198,19 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 		return
 	}
 
-	if model.KubeConfigPaths.IsUnknown() ||
-		model.KubeConfigBase64.IsUnknown() ||
-		model.KubeContext.IsUnknown() ||
-		model.KubeQPS.IsUnknown() ||
-		model.KubeBurst.IsUnknown() ||
-		model.KubeRequestTimeout.IsUnknown() ||
-		model.Host.IsUnknown() ||
-		model.Token.IsUnknown() ||
-		model.ClusterCACertificate.IsUnknown() ||
-		model.Insecure.IsUnknown() ||
-		model.TLSServerName.IsUnknown() ||
-		model.Registries.IsUnknown() {
-		resp.Diagnostics.AddError(
-			"Unknown Provider Configuration Value",
-			"The nelm provider configuration depends on values that are not known until apply. "+
-				"This is a documented limitation in v1: provider configuration must not depend on "+
-				"unapplied resource or data source attributes. (Data sources such as "+
-				"google_client_config are read during plan and are fine.)",
-		)
+	if !req.Config.Raw.IsFullyKnown() {
+		// The framework rejects a Deferred response from a client that did not
+		// announce deferral support (stable Terraform never does), so it is
+		// gated; the placeholder client is returned either way.
+		if req.ClientCapabilities.DeferralAllowed {
+			resp.Deferred = &provider.Deferred{Reason: provider.DeferredReasonProviderConfigUnknown}
+		}
+
+		client := nelmclient.NewUnknownConfigClient()
+
+		resp.ResourceData = client
+		resp.DataSourceData = client
+
 		return
 	}
 
@@ -315,16 +313,7 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 			return
 		}
 
-		for i, r := range regs {
-			if r.URL.IsUnknown() || r.Username.IsUnknown() || r.Password.IsUnknown() {
-				resp.Diagnostics.AddAttributeError(
-					path.Root("registries").AtListIndex(i),
-					"Unknown Registry Credential",
-					"registries[*].url/username/password must be known at plan time.",
-				)
-				return
-			}
-
+		for _, r := range regs {
 			cfg.Registries = append(cfg.Registries, nelmclient.RegistryAuth{
 				URL:      r.URL.ValueString(),
 				Username: r.Username.ValueString(),

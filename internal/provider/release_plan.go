@@ -263,6 +263,24 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 		return
 	}
 
+	// 1b. PROVIDER CONFIGURATION UNKNOWN (e.g. the cluster itself is created
+	// in this run; see nelmProvider.Configure): there is no cluster to plan a
+	// NEW release against yet. Degrade like step 5a; apply configures the
+	// provider with the real values and computes the actual diff. A release
+	// already in state falls through and fails on Client.Plan's
+	// nelmclient.ErrConfigUnknown.
+	if r.client.ConfigUnknown() && req.State.Raw.IsNull() {
+		degradeDiffToUnknown(ctx, resp)
+		resp.Diagnostics.AddWarning(
+			"Provider configuration not known at plan time",
+			"The nelm provider configuration depends on values that are only known after apply (for "+
+				"example a cluster created in this run), so this new nelm_release's diff will be computed "+
+				"at apply instead.",
+		)
+
+		return
+	}
+
 	// 2. UNKNOWN INPUTS: never guess. This MUST run before any
 	// req.Plan.Get(ctx, &releaseModel{}) — see planHasUnknownInputs' doc.
 	unknown, diags := planHasUnknownInputs(ctx, req.Plan)
