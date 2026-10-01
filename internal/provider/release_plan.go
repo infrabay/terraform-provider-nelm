@@ -31,10 +31,11 @@ var metadataAttrTypes = map[string]attr.Type{
 // unknownCheckStringPaths/unknownCheckBoolPaths are the top-level scalar
 // config attributes design §2.2 step 2 says must never be guessed at: if any
 // is Unknown, the whole diff surface degrades to Unknown rather than being
-// computed against a guessed value. release_history_limit and auto_rollback
-// are deliberately excluded: toReleaseSpec already treats an unknown/null
-// history limit as "omit" (release_model.go), and auto_rollback has no
-// effect on Client.Plan's inputs at all (it is an Install-only option).
+// computed against a guessed value. release_history_limit, auto_rollback and
+// wait are deliberately excluded: toReleaseSpec already treats an
+// unknown/null history limit as "omit" (release_model.go), and auto_rollback
+// and wait have no effect on Client.Plan's inputs at all (they are
+// Install-only options).
 var (
 	unknownCheckStringPaths = []string{"chart", "repository", "version", "name", "namespace", "release_storage_driver"}
 	unknownCheckBoolPaths   = []string{"force_adoption", "no_remove_manual_changes", "no_install_crds"}
@@ -198,14 +199,16 @@ func releaseWillReinstall(plan, priorState releaseModel, planned, prior map[stri
 		// Other install-affecting options: a change to any of these triggers
 		// an Update whose Install may bump the revision for a reason the
 		// rendered-resources map does not capture (a different storage driver,
-		// adoption/CRD/manual-change handling, rollback behavior, history
-		// pruning). Including them keeps this a strict superset of "Install
-		// bumps the revision", so status/revision are never left stale KNOWN.
+		// adoption/CRD/manual-change handling, rollback and readiness-wait
+		// behavior, history pruning). Including them keeps this a strict
+		// superset of "Install bumps the revision", so status/revision are
+		// never left stale KNOWN.
 		!plan.ReleaseStorageDriver.Equal(priorState.ReleaseStorageDriver) ||
 		!plan.ForceAdoption.Equal(priorState.ForceAdoption) ||
 		!plan.NoRemoveManualChanges.Equal(priorState.NoRemoveManualChanges) ||
 		!plan.NoInstallCRDs.Equal(priorState.NoInstallCRDs) ||
 		!plan.AutoRollback.Equal(priorState.AutoRollback) ||
+		!plan.Wait.Equal(priorState.Wait) ||
 		!plan.ReleaseHistoryLimit.Equal(priorState.ReleaseHistoryLimit) ||
 		// timeouts is the one remaining in-place-updatable attribute: its edit
 		// makes Terraform call Update, and nelm's Install can bump the

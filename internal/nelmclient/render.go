@@ -30,7 +30,7 @@ func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Dura
 	}
 	defer cleanup()
 
-	chartRef, err := NormalizeChartRef(spec.Chart, spec.Repository)
+	chartRef, repoURL, err := NormalizeChartRef(spec.Chart, spec.Repository)
 	if err != nil {
 		return nil, fmt.Errorf("normalize chart reference: %w", err)
 	}
@@ -55,7 +55,7 @@ func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Dura
 
 	opts := action.ChartRenderOptions{
 		ChartRepoConnectionOptions: common.ChartRepoConnectionOptions{
-			ChartRepoURL: spec.Repository,
+			ChartRepoURL: repoURL,
 		},
 		KubeConnectionOptions: c.toKubeConnectionOptions(),
 		ValuesOptions:         valuesOpts,

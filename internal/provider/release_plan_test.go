@@ -41,6 +41,7 @@ func baseTestReleaseModel() releaseModel {
 		Set:                   nil,
 		SetSensitive:          nil,
 		AutoRollback:          types.BoolValue(false),
+		Wait:                  types.BoolValue(true),
 		ForceAdoption:         types.BoolValue(false),
 		NoRemoveManualChanges: types.BoolValue(false),
 		NoInstallCRDs:         types.BoolValue(false),
@@ -450,6 +451,14 @@ func TestReleaseWillReinstall(t *testing.T) {
 		{
 			name:       "flag change with no resource change",
 			mutatePlan: func(m *releaseModel) { m.NoInstallCRDs = types.BoolValue(true) },
+			planned:    sameMap, prior: sameMap,
+			want: true,
+		},
+		{
+			// wait is Install-only (no manifest change) but still makes
+			// Terraform call Update, whose Install can bump the revision.
+			name:       "wait change with no resource change",
+			mutatePlan: func(m *releaseModel) { m.Wait = types.BoolValue(false) },
 			planned:    sameMap, prior: sameMap,
 			want: true,
 		},

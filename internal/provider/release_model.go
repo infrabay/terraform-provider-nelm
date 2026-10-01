@@ -52,6 +52,7 @@ type releaseModel struct {
 	Set                   []setModel     `tfsdk:"set"`
 	SetSensitive          []setModel     `tfsdk:"set_sensitive"`
 	AutoRollback          types.Bool     `tfsdk:"auto_rollback"`
+	Wait                  types.Bool     `tfsdk:"wait"`
 	ForceAdoption         types.Bool     `tfsdk:"force_adoption"`
 	NoRemoveManualChanges types.Bool     `tfsdk:"no_remove_manual_changes"`
 	NoInstallCRDs         types.Bool     `tfsdk:"no_install_crds"`
@@ -77,8 +78,9 @@ type releaseModel struct {
 // and T-rescrud (Create/Update): both build the spec through this one helper so
 // plan-time and apply-time produce byte-identical inputs to nelm (required by
 // the ModifyPlan consistency rule). The chart reference is normalized here
-// (local refs -> absolute; remote refs pass through) so every call path applies
-// the rule identically. Callers MUST first ensure the config attributes this
+// (local refs -> absolute; an oci:// repository is folded into the chart ref;
+// other remote refs pass through) so every call path applies the rule
+// identically. Callers MUST first ensure the config attributes this
 // reads are known (not Unknown) — ModifyPlan degrades to Unknown before calling
 // this (design §2.2 step 2).
 func (m releaseModel) toReleaseSpec(ctx context.Context) (nelmclient.ReleaseSpec, diag.Diagnostics) {
@@ -87,24 +89,28 @@ func (m releaseModel) toReleaseSpec(ctx context.Context) (nelmclient.ReleaseSpec
 	spec := nelmclient.ReleaseSpec{
 		Name:                  m.Name.ValueString(),
 		Namespace:             m.Namespace.ValueString(),
-		Repository:            m.Repository.ValueString(),
 		Version:               m.Version.ValueString(),
 		StorageDriver:         m.ReleaseStorageDriver.ValueString(),
 		ForceAdoption:         m.ForceAdoption.ValueBool(),
 		NoRemoveManualChanges: m.NoRemoveManualChanges.ValueBool(),
 		NoInstallCRDs:         m.NoInstallCRDs.ValueBool(),
 		AutoRollback:          m.AutoRollback.ValueBool(),
+		// Only an explicit wait = false skips final tracking. A null/unknown
+		// wait (never seen at apply, where the schema default fills it in)
+		// keeps nelm's default of waiting rather than ValueBool()'s false.
+		NoFinalTracking: m.Wait.Equal(types.BoolValue(false)),
 	}
 
 	if !m.ReleaseHistoryLimit.IsNull() && !m.ReleaseHistoryLimit.IsUnknown() {
 		spec.HistoryLimit = int(m.ReleaseHistoryLimit.ValueInt64())
 	}
 
-	chart, err := nelmclient.NormalizeChartRef(m.Chart.ValueString(), m.Repository.ValueString())
+	chart, repoURL, err := nelmclient.NormalizeChartRef(m.Chart.ValueString(), m.Repository.ValueString())
 	if err != nil {
 		diags.AddAttributeError(path.Root("chart"), "Invalid chart reference", err.Error())
 	}
 	spec.Chart = chart
+	spec.Repository = repoURL
 
 	if !m.Values.IsNull() && !m.Values.IsUnknown() {
 		var vals []string

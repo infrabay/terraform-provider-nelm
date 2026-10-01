@@ -139,6 +139,22 @@ func runtimeOptions(spec ReleaseSpec) common.ReleaseInstallRuntimeOptions {
 	}
 }
 
+// installTrackingOptions maps the ReleaseSpec onto Install's
+// common.TrackingOptions. NoFinalTracking (wait = false) makes nelm squash
+// every readiness-tracking operation that no later resource operation in the
+// deploy plan depends on (pkg/plan squashFinalTrackingOperations). It is NOT
+// a blanket "track nothing": pre-install/pre-upgrade hooks, earlier weight
+// groups, werf.io/deploy-dependency state=ready targets, every resource ahead
+// of a post-install/post-upgrade hook, and a hook with a hook-succeeded
+// delete policy are still awaited (actions_test.go pins this against nelm's
+// plan builder).
+func installTrackingOptions(spec ReleaseSpec) common.TrackingOptions {
+	return common.TrackingOptions{
+		NoFinalTracking:      spec.NoFinalTracking,
+		NoProgressTablePrint: true,
+	}
+}
+
 // Plan runs Nelm's release-install planning machinery
 // (action.ReleasePlanInstall) against a per-op temp dir and plan-artifact
 // path, reads the artifact back (plan.ReadPlanArtifact), deletes the
@@ -151,7 +167,7 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 	}
 	defer cleanup()
 
-	chartRef, err := NormalizeChartRef(spec.Chart, spec.Repository)
+	chartRef, repoURL, err := NormalizeChartRef(spec.Chart, spec.Repository)
 	if err != nil {
 		return nil, fmt.Errorf("normalize chart reference: %w", err)
 	}
@@ -172,7 +188,7 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 
 	opts := action.ReleasePlanInstallOptions{
 		ChartRepoConnectionOptions: common.ChartRepoConnectionOptions{
-			ChartRepoURL: spec.Repository,
+			ChartRepoURL: repoURL,
 		},
 		KubeConnectionOptions:        c.toKubeConnectionOptions(),
 		ReleaseInstallRuntimeOptions: runtimeOptions(spec),
@@ -212,7 +228,7 @@ func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Dur
 	}
 	defer cleanup()
 
-	chartRef, err := NormalizeChartRef(spec.Chart, spec.Repository)
+	chartRef, repoURL, err := NormalizeChartRef(spec.Chart, spec.Repository)
 	if err != nil {
 		return fmt.Errorf("normalize chart reference: %w", err)
 	}
@@ -231,14 +247,12 @@ func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Dur
 
 	opts := action.ReleaseInstallOptions{
 		ChartRepoConnectionOptions: common.ChartRepoConnectionOptions{
-			ChartRepoURL: spec.Repository,
+			ChartRepoURL: repoURL,
 		},
 		KubeConnectionOptions:        c.toKubeConnectionOptions(),
 		ReleaseInstallRuntimeOptions: runtimeOptions(spec),
-		TrackingOptions: common.TrackingOptions{
-			NoProgressTablePrint: true,
-		},
-		ValuesOptions: valuesOpts,
+		TrackingOptions:              installTrackingOptions(spec),
+		ValuesOptions:                valuesOpts,
 
 		AutoRollback:            spec.AutoRollback,
 		Chart:                   chartRef,

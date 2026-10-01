@@ -1,9 +1,17 @@
 package provider
 
 import (
+	"context"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/defaults"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
 	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
 )
@@ -257,5 +265,70 @@ func TestApplyReleaseInfo_IDDerivedFromReleaseInfoNamespace(t *testing.T) {
 
 	if got, want := model.ID.ValueString(), "kube-system/my-release"; got != want {
 		t.Errorf("ID = %q, want %q", got, want)
+	}
+}
+
+// --- ImportState ---------------------------------------------------------
+
+// TestImportState_SeedsEverySchemaDefault guards ImportState's "force every
+// defaulted flag to its schema default" rule: the framework does not apply
+// schema defaults on import, so an attribute ImportState forgets (as `wait`
+// would have been) stays null in state, and the first post-import plan shows
+// a spurious `null -> default` update plus an ImportStateVerify mismatch. It
+// walks the schema rather than listing attributes so a future defaulted
+// attribute cannot be missed. The import ID uses the "default" namespace so
+// namespace's own default is checked by the same loop.
+func TestImportState_SeedsEverySchemaDefault(t *testing.T) {
+	ctx := context.Background()
+
+	sch := releaseResourceSchema(ctx)
+	resp := &resource.ImportStateResponse{
+		State: tfsdk.State{Schema: sch, Raw: tftypes.NewValue(sch.Type().TerraformType(ctx), nil)},
+	}
+
+	(&releaseResource{}).ImportState(ctx, resource.ImportStateRequest{ID: "default/my-release"}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("ImportState: unexpected diagnostics: %v", resp.Diagnostics)
+	}
+
+	for name, a := range sch.Attributes {
+		var want, got attr.Value
+
+		switch a := a.(type) {
+		case schema.BoolAttribute:
+			if a.Default == nil {
+				continue
+			}
+
+			var dr defaults.BoolResponse
+			a.Default.DefaultBool(ctx, defaults.BoolRequest{}, &dr)
+			want = dr.PlanValue
+
+			var v types.Bool
+			resp.Diagnostics.Append(resp.State.GetAttribute(ctx, path.Root(name), &v)...)
+			got = v
+		case schema.StringAttribute:
+			if a.Default == nil {
+				continue
+			}
+
+			var dr defaults.StringResponse
+			a.Default.DefaultString(ctx, defaults.StringRequest{}, &dr)
+			want = dr.PlanValue
+
+			var v types.String
+			resp.Diagnostics.Append(resp.State.GetAttribute(ctx, path.Root(name), &v)...)
+			got = v
+		default:
+			continue
+		}
+
+		if resp.Diagnostics.HasError() {
+			t.Fatalf("read imported %q: %v", name, resp.Diagnostics)
+		}
+
+		if !got.Equal(want) {
+			t.Errorf("imported %q = %s, want its schema default %s", name, got, want)
+		}
 	}
 }

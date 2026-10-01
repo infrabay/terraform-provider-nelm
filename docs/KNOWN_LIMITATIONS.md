@@ -4,7 +4,9 @@ This is a young (v0.x) provider. The items below are known, mostly narrow,
 correctness/UX limitations surfaced by five rounds of adversarial code review
 (three model families plus two independent CLI-agent passes). Each notes the
 impact and the intended direction for v1.0. Everything the reviews rated
-higher-severity has been fixed in code. Most notably, the planned side of the
+higher-severity has been fixed in code, except the `auto_rollback`-on-timeout
+gap (see "Readiness tracking" below), which is documented until the
+provider-side rollback lands. Most notably, the planned side of the
 `resources` diff for *updated* resources is now taken from the chart's own
 client render (`nelm`'s chart-render machinery) rather than reconstructed
 from the server's dry-run merge — after review demonstrated that no heuristic
@@ -78,6 +80,62 @@ chart-managed fields from live ones.
   readiness-tracked** (nelm 1.26.2+), even when unchanged, so a release whose
   dependency target is unhealthy fails its apply even if nothing about that
   target changed. Charts without werf.io annotations are unaffected.
+
+## Readiness tracking and `helm_release` parity
+
+Details and workarounds for all of these are in the resource docs
+(`docs/resources/release.md`, "Readiness tracking and `wait`" and
+"`auto_rollback` vs `helm_release`'s `atomic`").
+
+- **`auto_rollback` does not roll back when `timeouts` expires.** It only
+  acts on failures nelm detects inside the `timeouts.create`/`update`
+  budget. Pending/unschedulable pods, init containers waiting on a
+  dependency, slow-but-progressing rollouts and long Jobs end only when the
+  budget runs out; nelm then aborts the operation and its rollback runs on
+  the expired context, so nothing is rolled back (the release stays
+  `failed`/`pending-upgrade` with the new revision live). An early-detected
+  failure's rollback also only gets the rest of the same budget. Helm's
+  `atomic` rolls back after a timeout with a fresh timeout. Planned: after a
+  timed-out install with `auto_rollback = true`, roll back to the last
+  deployed revision from the provider under its own bounded context.
+
+- **`auto_rollback` does not uninstall a failed first install.** With no
+  prior deployed revision the failed release and its resources stay in the
+  cluster and the resource is tainted; the next apply replaces it
+  (uninstall + fresh install). `atomic` uninstalls instead. An optional
+  provider-side uninstall of a failed first install (with nothing
+  persisted to state) is being considered.
+
+- **Readiness tracking is stricter than `helm_release`'s `wait = true`.**
+  nelm awaits non-hook Jobs (no failure allowed) and custom resources with
+  a kubedog status rule (`ExternalSecret`, cert-manager `Certificate`, Argo
+  CD `Application`, Flux, Prometheus Operator `Prometheus`/`Alertmanager`,
+  Kyverno, …), plus any resource whose `status.phase`/`state`/`status`/
+  `health` holds a recognized pending or failed word; Helm treats all of
+  those as ready at once. `ExternalSecret` `Ready=False` and a `Degraded`
+  Argo `Application` fail the apply immediately, and the generic tracker
+  fails a resource after 4 minutes without activity regardless of
+  `timeouts`. Conversely, a custom resource that only reports a `Ready`
+  condition is treated as ready at once. Per-resource `werf.io/*`
+  annotations (`track-termination-mode: NonBlocking`, `fail-mode`,
+  `no-activity-timeout`, `failures-allowed-per-replica`) tune it; there is
+  no per-release override besides `wait = false` yet.
+
+- **`wait = false` is not exactly `helm_release`'s `wait = false`.** It maps
+  to nelm's `NoFinalTracking`, which only drops tracking that no later
+  deploy step depends on: pre-install/pre-upgrade hooks, earlier weight
+  groups, `state=ready` dependency targets and — unlike Helm — every main
+  resource of a chart with a post-install/post-upgrade hook are still
+  awaited, while a post-install hook without a `hook-succeeded` delete
+  policy is not. Untracked resources cannot fail the apply, so
+  `auto_rollback` does not trigger for them.
+
+- **`OnDelete` StatefulSets block the apply until their pods are deleted
+  by hand.** Helm skips readiness checks for `updateStrategy: OnDelete`;
+  nelm waits until every replica runs the new revision, so a pod-template
+  change fails after `timeouts` (and every retry waits again) unless the
+  StatefulSet carries `werf.io/track-termination-mode: NonBlocking`.
+  `werf.io/fail-mode` does not help.
 
 ## Values precedence
 

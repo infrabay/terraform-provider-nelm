@@ -79,6 +79,10 @@ resource "nelm_release" "app" {
   namespace = "app-ns"
   chart     = "oci://us-central1-docker.pkg.dev/my-project/helm/app"
   version   = "0.2.0"
+
+  # helm_release's OCI form is accepted too and resolves to the same chart:
+  #   repository = "oci://us-central1-docker.pkg.dev/my-project/helm"
+  #   chart      = "app"
 }
 ```
 
