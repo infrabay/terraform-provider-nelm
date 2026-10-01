@@ -1,14 +1,13 @@
 //go:build smoke
 
-// Command secrets captures the T-fixtures secret/redaction fixtures (task
-// deliverable 3):
+// Command secrets captures the secret/redaction fixtures:
 //
 //  1. A plan artifact for testdata/charts/basic (which has a Secret) is
-//     captured with an OBVIOUSLY-FAKE secret value (never a real secret,
-//     per task instructions) and evidence is saved proving that value
+//     captured with an OBVIOUSLY-FAKE secret value (never a real secret)
+//     and evidence is saved proving that value
 //     appears in CLEARTEXT inside the artifact's `dataRaw` JSON string --
 //     this is what justifies the provider's temp-file/delete-in-same-frame
-//     policy for plan artifacts (CONTRACTS.md, design §2.1/§7 risk #7).
+//     policy for plan artifacts (CONTRACTS.md).
 //  2. The SAME plan also enables testdata/charts/basic's
 //     `configMap.sensitivePathsAnnotation` fixture-capture hook, which adds
 //     a `werf.io/sensitive-paths: "data.message"` annotation to the
@@ -16,7 +15,7 @@
 //     path-redaction against a resource that isn't sensitive-by-default.
 //  3. Both resources' raw (cleartext) plan-After objects are saved, along
 //     with what `resource.GetSensitiveInfo` + `resource.RedactSensitiveData`
-//     (the exact functions design §2.1 steps 1-3 specify) produce for each,
+//     (the redaction step of the normalization pipeline) produce for each,
 //     run directly in this program (no chart/fixture change needed to
 //     prove this -- these are pure functions of the captured object).
 //
@@ -24,15 +23,15 @@
 // nonexistent namespace/release is sufficient (same as
 // scripts/smoke/lifecycle's first-install plan) and requires no cleanup.
 //
-// PROVENANCE NOTE: like scripts/smoke/lifecycle, the plan itself is
-// produced via a nelm CLI subprocess ($NELM_SMOKE_BIN) rather than an
-// in-process pkg/action call -- see smokelib/exec.go's doc comment for why.
-// Reading/decoding the artifact and the sensitive-info/redaction calls all
-// use the real Go library in-process.
+// PROVENANCE NOTE: like scripts/smoke/lifecycle, the plan itself is produced
+// via a nelm CLI subprocess ($SMOKE_NELM_BIN) rather than an in-process
+// pkg/action call -- see smokelib/exec.go's doc comment for why.
+// Reading/decoding the artifact and the sensitive-info/redaction calls all use
+// the real Go library in-process.
 //
 // Usage:
 //
-//	NELM_SMOKE_BIN=/path/to/nelm go run -tags smoke ./scripts/smoke/secrets
+//	SMOKE_NELM_BIN=/path/to/nelm go run -tags smoke ./scripts/smoke/secrets
 package main
 
 import (
@@ -134,7 +133,7 @@ func main() {
 	smokelib.WriteFile(filepath.Join(dir, "secret_after.raw.json"), smokelib.MarshalIndent(secretAfter.Object))
 	smokelib.WriteFile(filepath.Join(dir, "configmap_after.raw.json"), smokelib.MarshalIndent(configMapAfter.Object))
 
-	// ---- 3. resource.GetSensitiveInfo + resource.RedactSensitiveData (design §2.1 steps 1-3) ----
+	// ---- 3. resource.GetSensitiveInfo + resource.RedactSensitiveData ----
 	secretInfo := resource.GetSensitiveInfo(secretAfter.GroupVersionKind().GroupKind(), secretAfter.GetAnnotations())
 	configMapInfo := resource.GetSensitiveInfo(configMapAfter.GroupVersionKind().GroupKind(), configMapAfter.GetAnnotations())
 
@@ -173,8 +172,7 @@ onto disk as the plan artifact's dataRaw field): %v
 
 Snippet from artifact.DataRaw around the fake password (proves the Secret's
 stringData is stored in PLAIN CLEARTEXT in the plan artifact, not hashed or
-redacted by nelm itself -- redaction is the CONSUMER's responsibility,
-exactly as design §2.1/§7 risk #7 states):
+redacted by nelm itself -- redaction is the CONSUMER's responsibility):
 
     ...%s...
 
@@ -188,7 +186,7 @@ persist past that call.
   (default Secret behavior, V1/HideAll -- global FeatGateFieldSensitive is
   OFF in this codebase per CONTRACTS.md, so nelm's own default for Secret
   kind is the full-skeleton HideAll, not path-specific. The PROVIDER
-  overrides this locally per design §2.1 step 2 -- see
+  overrides this locally -- see
   configmap_redacted.json below for what path-specific redaction produces,
   which is what the provider will replicate for Secrets too.)
 - ConfigMap (werf.io/sensitive-paths: "data.message" annotated) %s:
@@ -200,7 +198,7 @@ persist past that call.
 ## (3) resource.RedactSensitiveData output
 
 See secret_redacted.json (nelm's own default HideAll skeleton -- the
-provider will NOT use this shape for Secrets, see design §2.1 step 2) and
+provider will NOT use this shape for Secrets) and
 configmap_redacted.json (path-specific: data.message replaced with a
 deterministic "<hidden N sensitive bytes, hash sha256[:12]>" placeholder,
 everything else -- name, labels, other data keys if any -- untouched).

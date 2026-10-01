@@ -63,13 +63,13 @@ func cr(gvk schema.GroupVersionKind, name string) *unstructured.Unstructured {
 	return obj
 }
 
-// TestRenderScoper_ScopesUnservedKindsFromTheChartsCRDs is the F13
-// regression test: a CR whose kind the cluster does not serve yet used to be
-// keyed by a namespace GUESS, which is wrong for a cluster-scoped kind and
-// changes once the kind is served (a CRD installed by another release
-// earlier in the same apply) — an "inconsistent final plan" at apply. A CRD
-// in the chart's own render now gives the real scope; a kind nothing knows
-// is reported as unresolved so the caller degrades instead of committing the
+// TestRenderScoper_ScopesUnservedKindsFromTheChartsCRDs is the regression test
+// for unserved kinds: a CR whose kind the cluster does not serve yet used to
+// be keyed by a namespace GUESS, which is wrong for a cluster-scoped kind and
+// changes once the kind is served (a CRD installed by another release earlier
+// in the same apply) — an "inconsistent final plan" at apply. A CRD in the
+// chart's own render now gives the real scope; a kind nothing knows is
+// reported as unresolved so the caller degrades instead of committing the
 // guess.
 func TestRenderScoper_ScopesUnservedKindsFromTheChartsCRDs(t *testing.T) {
 	objs := []*unstructured.Unstructured{

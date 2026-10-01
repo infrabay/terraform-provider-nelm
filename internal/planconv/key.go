@@ -27,8 +27,8 @@ type Ref struct {
 
 // KeyScoper resolves whether a given GroupVersionKind is namespaced. It is
 // backed in production by internal/nelmclient's cached RESTMapper
-// (liveread.go, Phase B), letting planconv remain cluster-agnostic and pure
-// for unit testing against fixtures.
+// (liveread.go), letting planconv remain cluster-agnostic and pure for unit
+// testing against fixtures.
 type KeyScoper interface {
 	IsNamespaced(gvk schema.GroupVersionKind) (bool, error)
 }

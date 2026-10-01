@@ -14,9 +14,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// TestUnknownConfigClient_NeverReachesCluster is the F14 regression test for
-// the placeholder client the provider hands out while its configuration is
-// still Unknown at plan time. That client has a ZERO Config, which nelm would
+// TestUnknownConfigClient_NeverReachesCluster is the regression test for the
+// placeholder client the provider hands out while its configuration is still
+// Unknown at plan time. That client has a ZERO Config, which nelm would
 // happily resolve to ~/.kube/config's current-context — so every
 // cluster-facing method must fail with ErrConfigUnknown before nelm is ever
 // called. HOME points at a kubeconfig whose current-context is a counting fake

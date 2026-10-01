@@ -112,10 +112,9 @@ type setModel struct {
 	Type  types.String `tfsdk:"type"`
 }
 
-// releaseModel mirrors the nelm_release schema in release_schema.go.
-// tfsdk tags MUST stay in lockstep with the attribute names there; this is
-// the frozen Phase A contract every Phase B task (T-resplan, T-rescrud)
-// codes against (CONTRACTS.md).
+// releaseModel mirrors the nelm_release schema in release_schema.go. tfsdk
+// tags MUST stay in lockstep with the attribute names there; this is the
+// contract ModifyPlan and the CRUD methods code against (CONTRACTS.md).
 type releaseModel struct {
 	// Config attributes.
 	Name                  types.String   `tfsdk:"name"`
@@ -151,15 +150,14 @@ type releaseModel struct {
 }
 
 // toReleaseSpec translates the config side of releaseModel into a
-// nelmclient.ReleaseSpec. It is the SHARED seam between T-resplan (ModifyPlan)
-// and T-rescrud (Create/Update): both build the spec through this one helper so
-// plan-time and apply-time produce byte-identical inputs to nelm (required by
-// the ModifyPlan consistency rule). The chart reference is normalized here
-// (local refs -> absolute; an oci:// repository is folded into the chart ref;
-// other remote refs pass through) so every call path applies the rule
-// identically. Callers MUST first ensure the config attributes this
-// reads are known (not Unknown) — ModifyPlan degrades to Unknown before calling
-// this (design §2.2 step 2).
+// nelmclient.ReleaseSpec. It is the SHARED seam between ModifyPlan and
+// Create/Update: both build the spec through this one helper so plan-time and
+// apply-time produce byte-identical inputs to nelm (required by the ModifyPlan
+// consistency rule). The chart reference is normalized here (local refs ->
+// absolute; an oci:// repository is folded into the chart ref; other remote
+// refs pass through) so every call path applies the rule identically. Callers
+// MUST first ensure the config attributes this reads are known (not Unknown) —
+// ModifyPlan degrades to Unknown before calling this (design §2.2 step 2).
 func (m releaseModel) toReleaseSpec(ctx context.Context) (nelmclient.ReleaseSpec, diag.Diagnostics) {
 	var diags diag.Diagnostics
 

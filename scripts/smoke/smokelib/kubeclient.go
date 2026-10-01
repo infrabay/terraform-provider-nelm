@@ -29,8 +29,8 @@ func MustClientFactory(ctx context.Context, kubeConfig *kube.KubeConfig) *kube.C
 }
 
 // GetLive fetches the live object for gvk/namespace/name via the dynamic
-// client + cached RESTMapper — the same resolution path production
-// liveread.go (Phase B, T-nelmclient) will use. namespace is ignored for
+// client + cached RESTMapper — the same resolution path the provider's
+// internal/nelmclient/liveread.go uses. namespace is ignored for
 // cluster-scoped kinds.
 func GetLive(ctx context.Context, factory *kube.ClientFactory, gvk schema.GroupVersionKind, namespace, name string) (*unstructured.Unstructured, error) {
 	mapping, err := factory.Mapper().RESTMapping(gvk.GroupKind(), gvk.Version)

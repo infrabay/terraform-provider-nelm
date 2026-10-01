@@ -7,12 +7,12 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
-// TestNormalizeLiveAgainst_GenericKind is the Phase D regression test for the
-// per-kind-strip-list phantom-diff bug (finding #4). The old normalize path
-// only stripped server-side defaulting for apps/v1 Deployment and v1 Service,
-// so any other workload kind — here a StatefulSet, the finding's exact repro
-// — produced a permanent phantom diff. Projection (NormalizeLiveAgainst) fixes
-// it generically for every kind.
+// TestNormalizeLiveAgainst_GenericKind is the regression test for the
+// per-kind-strip-list phantom-diff bug. The old normalize path only stripped
+// server-side defaulting for apps/v1 Deployment and v1 Service, so any other
+// workload kind — here a StatefulSet, the original repro — produced a
+// permanent phantom diff. Projection (NormalizeLiveAgainst) fixes it
+// generically for every kind.
 //
 // The objects are hand-built (not captured-live goldens) on purpose: this
 // exercises the kind-agnostic projection mechanism, and `live` is a strict

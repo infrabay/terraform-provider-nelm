@@ -19,7 +19,7 @@ import (
 	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
 )
 
-// --- installGuardDiags (G3.1/F07 adoption guard, G5.1 pending lock) --------
+// --- installGuardDiags (adoption guard, pending lock) ------------------------
 
 func TestInstallGuardDiags(t *testing.T) {
 	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
@@ -162,10 +162,10 @@ func runUpdate(t *testing.T, client *fakeReleaseClient, plan, prior releaseModel
 	return resp
 }
 
-// TestCreate_RefusesToAdoptExistingRelease is the G3.1/F07 regression test:
-// Create used to install straight over an existing release (nelm install is
-// install-or-upgrade), silently adopting it — and under create_before_destroy
-// the deposed object's destroy then uninstalled it.
+// TestCreate_RefusesToAdoptExistingRelease is the regression test for silent
+// adoption: Create used to install straight over an existing release (nelm
+// install is install-or-upgrade), silently adopting it — and under
+// create_before_destroy the deposed object's destroy then uninstalled it.
 func TestCreate_RefusesToAdoptExistingRelease(t *testing.T) {
 	client := &fakeReleaseClient{
 		history: &nelmclient.ReleaseHistory{Revision: 3, Status: "deployed", LastDeployed: time.Now().Add(-time.Hour), Deployed: true},
@@ -265,11 +265,11 @@ func TestOtherStorageDriver(t *testing.T) {
 	}
 }
 
-// TestCreate_RefusesReleaseInOtherBackend is the G3.1 regression test for a
+// TestCreate_RefusesReleaseInOtherBackend is the regression test for a
 // create_before_destroy release_storage_driver change: Create only read the
 // configured (new, empty) backend, so it installed revision 1 there over the
-// live objects, and the deposed object's destroy then uninstalled the
-// release from the old backend with a green apply.
+// live objects, and the deposed object's destroy then uninstalled the release
+// from the old backend with a green apply.
 func TestCreate_RefusesReleaseInOtherBackend(t *testing.T) {
 	deployed := &nelmclient.ReleaseHistory{Revision: 3, Status: "deployed", LastDeployed: time.Now().Add(-time.Hour), Deployed: true}
 
@@ -441,10 +441,10 @@ func TestCreate_HistoryReadFailureChangesNothing(t *testing.T) {
 	}
 }
 
-// TestCreate_InstallSucceededReadFailed is the F20 regression test: a
-// successful install whose post-install read fails used to fail the apply,
-// so Terraform tainted the healthy release and replaced (uninstalled and
-// reinstalled) it on the next apply.
+// TestCreate_InstallSucceededReadFailed is the regression test: a successful
+// install whose post-install read fails used to fail the apply, so Terraform
+// tainted the healthy release and replaced (uninstalled and reinstalled) it on
+// the next apply.
 func TestCreate_InstallSucceededReadFailed(t *testing.T) {
 	client := &fakeReleaseClient{getErr: errors.New("release get: connection reset by peer")}
 	plan := plannedCreateModel()
@@ -494,10 +494,10 @@ func TestUpdate_InstallSucceededReadFailed_KeepsPlannedValues(t *testing.T) {
 	}
 }
 
-// TestUpdate_FailedInstallKeepsPriorConfig is the F21 regression test: a
-// failed Update used to persist the NEW configuration, so a change the retry
-// triggers cannot see (a hook-only change after a successful auto_rollback,
-// here) was recorded as applied and never retried.
+// TestUpdate_FailedInstallKeepsPriorConfig is the regression test: a failed
+// Update used to persist the NEW configuration, so a change the retry triggers
+// cannot see (a hook-only change after a successful auto_rollback, here) was
+// recorded as applied and never retried.
 func TestUpdate_FailedInstallKeepsPriorConfig(t *testing.T) {
 	client := &fakeReleaseClient{
 		history:    &nelmclient.ReleaseHistory{Revision: 4, Status: "deployed", Deployed: true},
@@ -533,10 +533,10 @@ func TestUpdate_FailedInstallKeepsPriorConfig(t *testing.T) {
 	}
 }
 
-// TestUpdate_RefusedWhilePendingLockHeld is the G5.1 regression test: an
-// update used to install straight over a release whose last revision is
-// pending-* (nelm treats it as failed), racing — and then being clobbered
-// by — e.g. an on-call `helm rollback` still waiting for its pods.
+// TestUpdate_RefusedWhilePendingLockHeld is the regression test: an update
+// used to install straight over a release whose last revision is pending-*
+// (nelm treats it as failed), racing — and then being clobbered by — e.g. an
+// on-call `helm rollback` still waiting for its pods.
 func TestUpdate_RefusedWhilePendingLockHeld(t *testing.T) {
 	ctx := context.Background()
 	client := &fakeReleaseClient{

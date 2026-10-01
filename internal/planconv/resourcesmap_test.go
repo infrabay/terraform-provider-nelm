@@ -13,11 +13,11 @@ import (
 	"github.com/werf/nelm/pkg/resource/spec"
 )
 
-// TestBuildPlannedResources_SkipsHooks guards finding #5: helm/nelm hooks
-// (marked by the helm.sh/hook annotation) must NOT enter the planned resources
-// map, because Read's live side (Client.Get) only ever returns non-hook
-// Resources. A hook left in the planned map would be a key Read can never
-// reproduce → a perpetual diff/update cycle.
+// TestBuildPlannedResources_SkipsHooks: helm/nelm hooks (marked by the
+// helm.sh/hook annotation) must NOT enter the planned resources map, because
+// Read's live side (Client.Get) only ever returns non-hook Resources. A hook
+// left in the planned map would be a key Read can never reproduce → a
+// perpetual diff/update cycle.
 func TestBuildPlannedResources_SkipsHooks(t *testing.T) {
 	scoper := basicScoper()
 
@@ -67,9 +67,9 @@ func TestBuildPlannedResources_SkipsHooks(t *testing.T) {
 	}
 }
 
-// TestBuildPlannedResources_UpdatePrefersRender is the Fable 5 regression
-// suite for the update planned-value source: the chart's client render is
-// authoritative, immune to BOTH failure modes of the three-way heuristic —
+// TestBuildPlannedResources_UpdatePrefersRender is the regression suite for
+// the update planned-value source: the chart's client render is authoritative,
+// immune to BOTH failure modes of the three-way heuristic —
 // (a) a prior poisoned with live fields (import's full-live first Read) must
 // not make the KNOWN value track live-mutable state, and (b) a field the
 // chart NEWLY manages that already exists live must not be dropped.

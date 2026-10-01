@@ -29,11 +29,11 @@ func refOf(obj *unstructured.Unstructured) Ref {
 	}
 }
 
-// TestNormalizeGoldenPhantomDiff is the phantom-diff golden suite design §7
-// risk #1 calls for: it loads the committed captured-live testdata/normalize
-// fixtures (T-fixtures owned, read-only here) — never hand-written objects —
-// and drives them through the exact pair CONTRACTS.md's bold invariant names:
-// the PLANNED side is NormalizeUnstructured(planAfter) and the LIVE side is
+// TestNormalizeGoldenPhantomDiff is the phantom-diff golden suite: it loads
+// the committed captured-live testdata/normalize fixtures (produced by
+// scripts/smoke/normalize, read-only here) — never hand-written objects — and
+// drives them through the exact pair CONTRACTS.md's bold invariant names: the
+// PLANNED side is NormalizeUnstructured(planAfter) and the LIVE side is
 // NormalizeLiveAgainst(live, planNorm) (project the live object onto the
 // planned shape), with the same KeyScoper keying both.
 //

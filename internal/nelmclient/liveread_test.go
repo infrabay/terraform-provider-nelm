@@ -11,8 +11,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// TestEnsureKubeFactory_TransientErrorNotMemoized is the Phase D regression
-// test for the factory-error-poisoning bug: a single transient failure of the
+// TestEnsureKubeFactory_TransientErrorNotMemoized is the regression test for
+// the factory-error-poisoning bug: a single transient failure of the
 // connectivity check used to be cached in c.kubeFactoryErr and returned by
 // every later ensureKubeFactory call (from any resource's LiveObjects /
 // IsNamespaced) for the whole process, even after the cluster recovered. The
@@ -51,13 +51,13 @@ func TestEnsureKubeFactory_TransientErrorNotMemoized(t *testing.T) {
 	}
 }
 
-// TestEnsureKubeFactory_ConstructionIsBounded is the Fable 5 regression test
-// for the wedged-factory finding: the connectivity check inside factory
-// construction ignores the caller context entirely (client-go discovery has
-// no ctx), so a BLACKHOLED endpoint (accepts nothing, SYN just hangs — RFC
-// 5737 TEST-NET address) used to block ensureKubeFactory forever while
-// holding kubeMu, freezing every resource in the process. The watchdog must
-// cut it at Config.RequestTimeout.
+// TestEnsureKubeFactory_ConstructionIsBounded is the regression test for a
+// wedged factory: the connectivity check inside factory construction ignores
+// the caller context entirely (client-go discovery has no ctx), so a
+// BLACKHOLED endpoint (accepts nothing, SYN just hangs — RFC 5737 TEST-NET
+// address) used to block ensureKubeFactory forever while holding kubeMu,
+// freezing every resource in the process. The watchdog must cut it at
+// Config.RequestTimeout.
 func TestEnsureKubeFactory_ConstructionIsBounded(t *testing.T) {
 	const cfgYAML = `apiVersion: v1
 kind: Config

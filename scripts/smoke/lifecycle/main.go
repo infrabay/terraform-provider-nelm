@@ -1,13 +1,13 @@
 //go:build smoke
 
-// Command lifecycle captures the T-fixtures lifecycle-plan fixtures (task
-// deliverable 2) against the local "orbstack" cluster:
+// Command lifecycle captures the lifecycle-plan fixtures against the local
+// "orbstack" cluster:
 //
 //	(a) first-install plan into a fresh namespace: every ResourceChange.Type
 //	    must be "create" with Before == nil.
 //	(b) a no-change plan captured immediately after actually installing:
 //	    Changes must be EMPTY (validates the provider's prior-map-merge
-//	    design assumption, design §2.1/§7 risk #3). Flagged loudly if not.
+//	    assumption). Flagged loudly if not.
 //	(c) a drift plan captured after an out-of-band `kubectl patch` of the
 //	    Deployment's replica count: expects an "update" change with
 //	    Before/After populated.
@@ -19,14 +19,13 @@
 // (*.artifact.json.gz) and as decoded/indented JSON (*.decoded.json) under
 // internal/planconv/testdata/lifecycle/.
 //
-// PROVENANCE NOTE (see scripts/smoke/README.md for the full explanation):
-// the "release plan install" / "release install" steps below shell out to
-// a nelm CLI binary (set via $NELM_SMOKE_BIN) instead of calling
-// github.com/werf/nelm/pkg/action in-process, because this module's go.sum
-// is missing transitive-dependency entries for that package (a "scaffold"
-// task go.mod/go.sum gap, outside this task's ownership -- see
-// smokelib/exec.go's doc comment for the full story). Only the mutating
-// CLI calls are worked around this way; every other line of this program
+// PROVENANCE NOTE (see scripts/smoke/README.md for the full explanation): the
+// "release plan install" / "release install" steps below shell out to a nelm
+// CLI binary (set via $SMOKE_NELM_BIN) instead of calling
+// github.com/werf/nelm/pkg/action in-process, because at capture time this
+// module's go.sum lacked transitive-dependency entries for that package (see
+// smokelib/exec.go's doc comment for the full story). Only the mutating CLI
+// calls are worked around this way; every other line of this program
 // (ReadArtifact, decode, assertions) uses the real Go library.
 //
 // This program deliberately leaves the installed release + namespace ALIVE
@@ -38,7 +37,7 @@
 //
 // Usage:
 //
-//	NELM_SMOKE_BIN=/path/to/nelm go run -tags smoke ./scripts/smoke/lifecycle
+//	SMOKE_NELM_BIN=/path/to/nelm go run -tags smoke ./scripts/smoke/lifecycle
 package main
 
 import (
@@ -107,7 +106,7 @@ func main() {
 	// ---- (b) no-change plan right after install ----
 	fmt.Println("\n--- (b) no-change plan ---")
 	artifactB, rawB := runPlan(ctx, "02_no_change", chart, releaseName, namespace, tempRoot, nil)
-	assert(len(artifactB.Data.Changes) == 0, "no-change plan has EMPTY Changes (got %d) -- design §2.1/§7 risk #3 merge assumption", len(artifactB.Data.Changes))
+	assert(len(artifactB.Data.Changes) == 0, "no-change plan has EMPTY Changes (got %d) -- prior-map merge assumption", len(artifactB.Data.Changes))
 	if len(artifactB.Data.Changes) != 0 {
 		fmt.Println("  !!!! FLAG: no-change plan is NOT empty. planconv's BuildPlannedResources merge design must handle Changes containing unchanged resources. Dumping change types:")
 		for _, c := range artifactB.Data.Changes {

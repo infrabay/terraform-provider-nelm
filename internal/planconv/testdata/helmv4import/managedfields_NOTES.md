@@ -11,11 +11,11 @@ Deployment: tfnelm-fix-helmv4-b38442/helmv4-basic
 managedFields changed after the first plan: false
 managedFields stable between the first and second plan (after == after2): true
 
-## Finding: this CORRECTS/REFINES the design's risk #5 assumption for the common case
+## Finding: the managedFields assumption does not hold for the common case
 
-The design doc (§2.2/§7 risk #5) states "first plan against helm-created
-resources MergePatches metadata.managedFields" (verified against nelm
-v1.24.0). Live-tested here against nelm v1.26.2 and a plain helm v4.2.3
+The working assumption was "first plan against helm-created resources
+MergePatches metadata.managedFields" (verified against nelm v1.24.0).
+Live-tested here against nelm v1.26.2 and a plain helm v4.2.3
 server-side-apply install, NO managedFields mutation was observed on
 either the first or second plan.
 
@@ -42,18 +42,18 @@ github.com/werf/nelm v1.26.2-2-gda9a86a):
     were only "helm"/Apply and "k3s"/Update on the status subresource,
     which is skipped because its Subresource differs from oursEntry's).
 
-CONCLUSION for RISK #2 (import): adopting a modern helm v3/v4
-server-side-apply release is actually BETTER than the design feared for
+CONCLUSION for importing plain-helm releases: adopting a modern helm v3/v4
+server-side-apply release is actually BETTER than assumed for
 this specific side effect -- no unexpected managedFields rewrite occurs on
 a plain `terraform plan` against a freshly-imported plain-helm release. The
-design's risk #5 as literally stated likely applies to a narrower scenario
+assumption as literally stated likely applies to a narrower scenario
 this probe did not reproduce: resources carrying a LEGACY field manager
 (an old client-side-apply "kubectl-edit" entry, or an old "werf"-prefixed
 manager name from a pre-server-side-apply werf/nelm version) -- neither of
-which a fresh helm v4.2.3 install produces. T-resplan/T-planconv should
+which a fresh helm v4.2.3 install produces. The provider should
 treat "first plan may rewrite managedFields" as a possible-but-not-
 guaranteed side effect for modern helm-created resources, not an
 unconditional one; it likely still applies to resources migrating from
 much older werf/helm client-side-apply conventions, which this fixture
 does not cover (flagging as a gap, not fabricating a fixture for a scenario
-this task couldn't cheaply reproduce live).
+that could not be cheaply reproduced live).

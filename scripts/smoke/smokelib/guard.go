@@ -1,17 +1,16 @@
 //go:build smoke
 
 // Package smokelib is the shared connection/guard helper imported by every
-// live-capture program under scripts/smoke/ (T-fixtures, design §4 Phase B
-// wave 1). Every file in this package carries the "smoke" build tag, so the
-// package contributes zero buildable files (and therefore never breaks
-// `go build ./...` / `go vet ./...`) unless invoked with `-tags smoke`.
+// live-capture program under scripts/smoke/. Every file in this package
+// carries the "smoke" build tag, so the package contributes zero buildable
+// files (and therefore never breaks `go build ./...` / `go vet ./...`) unless
+// invoked with `-tags smoke`.
 //
 // This package is intentionally standalone: it does NOT import
-// internal/nelmclient (that package is owned by the parallel T-nelmclient
-// task and may still be stubbed while T-fixtures runs) or any other
-// internal/* package. It talks to nelm's pkg/action, pkg/plan, pkg/kube,
-// pkg/resource, pkg/resource/spec directly, exactly like a standalone
-// operator script would.
+// internal/nelmclient or any other internal/* package, so the fixtures it
+// captures do not depend on the code they are used to test. It talks to nelm's
+// pkg/action, pkg/plan, pkg/kube, pkg/resource, pkg/resource/spec directly,
+// exactly like a standalone operator script would.
 package smokelib
 
 import (

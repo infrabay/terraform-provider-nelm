@@ -42,7 +42,7 @@ func MustTempDir(tag string) string {
 }
 
 // RandNamespace returns a throwaway namespace name "tfnelm-fix-<tag>-<hex>"
-// per the task's cluster-safety rules (unique per run, always cleaned up by
+// per the harness's cluster-safety rules (unique per run, always cleaned up by
 // the caller).
 func RandNamespace(tag string) string {
 	b := make([]byte, 3)

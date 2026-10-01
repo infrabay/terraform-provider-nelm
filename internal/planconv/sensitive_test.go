@@ -10,13 +10,13 @@ import (
 	"github.com/werf/nelm/pkg/resource"
 )
 
-// TestNormalize_SecretRedactedDespiteSensitiveFalse is the Phase D regression
-// test for the werf.io/sensitive:"false" leak (finding #6): a core/v1 Secret
-// carrying that opt-out annotation must STILL be redacted. Unlike nelm's
-// ephemeral CLI diff, this provider persists the normalized resources map into
-// durable terraform.tfstate and prints it in `terraform plan` output, so
-// honoring an in-chart opt-out would write trivially-decodable base64
-// credentials to durable state.
+// TestNormalize_SecretRedactedDespiteSensitiveFalse is the regression test for
+// the werf.io/sensitive:"false" leak: a core/v1 Secret carrying that opt-out
+// annotation must STILL be redacted. Unlike nelm's ephemeral CLI diff, this
+// provider persists the normalized resources map into durable
+// terraform.tfstate and prints it in `terraform plan` output, so honoring an
+// in-chart opt-out would write trivially-decodable base64 credentials to
+// durable state.
 //
 // The object is hand-built (not a captured-live golden) on purpose: this
 // exercises redaction policy, not server-side-defaulting normalization.
@@ -52,9 +52,8 @@ func TestNormalize_SecretRedactedDespiteSensitiveFalse(t *testing.T) {
 // TestNormalize_SecretCustomSensitivePathsUnioned checks that a Secret's
 // unconditional data/stringData redaction is UNIONED with (not replaced by) an
 // explicit werf.io/sensitive-paths annotation: both the Secret data and the
-// custom non-data path must be redacted. Regression guard for the re-review
-// finding that the Secret short-circuit was bypassing GetSensitiveInfo's
-// custom paths entirely.
+// custom non-data path must be redacted. Regression guard for a Secret
+// short-circuit that bypassed GetSensitiveInfo's custom paths entirely.
 func TestNormalize_SecretCustomSensitivePathsUnioned(t *testing.T) {
 	const dataVal = "cGFzc3dvcmQ="              // base64("password")
 	const tokenVal = "super-secret-token-value" // redacted via custom path

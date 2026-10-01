@@ -122,16 +122,16 @@ func plannedResources(t *testing.T, p tfsdk.Plan) map[string]string {
 	return out
 }
 
-// TestModifyPlan_CreateResourcesIndependentOfLiveState is the F03 regression
-// test. Terraform plans a replacement's create twice with a null prior: at
-// plan time, while the release being replaced is still live (nelm plans an
-// upgrade with no changes), and again at apply after the destroy uninstalled
-// it (every object is a create carrying ownership metadata). Building
-// "resources" from nelm's Changes made the two disagree ({} vs everything),
-// so every taint/-replace/namespace/storage-driver replacement aborted with
-// "Provider produced inconsistent final plan" — after the uninstall had run.
-// While the old release is live the create's map is now Unknown (a render
-// that reads live objects changes once they are gone, see
+// TestModifyPlan_CreateResourcesIndependentOfLiveState is the regression test
+// for replacements. Terraform plans a replacement's create twice with a null
+// prior: at plan time, while the release being replaced is still live (nelm
+// plans an upgrade with no changes), and again at apply after the destroy
+// uninstalled it (every object is a create carrying ownership metadata).
+// Building "resources" from nelm's Changes made the two disagree ({} vs
+// everything), so every taint/-replace/namespace/storage-driver replacement
+// aborted with "Provider produced inconsistent final plan" — after the
+// uninstall had run. While the old release is live the create's map is now
+// Unknown (a render that reads live objects changes once they are gone, see
 // TestModifyPlan_ReplaceOfLiveRelease); the apply-phase re-plan plans the
 // first-install render, and Unknown to known is allowed.
 func TestModifyPlan_CreateResourcesIndependentOfLiveState(t *testing.T) {
@@ -172,14 +172,15 @@ func TestModifyPlan_CreateResourcesIndependentOfLiveState(t *testing.T) {
 	assertCompatible(t, planned, plannedResourcesValue(t, applyPhase.Plan))
 }
 
-// TestModifyPlan_ReplaceOfLiveRelease is the regression test for F03's
-// lookup case. A chart that reads live objects (testdata/charts/volatile's
-// lookup-guarded password, Bitnami's and grafana's generated secrets) renders
-// deterministically at plan time, while the replaced release's Secret still
-// exists, and generates a new password at the apply-time re-plan, after the
-// destroy removed it. Planning the plan-time render as a known map aborted
-// the replacement with "Provider produced inconsistent final plan" after the
-// uninstall, however the release being replaced was live.
+// TestModifyPlan_ReplaceOfLiveRelease is the regression test for the
+// replacement's lookup case. A chart that reads live objects
+// (testdata/charts/volatile's lookup-guarded password, Bitnami's and grafana's
+// generated secrets) renders deterministically at plan time, while the
+// replaced release's Secret still exists, and generates a new password at the
+// apply-time re-plan, after the destroy removed it. Planning the plan-time
+// render as a known map aborted the replacement with "Provider produced
+// inconsistent final plan" after the uninstall, however the release being
+// replaced was live.
 func TestModifyPlan_ReplaceOfLiveRelease(t *testing.T) {
 	stored := base64.StdEncoding.EncodeToString([]byte("stored-password"))
 

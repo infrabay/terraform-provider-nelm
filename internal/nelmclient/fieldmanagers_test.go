@@ -74,7 +74,7 @@ func findEntry(entries []metav1.ManagedFieldsEntry, manager string, op metav1.Ma
 	return found, n
 }
 
-// TestHandOverHelmProviderEntries is the F08 regression test for the rename
+// TestHandOverHelmProviderEntries is the regression test for the rename
 // itself: objects written by hashicorp/helm's helm_release carry
 // "terraform-provider-helm_*"/Update entries that nelm's Helm 3 hand-over
 // never recognized, so fields the chart stopped rendering stayed live after
@@ -477,11 +477,11 @@ var (
 	crRef      = ResourceRef{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRole", Name: "app"}
 )
 
-// TestHandOverHelmProviderFieldManagers covers the cluster side of the F08
-// fix against a fake API server: only objects carrying a helm_release entry
-// are patched (namespaced and cluster-scoped alike), unrelated managers
-// survive, missing objects and unserved kinds are skipped, and a second run
-// is a no-op.
+// TestHandOverHelmProviderFieldManagers covers the cluster side of the
+// helm_release field-manager hand-over against a fake API server: only objects
+// carrying a helm_release entry are patched (namespaced and cluster-scoped
+// alike), unrelated managers survive, missing objects and unserved kinds are
+// skipped, and a second run is a no-op.
 func TestHandOverHelmProviderFieldManagers(t *testing.T) {
 	ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	update := metav1.ManagedFieldsOperationUpdate

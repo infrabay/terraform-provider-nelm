@@ -1,13 +1,8 @@
 //go:build smoke
 
 // Command errorshapes captures error-shape fixtures for
-// internal/nelmclient/testdata/ (design §4 Phase B wave 1 item 5;
-// mentioned by the design's T-nelmclient checklist as a dependency of its
-// errors.go/error-classification unit tests). This is a BONUS capture
-// beyond this task's 6 mandated deliverables -- included because it's
-// cheap, uses only a SYNTHETIC/throwaway kubeconfig (never touches
-// orbstack or any real cluster), and directly unblocks the sibling
-// T-nelmclient task.
+// internal/nelmclient/testdata/, used by the error-classification unit tests
+// of internal/nelmclient (errors.go).
 //
 // Captures:
 //  1. The exact error text nelm CLI produces when the target API server is
@@ -17,8 +12,8 @@
 //  2. The exact error text for a bare relative chart directory name that
 //     doesn't exist on disk and isn't a valid remote ref either.
 //  3. The exact error text for an oci:// / repo/name chart reference when
-//     FeatGateRemoteCharts is NOT enabled (this task's harness never
-//     enables it, matching CONTRACTS.md's global-state rules).
+//     FeatGateRemoteCharts is NOT enabled (this harness never enables
+//     it, matching CONTRACTS.md's global-state rules).
 //
 // IMPORTANT: nelm's connectivity check (kube.NewClientFactory) runs BEFORE
 // any chart loading, so captures (2) and (3) need a REACHABLE cluster to

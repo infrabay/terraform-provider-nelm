@@ -115,14 +115,14 @@ func stringMap(t *testing.T, m types.Map) map[string]string {
 	return out
 }
 
-// TestSetSensitiveScrubbedFromResources is the F06 regression test. A
-// set_sensitive value that a chart renders into a non-Secret object (an env
-// value, ConfigMap data) went verbatim into the "resources" map: printed by
-// every plan and stored in state, where helm_release shows no manifest at
-// all. The planned side (ModifyPlan) and the live side (Read) now both carry
-// nelm's redaction placeholder instead, and still agree when nothing changed,
-// so the steady-state plan stays empty; a rotated value still shows as a
-// change.
+// TestSetSensitiveScrubbedFromResources is the regression test for rendered
+// set_sensitive values. A set_sensitive value that a chart renders into a
+// non-Secret object (an env value, ConfigMap data) went verbatim into the
+// "resources" map: printed by every plan and stored in state, where
+// helm_release shows no manifest at all. The planned side (ModifyPlan) and the
+// live side (Read) now both carry nelm's redaction placeholder instead, and
+// still agree when nothing changed, so the steady-state plan stays empty; a
+// rotated value still shows as a change.
 func TestSetSensitiveScrubbedFromResources(t *testing.T) {
 	ctx := context.Background()
 

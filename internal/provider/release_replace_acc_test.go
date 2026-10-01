@@ -1,12 +1,11 @@
 package provider_test
 
 // release_replace_acc_test.go covers the lifecycle-safety acceptance
-// scenarios: Create refusing to adopt an existing release (G3.1/F07),
-// replacement of a tainted release (F03), a namespace move reusing the
-// replaced release's cluster-scoped object names (F03), and a
-// create_before_destroy replacement — same backend, or a
-// release_storage_driver change — failing safe instead of uninstalling the
-// release (G3.1). Same harness and triple safety guard as
+// scenarios: Create refusing to adopt an existing release, replacement of a
+// tainted release, a namespace move reusing the replaced release's
+// cluster-scoped object names, and a create_before_destroy replacement — same
+// backend, or a release_storage_driver change — failing safe instead of
+// uninstalling the release. Same harness and triple safety guard as
 // release_resource_test.go (provider_test.go).
 
 import (
@@ -82,8 +81,8 @@ func TestAccReleaseResource_createRefusesExistingRelease(t *testing.T) {
 // TestAccReleaseResource_taintReplace: replacing a release (taint, the same
 // path as -replace and a failed-create retry) destroys it and installs it
 // again in one apply. It used to abort with "Provider produced inconsistent
-// final plan" after the uninstall, because the create's planned resources
-// were computed while the old release was still live (F03).
+// final plan" after the uninstall, because the create's planned resources were
+// computed while the old release was still live.
 func TestAccReleaseResource_taintReplace(t *testing.T) {
 	namespace := uniqueNamespace("taint")
 	const name = "taint"
@@ -121,10 +120,10 @@ func TestAccReleaseResource_taintReplace(t *testing.T) {
 // replaces the release, and the new release reuses the name of a
 // cluster-scoped object the old one still owns while the plan runs (a
 // fixed-name ClusterRole, as ingress-nginx or cert-manager have). Terraform
-// plans that change first against the real prior state, where nelm's
-// ownership check used to fail the plan, so the move could not be planned at
-// all (F03). It must only warn, and the apply (destroy, then create) must
-// hand the ClusterRole to the release in the new namespace.
+// plans that change first against the real prior state, where nelm's ownership
+// check used to fail the plan, so the move could not be planned at all. It
+// must only warn, and the apply (destroy, then create) must hand the
+// ClusterRole to the release in the new namespace.
 func TestAccReleaseResource_namespaceMoveReusesClusterObjects(t *testing.T) {
 	oldNamespace := uniqueNamespace("move-old")
 	newNamespace := uniqueNamespace("move-new")
@@ -180,9 +179,9 @@ func TestAccReleaseResource_namespaceMoveReusesClusterObjects(t *testing.T) {
 
 // TestAccReleaseResource_createBeforeDestroyFailsSafe: a create_before_destroy
 // replacement of the same release name used to install over the live release
-// and then uninstall it as the deposed object, with a green apply (G3.1). The
-// create half must now be refused, Terraform keeps the old object, and the
-// release stays installed.
+// and then uninstall it as the deposed object, with a green apply. The create
+// half must now be refused, Terraform keeps the old object, and the release
+// stays installed.
 func TestAccReleaseResource_createBeforeDestroyFailsSafe(t *testing.T) {
 	namespace := uniqueNamespace("cbd")
 	const name = "cbd"
@@ -220,9 +219,9 @@ func TestAccReleaseResource_createBeforeDestroyFailsSafe(t *testing.T) {
 // create_before_destroy replacement that changes release_storage_driver used
 // to install the release into the new (empty) backend over its live objects
 // and then uninstall it from the old backend as the deposed object, with a
-// green apply (G3.1). The create half must be refused while the release is
-// still deployed in the old backend; applied destroy-first, the change moves
-// the release to the new backend.
+// green apply. The create half must be refused while the release is still
+// deployed in the old backend; applied destroy-first, the change moves the
+// release to the new backend.
 func TestAccReleaseResource_createBeforeDestroyStorageDriverChange(t *testing.T) {
 	namespace := uniqueNamespace("cbd-driver")
 	const name = "cbd-driver"

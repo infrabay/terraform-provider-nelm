@@ -11,8 +11,7 @@ onto disk as the plan artifact's dataRaw field): true
 
 Snippet from artifact.DataRaw around the fake password (proves the Secret's
 stringData is stored in PLAIN CLEARTEXT in the plan artifact, not hashed or
-redacted by nelm itself -- redaction is the CONSUMER's responsibility,
-exactly as design §2.1/§7 risk #7 states):
+redacted by nelm itself -- redaction is the CONSUMER's responsibility):
 
     ...},"config":{"configMap":{"sensitivePathsAnnotation":true},"secret":{"password":"s3cr3t-fake-9f2c"}},"manifest":"# Source: basic/template...
 
@@ -42,7 +41,7 @@ Kubernetes' standard (non-secret, non-cryptographic) wire encoding for the
 trivially (`echo czNjcjN0LWZha2UtOWYyYw== | base64 -d` -> `s3cr3t-fake-9f2c`)
 and carries zero security value on its own. Both forms (the plaintext
 values-map copies AND the base64 Secret-object copy) are cleartext for the
-purposes of this task's redaction/temp-file concern.
+purposes of the provider's redaction/temp-file concern.
 
 ## (2) resource.GetSensitiveInfo results
 
@@ -50,7 +49,7 @@ purposes of this task's redaction/temp-file concern.
   (default Secret behavior, V1/HideAll -- global FeatGateFieldSensitive is
   OFF in this codebase per CONTRACTS.md, so nelm's own default for Secret
   kind is the full-skeleton HideAll, not path-specific. The PROVIDER
-  overrides this locally per design §2.1 step 2 -- see
+  overrides this locally -- see
   configmap_redacted.json below for what path-specific redaction produces,
   which is what the provider will replicate for Secrets too.)
 - ConfigMap (werf.io/sensitive-paths: "data.message" annotated) /v1, Kind=ConfigMap /secrets-basic:
@@ -62,7 +61,7 @@ purposes of this task's redaction/temp-file concern.
 ## (3) resource.RedactSensitiveData output
 
 See secret_redacted.json (nelm's own default HideAll skeleton -- the
-provider will NOT use this shape for Secrets, see design §2.1 step 2) and
+provider will NOT use this shape for Secrets) and
 configmap_redacted.json (path-specific: data.message replaced with a
 deterministic "<hidden N sensitive bytes, hash sha256[:12]>" placeholder,
 everything else -- name, labels, other data keys if any -- untouched).

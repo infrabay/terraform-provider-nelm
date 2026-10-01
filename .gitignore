@@ -17,11 +17,6 @@ crash.*.log
 # Local scratch
 tmp/
 .DS_Store
-# Claude Code session tooling & recovery state (internal; not part of the provider)
-HANDOFF.md
-.claude/
-session-recover.yaml
-OWNERS.json
 
 # JetBrains IDE
 .idea/

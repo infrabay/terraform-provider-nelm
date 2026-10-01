@@ -52,12 +52,12 @@ func installed(obj *unstructured.Unstructured) *unstructured.Unstructured {
 	return out
 }
 
-// TestNormalizeUnstructured_DropsReleaseOwnershipMetadata is the F36
-// regression test: nelm stamps meta.helm.sh/release-name,
+// TestNormalizeUnstructured_DropsReleaseOwnershipMetadata is the regression
+// test for release ownership metadata: nelm stamps meta.helm.sh/release-name,
 // meta.helm.sh/release-namespace and app.kubernetes.io/managed-by on what it
-// installs (a create's After, every live object) but not on a chart render
-// (an update's planned value), so the first update of every object showed
-// them as removed although nothing changes.
+// installs (a create's After, every live object) but not on a chart render (an
+// update's planned value), so the first update of every object showed them as
+// removed although nothing changes.
 func TestNormalizeUnstructured_DropsReleaseOwnershipMetadata(t *testing.T) {
 	for name, labels := range map[string]map[string]interface{}{
 		"chart labels":             {"app.kubernetes.io/name": "app"},
@@ -94,7 +94,7 @@ func TestNormalizeUnstructured_DropsReleaseOwnershipMetadata(t *testing.T) {
 // TestBuildPlannedResources_ValueIndependentOfChangeType: every change type
 // plans the rendered value, so the value does not depend on how nelm
 // classified the change (a webhook timing out between the plan and the apply
-// phase turns an update into a blind apply; F13).
+// phase turns an update into a blind apply).
 func TestBuildPlannedResources_ValueIndependentOfChangeType(t *testing.T) {
 	scoper := basicScoper()
 	render := renderedConfigMap(map[string]interface{}{"app.kubernetes.io/name": "app"})

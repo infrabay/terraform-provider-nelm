@@ -19,8 +19,8 @@
 # scripts/smoke/smokelib/guard.go:MustGuardOrbstack, which every `//go:build
 # smoke` Go program in this directory calls before touching the cluster in
 # any way. Both checks exist independently and deliberately duplicate each
-# other — belt and suspenders for the single most important invariant in
-# this task.
+# other — belt and suspenders for the single most important invariant of
+# this harness.
 
 set -euo pipefail
 

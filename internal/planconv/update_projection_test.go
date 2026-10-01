@@ -39,7 +39,7 @@ func deployment(image string, replicas int64, extraAnno map[string]interface{}) 
 }
 
 // TestNormalizeUpdateAfter_DropsLiveCarriedFields is the regression test for
-// the Opus 5 consistency finding: an update change's After is the server-side
+// plan consistency of updates: an update change's After is the server-side
 // dry-run MERGE, which carries live-mutable fields the chart never set (an
 // HPA-owned spec.replicas, controller-written annotations). Those must not
 // enter the KNOWN plan value — they would differ between the plan-phase and

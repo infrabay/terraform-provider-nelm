@@ -11,8 +11,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// loadUnstructured reads a captured-live JSON fixture (testdata/**, owned by
-// the T-fixtures task — read-only from here) into an *unstructured.Unstructured.
+// loadUnstructured reads a captured-live JSON fixture (testdata/**, produced
+// by scripts/smoke — read-only from here) into an *unstructured.Unstructured.
 func loadUnstructured(t *testing.T, path string) *unstructured.Unstructured {
 	t.Helper()
 

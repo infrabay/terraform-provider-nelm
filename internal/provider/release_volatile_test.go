@@ -205,12 +205,12 @@ func assertComputedUnknown(t *testing.T, p tfsdk.Plan, want bool) {
 	}
 }
 
-// TestModifyPlan_VolatileCreate is the F01 regression test (first install).
-// The plan-phase and the apply-phase ModifyPlan each render the chart, so a
-// generated password and a rollme/timestamp annotation were planned as two
-// different KNOWN values and every apply — the first install included —
-// aborted with "Provider produced inconsistent final plan". The objects two
-// renders disagree on are now Unknown; the rest stays known.
+// TestModifyPlan_VolatileCreate is the regression test for a volatile chart's
+// first install. The plan-phase and the apply-phase ModifyPlan each render the
+// chart, so a generated password and a rollme/timestamp annotation were
+// planned as two different KNOWN values and every apply — the first install
+// included — aborted with "Provider produced inconsistent final plan". The
+// objects two renders disagree on are now Unknown; the rest stays known.
 func TestModifyPlan_VolatileCreate(t *testing.T) {
 	chart := &volatileChart{}
 	client := &fakeReleaseClient{renderFn: chart.render}
@@ -532,10 +532,10 @@ func TestCreateOrUpdate_FillsVolatileResources(t *testing.T) {
 	})
 }
 
-// TestModifyPlan_UnservedKindDegrades is the F13 regression test: a
-// cluster-scoped CR whose CRD is not served yet (another release installs it
-// earlier in the same apply) used to be planned under a GUESSED namespaced
-// key, which the apply-phase re-plan — once the CRD exists — keys
+// TestModifyPlan_UnservedKindDegrades is the regression test for unserved
+// kinds: a cluster-scoped CR whose CRD is not served yet (another release
+// installs it earlier in the same apply) used to be planned under a GUESSED
+// namespaced key, which the apply-phase re-plan — once the CRD exists — keys
 // differently: "Provider produced inconsistent final plan". The diff is now
 // computed at apply instead, with a warning; a CRD the chart itself renders
 // gives the real scope, so that case stays known.

@@ -1,9 +1,9 @@
 # CONTRACTS.md
 
-This file records the seams between packages that later phases (and parallel
-tasks within a phase) must not break without updating this document and
-getting orchestrator sign-off. See the implementation plan for the full design;
-this is the load-bearing summary that ships with the repo.
+This file records the seams between the provider's packages: the contracts
+a change must not break without updating this document (and the code on both
+sides of the seam) in the same change. It is the load-bearing summary of the
+provider's architecture; DEVELOPMENT.md covers building and testing.
 
 ## Seam 1 — `internal/nelmclient.Client` consumed by `internal/provider`
 
@@ -75,15 +75,15 @@ through.
 `internal/planconv` exposes pure functions (no cluster access):
 
 - `Key(ref Ref, releaseNS string, scoper KeyScoper) (string, error)`
-- `NormalizeUnstructured(obj, secrets)` (Phase B, T-planconv) — planned side
-- `NormalizeLiveAgainst(obj, desired, secrets)` (Phase D) — live side; wraps
+- `NormalizeUnstructured(obj, secrets)` — planned side
+- `NormalizeLiveAgainst(obj, desired, secrets)` — live side; wraps
   `NormalizeUnstructured` then projects the live object onto the planned
   shape, stripping Kubernetes' server-side defaulting generically
 - `BuildPlannedResources(prior, changes, releaseNS, scoper, rendered, secrets)`
-  (Phase B) — every non-delete change takes its value from `rendered`, the
+  — every non-delete change takes its value from `rendered`, the
   chart render (`BuildRenderedResources(objs, releaseNS, scoper, secrets)`)
-- `BuildLiveResources(objs, releaseNS, scoper, desired, secrets)` (Phase B;
-  `desired` projection template added in Phase D)
+- `BuildLiveResources(objs, releaseNS, scoper, desired, secrets)` — with
+  `desired` as the projection template
 - `ScrubSecrets(obj, secrets)` / `ScrubString(s, secrets, placeholder)` —
   the scrubbing step of the pipeline, and the same span replacement for
   diagnostics (`releaseModel.scrubSensitive`)
@@ -129,19 +129,18 @@ pipeline and the same key function.
 > mismatch (e.g. one side guessing namespace-scoping instead of asking the
 > cached RESTMapper) is the single most likely source of a permanent,
 > un-fixable noisy diff in this provider.
-> The `T-fixtures` golden-pair task (design §7 risk #1) exists specifically
-> to catch this class of bug before it reaches Phase B wave 2.
+> The captured live/planned golden pairs in `internal/planconv/testdata/normalize/`
+> (`normalize_golden_test.go`) exist specifically to catch this class of bug.
 
 ## Seam 3 — `releaseModel` frozen by `release_schema.go`
 
-`internal/provider/release_schema.go` is the frozen Phase A schema contract
-for `nelm_release`. `internal/provider/release_model.go`'s `releaseModel`
+`internal/provider/release_schema.go` is the schema contract for
+`nelm_release`. `internal/provider/release_model.go`'s `releaseModel`
 (plus `setModel` / `metadataModel`) mirrors it field-for-field via `tfsdk`
-struct tags. Every later task (`T-resplan`, `T-rescrud`) codes against this
-pair of files as given; changing an attribute name, type, or nesting shape
-after Phase A requires updating both files together and orchestrator
-sign-off, since it invalidates any fixtures/goldens already captured against
-the old shape.
+struct tags. ModifyPlan (`release_plan.go`) and the CRUD methods
+(`release_crud.go`) code against this pair of files; changing an attribute
+name, type, or nesting shape requires updating both files together, since
+it invalidates any fixtures/goldens already captured against the old shape.
 
 ## Global-state rules
 

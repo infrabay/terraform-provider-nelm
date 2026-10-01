@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 )
 
-// WriteFile writes data to destPath (0644), creating parent directories
-// (0755) as needed. All fixture files are non-sensitive (fake secret values
-// only, per task instructions) so world-readable perms are fine.
+// WriteFile writes data to destPath (0644), creating parent directories (0755)
+// as needed. All fixture files are non-sensitive (fake secret values only) so
+// world-readable perms are fine.
 func WriteFile(destPath string, data []byte) {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		panic(fmt.Errorf("mkdir for %s: %w", destPath, err))

@@ -1,4 +1,4 @@
-# scripts/smoke — live fixture-capture harness (T-fixtures, Phase B wave 1)
+# scripts/smoke — live fixture-capture harness
 
 Everything under `scripts/smoke/` captures fixtures **live**, against the
 local `orbstack` Kubernetes cluster, using the real `nelm` Go library +
@@ -40,14 +40,14 @@ All captures in this document were run against `orbstack`
 (UTC timestamps below are the exact `PlanArtifact.timestamp` / capture
 time recorded by each fixture). No other kube-context was ever contacted.
 
-## IMPORTANT provenance note: why a CLI subprocess, not `pkg/action` in-process
+## Provenance note: why a CLI subprocess, not `pkg/action` in-process
 
 At capture time, this module's `go.sum` was missing entries for three
 transitive dependencies of `github.com/werf/nelm/pkg/action`
 (`github.com/alecthomas/chroma/v2`, `github.com/dustin/go-humanize`,
 `github.com/jedib0t/go-pretty/v6` — all pulled in by `pkg/action`'s
 CLI-output-formatting files, e.g. `release_list.go`, `chart_ts_build.go`,
-`common.go`, none of which are on any code path this task calls). This
+`common.go`, none of which are on any code path the harness calls). This
 made `github.com/werf/nelm/pkg/action` (the package containing
 `ReleasePlanInstall`, `ReleaseInstall`, `ReleaseGet`, `ReleaseUninstall`)
 fail to compile in this module:
@@ -56,13 +56,10 @@ fail to compile in this module:
 missing go.sum entry for module providing package github.com/alecthomas/chroma/v2 (imported by github.com/werf/nelm/pkg/action)
 ```
 
-`go.mod`/`go.sum` are owned by the **`scaffold`** task per `OWNERS.json`,
-not `fixtures` — outside this task's ownership — and this task's rules
-explicitly forbid running `go get`/`go mod` commands ("if you think a dep
-is missing, stop and report"). Confirmed the gap is real and narrow:
-`github.com/werf/nelm/pkg/plan`, `pkg/resource`, `pkg/resource/spec`,
-`pkg/kube`, and `github.com/wI2L/jsondiff` all compile cleanly in this
-module today — **only** `pkg/action` is blocked.
+The capture was kept independent of `go.mod`/`go.sum` changes. The gap was
+narrow: `github.com/werf/nelm/pkg/plan`, `pkg/resource`,
+`pkg/resource/spec`, `pkg/kube`, and `github.com/wI2L/jsondiff` all
+compiled cleanly in this module — **only** `pkg/action` was blocked.
 
 **Workaround used (does not touch this module's go.mod/go.sum):** built a
 `nelm` CLI binary directly from the exact pinned commit
@@ -73,7 +70,7 @@ separately-`go.sum`'d module** (read-only; `git status` there remained
 clean — nothing in that checkout was modified, only compiled to a binary
 elsewhere). That CLI is a thin wrapper around the exact same
 `action.ReleasePlanInstall`/`ReleaseInstall`/`ReleaseGet`/`ReleaseUninstall`
-functions this task would otherwise call in-process, so the
+functions the harness would otherwise call in-process, so the
 `PlanArtifact`/`ReleaseGetResultV1` JSON it produces is byte-for-byte what
 those functions would have produced. Every mutating/planning CLI call in
 this package goes through `smokelib.RunNelm` (`scripts/smoke/smokelib/exec.go`,
@@ -83,20 +80,16 @@ which documents this in full); **reading/decoding/analyzing** the results
 real Go library — only the mutating actions are worked around.
 
 `scripts/smoke/smokelib.NelmBin()` resolves the binary via `$SMOKE_NELM_BIN`
-(falls back to `nelm` on `PATH`, i.e. the separately-installed nelm CLI
-1.25.2 the task's toolchain also lists, if the exact-pinned binary isn't
-provided). All captures below were run with:
+(falls back to `nelm` on `PATH`, i.e. a separately-installed nelm CLI, if
+the exact-pinned binary isn't provided). All captures below were run with:
 
 ```
 export SMOKE_NELM_BIN=/path/to/nelm-v1.26.2   # built as described above
 ```
 
-**This blocks T-nelmclient too** (its `actions.go` wraps the same
-`pkg/action` functions) — flagged prominently in the final report; the
-fix is trivial (add the 3 modules' `go.sum` hash lines, matching versions
-already resolved in nelm's own `go.sum`: `alecthomas/chroma/v2 v2.15.0`,
-`dustin/go-humanize v1.0.1`, `jedib0t/go-pretty/v6 v6.5.5`) but is outside
-this task's ownership.
+The provider itself (`internal/nelmclient/actions.go`) calls the same
+`pkg/action` functions in-process; the `go.sum` gap above only affected
+the module at capture time.
 
 ## Harness layout
 
@@ -115,17 +108,16 @@ this task's ownership.
     GETs via nelm's own `pkg/kube`, cached RESTMapper).
   - `paths.go` — `RepoRoot`/`BasicChartPath`/`FixtureDir`/
     `NelmclientFixtureDir` (all absolute, computed via `runtime.Caller`).
-- `lifecycle/main.go` — deliverable 2 (lifecycle plan fixtures).
-- `secrets/main.go` — deliverable 3 (secret/redaction fixtures).
-- `helmv4probe/main.go` — deliverables 4+5 (import/RISK-2 + managedFields).
-- `normalize/main.go` — deliverable 6 (normalization golden pair,
-  `STRIP_LIST.md`).
-- `errorshapes/main.go` — BONUS (beyond the 6 mandated deliverables):
-  error-shape fixtures for `internal/nelmclient/testdata/errors/`, feeding
-  the sibling T-nelmclient task's error-classification unit tests (design
-  §4 wave-1 item 5). Uses a SYNTHETIC/throwaway kubeconfig for the
-  unreachable-cluster case (never touches orbstack or any real context for
-  that one); the bad-chart-ref and remote-chart-without-featgate cases
+- `lifecycle/main.go` — lifecycle plan fixtures.
+- `secrets/main.go` — secret/redaction fixtures.
+- `helmv4probe/main.go` — import (helm v4 release storage) and
+  managedFields fixtures.
+- `normalize/main.go` — normalization golden pair (`STRIP_LIST.md`).
+- `errorshapes/main.go` — error-shape fixtures for
+  `internal/nelmclient/testdata/errors/`, used by `internal/nelmclient`'s
+  error-classification unit tests. Uses a SYNTHETIC/throwaway kubeconfig
+  for the unreachable-cluster case (never touches orbstack or any real
+  context for that one); the bad-chart-ref and remote-chart-without-featgate cases
   need a reachable cluster to get past nelm's connectivity check, so those
   two run against guarded `orbstack` in disposable `tfnelm-fix-*`
   namespaces that are never actually created (chart loading fails first).
@@ -152,7 +144,7 @@ helm CLI: `v4.2.3+g43e8b7f`. Cluster: `orbstack`
 (`https://127.0.0.1:26443`, Kubernetes v1.34.8+orb1). Capture date:
 2026-07-16 (UTC).
 
-### Deliverable 2 — lifecycle plan fixtures (`internal/planconv/testdata/lifecycle/`)
+### Lifecycle plan fixtures (`internal/planconv/testdata/lifecycle/`)
 
 Captured by `go run -tags smoke ./scripts/smoke/lifecycle`
 (namespace `tfnelm-fix-lifecycle-74a6c3`, release `lifecycle`, cleaned up
@@ -166,11 +158,11 @@ onward.
 | `03_drift.artifact.json.gz` / `.decoded.json` | plan captured after `kubectl --context orbstack -n <ns> patch deployment lifecycle-basic --type merge -p '{"spec":{"replicas":3}}'` | same plan command, run after the patch |
 | `04_delete.artifact.json.gz` / `.decoded.json` | plan captured with `--set configMap.enabled=false` (testdata/charts/basic's delete-fixture hook, see chart's `values.yaml`) | same plan command + `--set configMap.enabled=false` |
 
-**Findings (all 4 assertions passed, 0 failures):**
+**Results (all 4 assertions passed, 0 failures):**
 - (a) all 6 resources (ClusterRoleBinding, ConfigMap, ClusterRole, Secret,
   Deployment, Service) came back `Type: "create"`, `Before: null`.
 - (b) **`Changes` was empty (JSON `null`, i.e. Go `len(nil) == 0`) on the
-  no-change plan** — confirms the design's §2.1/§7-risk-#3 merge
+  no-change plan** — confirms the provider's prior-map merge
   assumption for an up-to-date release. Note for planconv:
   `data.changes` can be JSON `null`, not just `[]`; `BuildPlannedResources`
   ranging over a nil slice is a no-op in Go, so no special-casing is
@@ -181,9 +173,9 @@ onward.
 - (d) the delete plan contained a `delete` change for the ConfigMap (plus
   an incidental Deployment `update`, unrelated to the values change —
   worth planconv/resplan double-checking why an unrelated resource shows
-  up as changed here; not investigated further by this task).
+  up as changed here; not investigated further here).
 
-### Deliverable 3 — secret/redaction fixtures (`internal/planconv/testdata/secrets/`)
+### Secret/redaction fixtures (`internal/planconv/testdata/secrets/`)
 
 Captured by `go run -tags smoke ./scripts/smoke/secrets` (plan-only,
 `tfnelm-fix-secrets-a52104`/`secrets` — namespace was never created, so no
@@ -209,7 +201,7 @@ hook that adds `werf.io/sensitive-paths: "data.message"` to the ConfigMap.)
 | `configmap_redacted.json` | `resource.RedactSensitiveData(configmap, ["data.message"])` output (path-specific) |
 | `NOTES.md` | full evidence write-up, incl. the exact JSON-pointer locations of the fake password in cleartext |
 
-**Findings:** the fake password appears in cleartext in **four** locations
+**Results:** the fake password appears in cleartext in **four** locations
 inside the decoded artifact (`/data/plan/operations/*/config/release/config/secret/password`,
 `/data/release/config/secret/password`,
 `/data/releaseInfos/0/release/config/secret/password` — all the raw Helm
@@ -223,7 +215,7 @@ global `FeatGateFieldSensitive` off per CONTRACTS.md); the
 `IsSensitive=true SensitivePaths=["data.message"]` — confirming
 annotation-driven path redaction works on any kind, not just Secret.
 
-### Deliverable 4 — import fixtures / RISK #2 (`internal/planconv/testdata/helmv4import/`)
+### Import fixtures (`internal/planconv/testdata/helmv4import/`)
 
 Captured by `go run -tags smoke ./scripts/smoke/helmv4probe`
 (`tfnelm-fix-helmv4-b38442`/`helmv4`, cleaned up at program exit via
@@ -242,7 +234,7 @@ nelm release get --kube-context orbstack -n tfnelm-fix-helmv4-b38442 -r helmv4 -
 | `release_get.json` | full `nelm release get --print-values --output-format json` result against the helm-v4-installed release |
 | `failed_release_get.json` / `failed_release_NOTES.md` | best-effort: forced a failed install (bad image, `--wait --timeout 10s`) then ran `nelm release get` against it |
 
-**RISK #2 VERDICT: YES** — helm v4.2.3 writes the identical
+**Can nelm read and import a helm v4 release: YES** — helm v4.2.3 writes the identical
 `sh.helm.release.v1.<name>.v1` / type `helm.sh/release.v1` Secret format
 (confirmed: `secret/sh.helm.release.v1.helmv4.v1`, type
 `helm.sh/release.v1`), and `nelm release get` reads it back with **zero
@@ -250,19 +242,18 @@ conversion**: chart name `basic`, version `0.1.0`, all 6 resources
 populated, values populated (6 top-level keys), release identity
 round-trips exactly. All 5 assertions passed.
 
-**Bonus finding (best-effort failed-release capture, deliverable 4's
-"never-deployed/failed release" ask):** the forced-failure helm install DID
+**Best-effort failed-release capture:** the forced-failure helm install DID
 leave a stored release behind (`status: "failed"`) that `nelm release get`
-reads successfully (see `failed_release_get.json`) — informs design §7
-risk #6 (Create partial-failure handling): a failed first install is NOT
+reads successfully (see `failed_release_get.json`) — relevant to Create's
+partial-failure handling: a failed first install is NOT
 invisible to `ReleaseGet` in this scenario, at least when the failure
-happens after resources were already applied (our test used
+happens after resources were already applied (the capture used
 `--wait --timeout 10s` against an unpullable image, so the Deployment
 object existed and was recorded before the wait timed out).
 
-### Deliverable 5 — managedFields probe (`internal/planconv/testdata/helmv4import/managedfields_*`)
+### managedFields probe (`internal/planconv/testdata/helmv4import/managedfields_*`)
 
-Same `helmv4probe` run as deliverable 4 (same namespace/release). Commands:
+Same `helmv4probe` run as the import fixtures (same namespace/release). Commands:
 
 ```
 kubectl --context orbstack -n <ns> get deployment helmv4-basic --show-managed-fields -o yaml   # before
@@ -272,11 +263,10 @@ nelm release plan install --kube-context orbstack -n <ns> -r helmv4 --save-plan 
 kubectl --context orbstack -n <ns> get deployment helmv4-basic --show-managed-fields -o yaml   # after2
 ```
 
-**Finding: managedFields did NOT change** after either plan
+**Result: managedFields did NOT change** after either plan
 (`before` == `after` == `after2`, byte-identical `managedFields:` blocks).
-This **corrects/refines** the design's §2.2/§7-risk-#5 assumption
-("first plan against helm-created resources MergePatches managedFields")
-for the common case. Root cause, read directly from the local nelm
+This **corrects** the working assumption ("first plan against
+helm-created resources MergePatches managedFields") for the common case. Root cause, read directly from the local nelm
 checkout (`v1.26.2-2-gda9a86a`):
 
 - `pkg/common/common.go:109` — `DefaultFieldManager = "helm"`: nelm
@@ -293,14 +283,15 @@ checkout (`v1.26.2-2-gda9a86a`):
   none of the three trigger conditions apply, so nothing is patched.
 
 See `managedfields_NOTES.md` for the full write-up. This is genuinely
-good news for RISK #2/import: adopting a modern helm v3/v4 release does
-NOT unexpectedly rewrite managedFields on a plain `terraform plan`. The
-design's stated risk likely still applies to resources carrying a truly
-legacy field manager (pre-server-side-apply werf/helm client-side-apply,
-or a manually `kubectl edit`-touched resource) — this task did not
-reproduce that narrower scenario live (flagged as a gap, not fabricated).
+good news for importing plain-helm releases: adopting a modern helm v3/v4
+release does NOT unexpectedly rewrite managedFields on a plain
+`terraform plan`. The assumption likely still applies to resources carrying
+a truly legacy field manager (pre-server-side-apply werf/helm
+client-side-apply, or a manually `kubectl edit`-touched resource) — this
+capture did not reproduce that narrower scenario live (flagged as a gap,
+not fabricated).
 
-### Deliverable 6 — normalization golden pair (`internal/planconv/testdata/normalize/`, `internal/planconv/testdata/STRIP_LIST.md`)
+### Normalization golden pair (`internal/planconv/testdata/normalize/`, `internal/planconv/testdata/STRIP_LIST.md`)
 
 Captured by `go run -tags smoke ./scripts/smoke/normalize tfnelm-fix-lifecycle-74a6c3 lifecycle`,
 run immediately after `lifecycle` (reads
@@ -314,8 +305,8 @@ ClusterRole, ClusterRoleBinding:
 - `<Kind>.live.cleaned.json` / `<Kind>.planafter.cleaned.json` — both run
   through `spec.CleanUnstruct(obj, CleanUnstructOptions{CleanRuntimeData:
   true, CleanHelmShAnnos: true, CleanWerfIoAnnos: true,
-  CleanManagedFields: true})` — the exact pipeline design §2.1 step 4
-  specifies.
+  CleanManagedFields: true})` — the cleaning step of the normalization
+  pipeline.
 - `<Kind>.cleaned-diff.json` — the RFC6902 diff (`wI2L/jsondiff`) between
   the two cleaned objects.
 
@@ -332,18 +323,16 @@ flagged as NOT a strip candidate — it's `lifecycle`'s own intentional
 drift (step c) correctly still showing up as a real diff, not
 server-defaulting noise; see the STRIP_LIST.md caveat section.
 
-### Bonus — error-shape fixtures (`internal/nelmclient/testdata/errors/`)
+### Error-shape fixtures (`internal/nelmclient/testdata/errors/`)
 
-Captured by `go run -tags smoke ./scripts/smoke/errorshapes` (beyond this
-task's 6 mandated deliverables; cheap and directly needed by the sibling
-T-nelmclient task's error-classification unit tests per the design's
-wave-1 item 5).
+Captured by `go run -tags smoke ./scripts/smoke/errorshapes` (used by
+`internal/nelmclient`'s error-classification unit tests).
 
 | file | scenario | exact error text captured |
 |---|---|---|
 | `unreachable_cluster.txt` | synthetic kubeconfig, server `https://127.0.0.1:1` (nothing listens there), `--kube-request-timeout 3s` | `release plan install: construct kube client factory: check kubernetes cluster version to check kubernetes connectivity: Get "https://127.0.0.1:1/version?timeout=3s": dial tcp 127.0.0.1:1: connect: connection refused` |
 | `bad_chart_ref.txt` | `./this-relative-chart-path-does-not-exist-anywhere` against orbstack (reachable, so this gets past connectivity and reaches chart loading) | `release plan install: render chart: load chart at "./this-relative-...": error checking if ... is a directory: stat ...: no such file or directory` |
-| `remote_chart_no_featgate.txt` | `oci://example.com/charts/does-not-matter` against orbstack, `NELM_FEAT_REMOTE_CHARTS` unset (false) | **Same generic "stat ...: no such file or directory" error as `bad_chart_ref.txt`** — no distinct/explicit "remote charts disabled" message. Important finding for T-nelmclient's error classifier: there is nothing feat-gate-specific to pattern-match here; an `oci://`/`repo/name` ref without the gate enabled is indistinguishable, error-text-wise, from a plain bad local path. |
+| `remote_chart_no_featgate.txt` | `oci://example.com/charts/does-not-matter` against orbstack, `NELM_FEAT_REMOTE_CHARTS` unset (false) | **Same generic "stat ...: no such file or directory" error as `bad_chart_ref.txt`** — no distinct/explicit "remote charts disabled" message. Important for `internal/nelmclient`'s error classifier: there is nothing feat-gate-specific to pattern-match here; an `oci://`/`repo/name` ref without the gate enabled is indistinguishable, error-text-wise, from a plain bad local path. |
 
 Note: nelm's connectivity check (`kube.NewClientFactory`) always runs
 BEFORE chart loading, so the bad-chart-ref and remote-chart-featgate

@@ -8,14 +8,14 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// TestToReleaseSpec_SetSensitiveWinsOnKeyConflict is the Phase D regression
-// test for the set/set_sensitive precedence bug: because nelm merges the four
-// --set* categories in a FIXED order (json, set, string, literal — last wins
-// per key) rather than in the order the provider appends them, a non-sensitive
-// `set` entry of a later category (here type="literal") used to override a
-// colliding set_sensitive entry of an earlier category (type="auto"/set),
-// silently deploying the public value in place of the secret and violating the
-// schema's documented "set_sensitive wins on key conflicts" contract.
+// TestToReleaseSpec_SetSensitiveWinsOnKeyConflict is the regression test for
+// the set/set_sensitive precedence bug: because nelm merges the four --set*
+// categories in a FIXED order (json, set, string, literal — last wins per key)
+// rather than in the order the provider appends them, a non-sensitive `set`
+// entry of a later category (here type="literal") used to override a colliding
+// set_sensitive entry of an earlier category (type="auto"/set), silently
+// deploying the public value in place of the secret and violating the schema's
+// documented "set_sensitive wins on key conflicts" contract.
 //
 // toReleaseSpec now drops any non-sensitive `set` entry whose name also
 // appears in set_sensitive, making the set_sensitive entry the sole writer for
@@ -81,10 +81,11 @@ func sensitiveModel(entries ...[3]string) releaseModel {
 	return m
 }
 
-// TestScrubSensitive is the F45 regression test: scrubSensitive replaced the
-// set_sensitive values one after another in list order, so a shorter value
-// listed before a longer one that contains it broke the longer one's match,
-// and the rest of it reached the diagnostic in cleartext.
+// TestScrubSensitive is the regression test for overlapping values:
+// scrubSensitive replaced the set_sensitive values one after another in list
+// order, so a shorter value listed before a longer one that contains it broke
+// the longer one's match, and the rest of it reached the diagnostic in
+// cleartext.
 func TestScrubSensitive(t *testing.T) {
 	const redacted = "(sensitive value redacted)"
 
@@ -153,12 +154,12 @@ func TestScrubSensitive(t *testing.T) {
 	}
 }
 
-// TestToReleaseSpec_OCIRepositoryFoldedIntoChart is the F16 regression test:
-// helm_release's OCI form (repository = "oci://host/path", chart = "name")
-// used to reach nelm as ChartRepoURL = "oci://host/path", which nelm fetches
-// as a classic index.yaml repository, so every plan failed. The spec handed
-// to nelm must carry the joined oci:// reference and NO repository URL, while
-// a classic https repository keeps working unchanged.
+// TestToReleaseSpec_OCIRepositoryFoldedIntoChart is the regression test for
+// the split OCI form: helm_release's OCI form (repository = "oci://host/path",
+// chart = "name") used to reach nelm as ChartRepoURL = "oci://host/path",
+// which nelm fetches as a classic index.yaml repository, so every plan failed.
+// The spec handed to nelm must carry the joined oci:// reference and NO
+// repository URL, while a classic https repository keeps working unchanged.
 func TestToReleaseSpec_OCIRepositoryFoldedIntoChart(t *testing.T) {
 	ctx := context.Background()
 
@@ -213,10 +214,10 @@ func TestToReleaseSpec_OCIRepositoryFoldedIntoChart(t *testing.T) {
 	}
 }
 
-// TestToReleaseSpec_WaitMapsToNoFinalTracking is the F09 regression test for
-// the `wait` attribute: only an explicit wait = false may skip nelm's final
-// readiness tracking. A null wait (state written before the attribute
-// existed, or a hand-built model) must keep waiting, not inherit
+// TestToReleaseSpec_WaitMapsToNoFinalTracking is the regression test for the
+// `wait` attribute: only an explicit wait = false may skip nelm's final
+// readiness tracking. A null wait (state written before the attribute existed,
+// or a hand-built model) must keep waiting, not inherit
 // types.Bool.ValueBool()'s false.
 func TestToReleaseSpec_WaitMapsToNoFinalTracking(t *testing.T) {
 	ctx := context.Background()

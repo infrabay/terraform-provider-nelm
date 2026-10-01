@@ -10,7 +10,7 @@ service:
   port: 80
 
 configMap:
-  # enabled is a fixture-capture hook (T-fixtures, Phase B wave 1): setting it
+  # enabled is a fixture-capture hook (scripts/smoke/lifecycle): setting it
   # to false via --set/ValuesSet removes this resource from the render while
   # everything else stays identical, which is what a live "delete from chart"
   # ReleasePlanInstall fixture needs. Default true means normal `helm

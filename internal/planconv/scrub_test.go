@@ -25,8 +25,8 @@ func TestScrubString(t *testing.T) {
 	}{
 		{"no secret", "plain text", []string{"hunter2"}, "plain text"},
 		{"every occurrence", "a=hunter2 b=hunter2", []string{"hunter2"}, "a=[hunter2] b=[hunter2]"},
-		// F45: the shorter value used to be replaced first when listed
-		// first, leaving the rest of the longer one ("-replica-Kx9") behind.
+		// The shorter value used to be replaced first when listed first,
+		// leaving the rest of the longer one ("-replica-Kx9") behind.
 		{"contained, shorter first", "dsn=S3cret-replica-Kx9;", []string{"S3cret", "S3cret-replica-Kx9"}, "dsn=[S3cret-replica-Kx9];"},
 		{"contained, longer first", "dsn=S3cret-replica-Kx9;", []string{"S3cret-replica-Kx9", "S3cret"}, "dsn=[S3cret-replica-Kx9];"},
 		{"partial overlap", "xxABCDEFyy", []string{"ABCD", "CDEF"}, "xx[ABCDEF]yy"},
@@ -174,13 +174,13 @@ func asLive(obj *unstructured.Unstructured) *unstructured.Unstructured {
 	return live
 }
 
-// TestBuildResources_ScrubsSecretsOnBothSides is the F06 regression test: a
-// set_sensitive value a chart renders into a non-Secret object went into the
-// planned "resources" values (ModifyPlan's render) and the live ones (Read)
-// verbatim, so every plan printed it and state stored it. Both sides now
-// carry the deterministic placeholder instead, and still compare equal when
-// nothing changed (a scrubbed map key included), while a rotated value still
-// shows as a change.
+// TestBuildResources_ScrubsSecretsOnBothSides is the regression test for
+// rendered set_sensitive values: a set_sensitive value a chart renders into a
+// non-Secret object went into the planned "resources" values (ModifyPlan's
+// render) and the live ones (Read) verbatim, so every plan printed it and
+// state stored it. Both sides now carry the deterministic placeholder instead,
+// and still compare equal when nothing changed (a scrubbed map key included),
+// while a rotated value still shows as a change.
 func TestBuildResources_ScrubsSecretsOnBothSides(t *testing.T) {
 	const secret = "postgres://app:P4ss@10.0.0.5/db"
 

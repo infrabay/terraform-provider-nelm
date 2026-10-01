@@ -1,11 +1,10 @@
 package provider_test
 
 // release_volatile_acc_test.go covers charts whose render changes on every
-// render (F01, G2.1) — testdata/charts/volatile: a lookup-guarded generated
-// password, a rollme annotation and a deploy-date timestamp — their
-// replacement (F03), and diff_mode = "none" for a chart that can never
-// converge. Same harness and triple safety guard as release_resource_test.go
-// (provider_test.go).
+// render — testdata/charts/volatile: a lookup-guarded generated password, a
+// rollme annotation and a deploy-date timestamp — their replacement, and
+// diff_mode = "none" for a chart that can never converge. Same harness and
+// triple safety guard as release_resource_test.go (provider_test.go).
 
 import (
 	"path/filepath"
@@ -84,10 +83,10 @@ func TestAccReleaseResource_volatileChart(t *testing.T) {
 // its generated password once it exists) used to uninstall the release and
 // then abort with "Provider produced inconsistent final plan": the plan
 // rendered the password lookup found on the old release's Secret, the
-// apply-time re-plan, after the destroy, a newly generated one (F03). While
-// the replaced release is live, the create's resources are now known after
-// apply. Covers a taint and a destroy-first release_storage_driver change
-// (whose replaced release lives in the other backend).
+// apply-time re-plan, after the destroy, a newly generated one. While the
+// replaced release is live, the create's resources are now known after apply.
+// Covers a taint and a destroy-first release_storage_driver change (whose
+// replaced release lives in the other backend).
 func TestAccReleaseResource_replaceLookupChart(t *testing.T) {
 	namespace := uniqueNamespace("vol-replace")
 	const name = "vol-replace"

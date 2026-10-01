@@ -1,11 +1,10 @@
 package provider
 
-// Offline unit tests for nelmProvider.Configure (review findings F04, F14,
-// F27): which cluster a provider configuration targets, how it fails closed,
-// and what resources get while the configuration is still Unknown. The
-// "clusters" are local httptest servers; HOME, KUBECACHEDIR and every
-// kubeconfig env var are pinned per test, so neither the real ~/.kube/config
-// nor its current-context is ever read.
+// Offline unit tests for nelmProvider.Configure: which cluster a provider
+// configuration targets, how it fails closed, and what resources get while the
+// configuration is still Unknown. The "clusters" are local httptest servers;
+// HOME, KUBECACHEDIR and every kubeconfig env var are pinned per test, so
+// neither the real ~/.kube/config nor its current-context is ever read.
 
 import (
 	"context"
@@ -289,14 +288,13 @@ func pathPtr(p path.Path) *path.Path {
 	return &p
 }
 
-// --- F04: an empty configuration fails closed --------------------------------
+// --- An empty configuration fails closed -------------------------------------
 
-// TestConfigure_NoConnectionSource_FailsClosed is the F04 regression test: a
+// TestConfigure_NoConnectionSource_FailsClosed is the regression test: a
 // provider block that names no cluster used to configure successfully and
 // silently target ~/.kube/config's current-context (here a "production"
-// context, as a developer's machine may have) — and $KUBECONFIG did not
-// change that.
-// Every such shape must now be a Configure error with no client.
+// context, as a developer's machine may have) — and $KUBECONFIG did not change
+// that. Every such shape must now be a Configure error with no client.
 func TestConfigure_NoConnectionSource_FailsClosed(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -349,7 +347,7 @@ func TestConfigure_NoConnectionSource_FailsClosed(t *testing.T) {
 	}
 }
 
-// --- F04: env seeding, "~" expansion, file validation --------------------------
+// --- Env seeding, "~" expansion, file validation -------------------------------
 
 func TestResolveKubeconfig(t *testing.T) {
 	sep := string(os.PathListSeparator)
@@ -523,12 +521,12 @@ func TestResolveKubeconfig(t *testing.T) {
 	}
 }
 
-// --- F04: the configured client really talks to the configured cluster ------
+// --- The configured client really talks to the configured cluster -----------
 
-// TestConfigure_TargetsConfiguredCluster drives Configure and then a real
-// nelm release read (nelmclient.Get) against two fake API servers: "prod" is
-// the current-context of ~/.kube/config, "staging" is what the provider
-// configuration names. Before F04, the env-seeded cases read prod (and the
+// TestConfigure_TargetsConfiguredCluster drives Configure and then a real nelm
+// release read (nelmclient.Get) against two fake API servers: "prod" is the
+// current-context of ~/.kube/config, "staging" is what the provider
+// configuration names. Before the fix, the env-seeded cases read prod (and the
 // release, absent there, would have been dropped from state).
 func TestConfigure_TargetsConfiguredCluster(t *testing.T) {
 	tests := []struct {
@@ -613,7 +611,7 @@ func TestConfigure_TargetsConfiguredCluster(t *testing.T) {
 	}
 }
 
-// --- F14: an Unknown configuration defers instead of failing the plan --------
+// --- An Unknown configuration defers instead of failing the plan -------------
 
 func TestConfigure_UnknownConfig_ReturnsPlaceholder(t *testing.T) {
 	unknownString := tftypes.NewValue(tftypes.String, tftypes.UnknownValue)
@@ -683,10 +681,11 @@ func TestConfigure_UnknownConfig_ReturnsPlaceholder(t *testing.T) {
 	}
 }
 
-// TestModifyPlan_UnknownProviderConfig covers the resource side of F14: a NEW
-// release degrades to an Unknown diff with a warning (apply computes it with
-// the real configuration), while a release already in state cannot be
-// planned without its cluster and fails with nelmclient.ErrConfigUnknown.
+// TestModifyPlan_UnknownProviderConfig covers the resource side of an Unknown
+// provider configuration: a NEW release degrades to an Unknown diff with a
+// warning (apply computes it with the real configuration), while a release
+// already in state cannot be planned without its cluster and fails with
+// nelmclient.ErrConfigUnknown.
 func TestModifyPlan_UnknownProviderConfig(t *testing.T) {
 	ambient := ambientCluster(t)
 
@@ -777,7 +776,7 @@ func TestRead_UnknownProviderConfig_KeepsState(t *testing.T) {
 	}
 }
 
-// --- F27: Configure guards, parsing and wiring --------------------------------
+// --- Configure guards, parsing and wiring -------------------------------------
 
 func TestConfigure_InlineConnectionGuards(t *testing.T) {
 	tests := []struct {

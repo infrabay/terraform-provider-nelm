@@ -16,9 +16,9 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
-// Default op timeouts (design §1.2). Applied by Phase B's release_crud.go /
-// release_plan.go via releaseModel.Timeouts.{Create,Read,Update,Delete}(ctx,
-// defaultXTimeout); the schema itself only declares the attributes (the
+// Default op timeouts. Applied by release_crud.go / release_plan.go via
+// releaseModel.Timeouts.{Create,Read,Update,Delete}(ctx, defaultXTimeout); the
+// schema itself only declares the attributes (the
 // terraform-plugin-framework-timeouts library does not support schema-level
 // defaults for duration strings).
 const (
@@ -42,10 +42,9 @@ const (
 	diffModeNone = "none"
 )
 
-// releaseResourceSchema is the FROZEN Phase A schema contract for
-// nelm_release (design §1.2). Every Phase B task (T-planconv, T-resplan,
-// T-rescrud) codes against this file; changing it after Phase A requires
-// orchestrator sign-off per CONTRACTS.md.
+// releaseResourceSchema is the schema contract for nelm_release. ModifyPlan
+// and the CRUD methods code against this file through releaseModel; see
+// CONTRACTS.md (Seam 3) before changing it.
 func releaseResourceSchema(ctx context.Context) schema.Schema {
 	setNestedObject := schema.NestedAttributeObject{
 		Attributes: map[string]schema.Attribute{

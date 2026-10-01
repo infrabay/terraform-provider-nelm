@@ -18,12 +18,12 @@ import (
 // This is the authoritative CHART-DESIRED shape of every resource. It exists
 // because an "update" plan change's After is the API server's dry-run merge —
 // live and chart fields blended — and no heuristic over (After, Before, prior
-// desired) can reliably separate them (adversarial review demonstrated
-// counterexamples for every rule: a prior poisoned by import's full-live
-// first Read keeps tracking live-mutable fields; a field the chart NEWLY
-// manages that already exists live gets misclassified as live-carried and
-// silently dropped). The rendered manifest resolves the ambiguity at the
-// source: a field is chart-managed iff the chart renders it.
+// desired) can reliably separate them (every such rule has a counterexample: a
+// prior poisoned by import's full-live first Read keeps tracking live-mutable
+// fields; a field the chart NEWLY manages that already exists live gets
+// misclassified as live-carried and silently dropped). The rendered manifest
+// resolves the ambiguity at the source: a field is chart-managed iff the chart
+// renders it.
 func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Duration) ([]*unstructured.Unstructured, error) {
 	if c.configUnknown {
 		return nil, ErrConfigUnknown

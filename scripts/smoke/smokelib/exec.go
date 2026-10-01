@@ -15,15 +15,14 @@ import (
 // release install, release get, release uninstall).
 //
 // WHY A SUBPROCESS AND NOT github.com/werf/nelm/pkg/action DIRECTLY: at
-// capture time, this module's go.sum was missing transitive-dependency
-// entries for pkg/action's CLI-output-formatting deps (alecthomas/chroma/v2,
-// dustin/go-humanize, jedib0t/go-pretty/v6) -- go.mod/go.sum are owned by
-// the "scaffold" task, not "fixtures", and per task rules this program may
-// never run `go get`/`go mod`. The nelm CLI binary is built straight from
-// the exact pinned commit (github.com/werf/nelm v1.26.2, tag v1.26.2-2) via
-// `go build ./cmd/nelm` in ITS OWN separately-go.sum'd module -- it is a thin wrapper
-// around the exact same action.ReleasePlanInstall/ReleaseInstall/
-// ReleaseGet/ReleaseUninstall functions this task would otherwise call
+// capture time, this module's go.sum was missing transitive-dependency entries
+// for pkg/action's CLI-output-formatting deps (alecthomas/chroma/v2,
+// dustin/go-humanize, jedib0t/go-pretty/v6), and the capture was kept
+// independent of go.mod/go.sum changes. The nelm CLI binary is built straight
+// from the exact pinned commit (github.com/werf/nelm v1.26.2, tag v1.26.2-2)
+// via `go build ./cmd/nelm` in ITS OWN separately-go.sum'd module -- it is a
+// thin wrapper around the exact same action.ReleasePlanInstall/ReleaseInstall/
+// ReleaseGet/ReleaseUninstall functions the harness would otherwise call
 // in-process, so the resulting PlanArtifact/ReleaseGetResultV1 JSON is
 // byte-for-byte what those functions would have produced. Every fixture's
 // provenance note records this explicitly. Reading/decoding/analyzing the
@@ -31,9 +30,9 @@ import (
 // pkg/resource sensitive-info helpers, pkg/kube live GETs) all compile fine
 // in-process and are NOT worked around -- only the mutating CLI actions are.
 //
-// Set SMOKE_NELM_BIN to override (defaults to "nelm" on PATH, i.e. the
-// separately-installed nelm CLI 1.25.2 mentioned in the task's toolchain,
-// if the exact-pinned-version binary isn't provided).
+// Set SMOKE_NELM_BIN to override (defaults to "nelm" on PATH, i.e. a
+// separately-installed nelm CLI, if the exact-pinned-version binary isn't
+// provided).
 //
 // Deliberately NOT named with an "NELM_"-prefix: the nelm CLI itself parses
 // every "NELM_*" environment variable as its own config (see any `--foo`

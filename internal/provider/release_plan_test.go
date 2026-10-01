@@ -366,16 +366,15 @@ func TestSetModelsEqual(t *testing.T) {
 	}
 }
 
-// --- releaseWillReinstall (finding #1 regression) --------------------------
+// --- releaseWillReinstall ----------------------------------------------------
 
-// TestReleaseWillReinstall is the Phase D regression test for the
-// "inconsistent result after apply" bug: status/revision used to be marked
-// Unknown only when nelm reported a resource-level change, so a values/version
-// edit that changed the coalesced config but rendered no manifest change left
-// revision KNOWN at its prior value even though the apply bumps it. This
-// asserts the decision now fires for any config change, not just a
-// resource-level one, while still staying false on a true no-op (so the
-// no-change plan stays empty).
+// TestReleaseWillReinstall is the regression test for the "inconsistent result
+// after apply" bug: status/revision used to be marked Unknown only when nelm
+// reported a resource-level change, so a values/version edit that changed the
+// coalesced config but rendered no manifest change left revision KNOWN at its
+// prior value even though the apply bumps it. This asserts the decision now
+// fires for any config change, not just a resource-level one, while still
+// staying false on a true no-op (so the no-change plan stays empty).
 func TestReleaseWillReinstall(t *testing.T) {
 	valuesList := func(docs ...string) types.List {
 		elems := make([]attr.Value, len(docs))
@@ -429,9 +428,9 @@ func TestReleaseWillReinstall(t *testing.T) {
 			want: true,
 		},
 		{
-			// The exact finding #1 repro: a values edit that alters no
-			// rendered manifest (planned == prior) must still count as a
-			// change, because nelm bumps the revision on the config change.
+			// The original repro: a values edit that alters no rendered
+			// manifest (planned == prior) must still count as a change,
+			// because nelm bumps the revision on the config change.
 			name:       "values change with no resource change",
 			mutatePlan: func(m *releaseModel) { m.Values = valuesList("replicaCount: 1", "notesOnlyValue: changed") },
 			planned:    sameMap, prior: sameMap,

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # gates.sh — deterministic mechanical gates. Usage:
-#   ./gates.sh repo                      # full repo gate (orchestrator only)
-#   ./gates.sh pkg <./internal/foo>      # package-scoped (implementers)
-#   ./gates.sh own <task> <baseline-ref> # ownership diff check
+#   ./gates.sh repo                      # full repo gate (default)
+#   ./gates.sh pkg <./internal/foo>      # package-scoped
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -16,8 +15,7 @@ case "${1:-repo}" in
     go build ./...
     # unit tests only: TF_ACC unset => acceptance auto-skipped; smoke excluded by build tag
     go test -race -count=1 -timeout 10m ./...
-    # file-existence gate (OWNERS.json is a local-only orchestration aid and
-    # deliberately NOT required — it is gitignored, so fresh clones lack it)
+    # file-existence gate
     for f in main.go gates.sh CONTRACTS.md \
              internal/provider/release_schema.go internal/nelmclient/types.go internal/planconv/key.go; do
       [ -e "$f" ] || { echo "missing required file: $f"; exit 1; }
@@ -29,14 +27,9 @@ case "${1:-repo}" in
     go build "$2"
     go test -race -count=1 -timeout 5m "$2"
     ;;
-  own)
-    task="$2"; base="$3"
-    [ -e OWNERS.json ] || { echo "gates.sh own: OWNERS.json not present (local orchestration mode only)"; exit 1; }
-    mapfile -t globs < <(jq -r --arg t "$task" '.[$t][]' OWNERS.json)
-    viol=$(git diff --name-only "$base" -- . | while read -r f; do
-      ok=0; for g in "${globs[@]}"; do case "$f" in $g) ok=1;; esac; done
-      [ "$ok" = 1 ] || echo "$f"; done)
-    [ -z "$viol" ] || { echo "ownership violations for task '$task':"; echo "$viol"; exit 1; }
+  *)
+    echo "usage: $0 [repo | pkg <package>]" >&2
+    exit 2
     ;;
 esac
 echo "gates OK (${1:-repo})"

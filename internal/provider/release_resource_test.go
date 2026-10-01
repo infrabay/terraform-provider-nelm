@@ -104,15 +104,15 @@ resource "nelm_release" "test" {
 }
 
 // TestAccReleaseResource_secretSensitive covers design §6 scenario (5): a
-// set_sensitive-provided Secret value must never appear in cleartext
-// anywhere under the "resources" computed attribute -- only the
-// deterministic "<hidden N sensitive bytes, hash ...>" placeholder
-// (planconv/sensitive.go's local V2-style override for Secret kinds) that
-// NormalizeUnstructured produces before anything reaches Terraform state.
-// A set_sensitive value the chart renders into a non-Secret object (the
-// ConfigMap's data.message) is replaced by the same kind of placeholder
-// (planconv.ScrubSecrets, F06), and the post-apply plan the test framework
-// runs stays empty, so the planned and the live side scrub identically.
+// set_sensitive-provided Secret value must never appear in cleartext anywhere
+// under the "resources" computed attribute -- only the deterministic "<hidden
+// N sensitive bytes, hash ...>" placeholder (planconv/sensitive.go's local
+// V2-style override for Secret kinds) that NormalizeUnstructured produces
+// before anything reaches Terraform state. A set_sensitive value the chart
+// renders into a non-Secret object (the ConfigMap's data.message) is replaced
+// by the same kind of placeholder (planconv.ScrubSecrets), and the post-apply
+// plan the test framework runs stays empty, so the planned and the live side
+// scrub identically.
 func TestAccReleaseResource_secretSensitive(t *testing.T) {
 	namespace := uniqueNamespace("sec")
 	const name = "sec"
@@ -293,30 +293,26 @@ resource "nelm_release" "test" {
 				},
 			},
 			{
-				// FINDING (reported to the orchestrator; not a test bug --
-				// see the run report): design §2.4 states the follow-up
-				// plan here should be EMPTY via plancheck.ExpectEmptyPlan.
-				// Live against orbstack it is NOT: ImportState
-				// (release_crud.go) never sets "chart" (nor
+				// Known gap (not a test bug): ideally the follow-up plan here
+				// would be EMPTY (plancheck.ExpectEmptyPlan). Live it is NOT:
+				// ImportState (release_crud.go) never sets "chart" (nor
 				// repository/version), and Read never touches config-only
-				// inputs by design, so "chart" stays null after import.
-				// Since "chart" is Required (non-Computed, no
-				// RequiresReplace), ANY real config's non-null chart value
-				// is therefore an unavoidable config-vs-state diff on the
-				// very first post-import plan, which correctly cascades
-				// into metadata/status/revision going Unknown (design
-				// §2.2 step 8b's existing, correct "metadata changed"
-				// logic) -- this is a genuine gap between the design
-				// doc's stated acceptance-test expectation and the
-				// current schema/ImportState shape, not a flaw in this
-				// test. What IS asserted here, and IS true live: the
-				// resulting plan is a plain in-place Update -- never a
-				// destroy/recreate of the adopted release -- and (per the
-				// full plan output captured in the run log) "resources"
-				// and "values"/"set"/"set_sensitive" are NOT part of the
-				// diff, i.e. the normalization/redaction pipeline itself
-				// round-trips cleanly through import; only chart and its
-				// dependent computed attributes do not.
+				// inputs by design, so "chart" stays null after import. Since
+				// "chart" is Required (non-Computed, no RequiresReplace), ANY
+				// real config's non-null chart value is therefore an
+				// unavoidable config-vs-state diff on the very first
+				// post-import plan, which correctly cascades into
+				// metadata/status/revision going Unknown (ModifyPlan's
+				// existing, correct "metadata changed" logic) -- this is a
+				// genuine gap between a zero-diff import and the current
+				// schema/ImportState shape, not a flaw in this test. What IS
+				// asserted here, and IS true live: the resulting plan is a
+				// plain in-place Update -- never a destroy/recreate of the
+				// adopted release -- and (per the full plan output captured in
+				// the run log) "resources" and "values"/"set"/"set_sensitive"
+				// are NOT part of the diff, i.e. the normalization/redaction
+				// pipeline itself round-trips cleanly through import; only
+				// chart and its dependent computed attributes do not.
 				Config:             cfg,
 				PlanOnly:           true,
 				ExpectNonEmptyPlan: true,
@@ -330,13 +326,13 @@ resource "nelm_release" "test" {
 	})
 }
 
-// TestAccReleaseResource_waitFalse covers the `wait` attribute (F09,
-// helm_release wait = false parity): a release whose only workload can never
-// become ready (its image is unpullable) must still apply cleanly and report
-// "deployed" with wait = false, because nelm then skips final readiness
-// tracking. With the default wait = true nelm's tracker fails this exact
-// apply on ErrImagePull; the short create timeout bounds a regression to
-// minutes instead of the 10m default.
+// TestAccReleaseResource_waitFalse covers the `wait` attribute (helm_release
+// wait = false parity): a release whose only workload can never become ready
+// (its image is unpullable) must still apply cleanly and report "deployed"
+// with wait = false, because nelm then skips final readiness tracking. With
+// the default wait = true nelm's tracker fails this exact apply on
+// ErrImagePull; the short create timeout bounds a regression to minutes
+// instead of the 10m default.
 func TestAccReleaseResource_waitFalse(t *testing.T) {
 	namespace := uniqueNamespace("nowait")
 	const name = "nowait"

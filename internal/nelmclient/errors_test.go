@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-// loadFixtureErr reads a captured-live error-shape fixture (see
-// testdata/errors/README, T-fixtures) and wraps its full combined-output text
-// as an error, the same shape IsClusterUnreachable/IsReleaseNotFound would
-// see via err.Error() in production (nelm actions return errors built with
-// %w around their own descriptive messages; the fixtures capture the fully
-// rendered chain).
+// loadFixtureErr reads a captured-live error-shape fixture (captured by
+// scripts/smoke/errorshapes, see scripts/smoke/README.md) and wraps its full
+// combined-output text as an error, the same shape
+// IsClusterUnreachable/IsReleaseNotFound would see via err.Error() in
+// production (nelm actions return errors built with %w around their own
+// descriptive messages; the fixtures capture the fully rendered chain).
 func loadFixtureErr(t *testing.T, name string) error {
 	t.Helper()
 

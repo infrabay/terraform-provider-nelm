@@ -22,10 +22,8 @@ import (
 
 // releaseResource implements the nelm_release managed resource type.
 //
-// Phase A wires Metadata/Schema/Configure for real (this is the frozen
-// contract Phase B codes against). Create/Read/Update/Delete/ImportState are
-// implemented here (design §2.3-2.4); ModifyPlan's implementation
-// (release_plan.go) is owned by T-resplan (design §2.2).
+// Metadata/Schema/Configure and Create/Read/Update/Delete/ImportState are
+// implemented here; ModifyPlan is implemented in release_plan.go.
 type releaseResource struct {
 	client releaseClient
 }

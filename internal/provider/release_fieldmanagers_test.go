@@ -21,14 +21,14 @@ import (
 const helmProviderManagerPrefix = "terraform-provider-helm"
 
 // TestAccReleaseResource_migrateFromHelmRelease covers the helm_release ->
-// nelm_release migration end to end (review finding F08): a release created
-// by the real hashicorp/helm provider (Helm 3 SDK, client-side writes under a
+// nelm_release migration end to end: a release created by the real
+// hashicorp/helm provider (Helm 3 SDK, client-side writes under a
 // "terraform-provider-helm_*" field manager) moves to nelm_release through
 // removed{destroy=false} + import{}, in the same change that drops a
 // value-driven ConfigMap key. Without the provider's field-manager hand-over,
 // nelm's server-side apply only co-owned that key with the stale manager, so
-// it stayed live indefinitely (and invisible to the projected resources
-// diff); with it, the very first nelm apply prunes it.
+// it stayed live indefinitely (and invisible to the projected resources diff);
+// with it, the very first nelm apply prunes it.
 func TestAccReleaseResource_migrateFromHelmRelease(t *testing.T) {
 	namespace := uniqueNamespace("mig")
 	const name = "mig"

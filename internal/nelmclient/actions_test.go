@@ -138,9 +138,9 @@ func TestTailErr_FoldsABoundedTail(t *testing.T) {
 	}
 }
 
-// TestInstallTrackingOptions is the F09 regression test for `wait`: Install
-// used to hard-code TrackingOptions{NoProgressTablePrint: true}, so nelm's
-// final readiness tracking always ran and helm_release's wait = false had no
+// TestInstallTrackingOptions is the regression test for `wait`: Install used
+// to hard-code TrackingOptions{NoProgressTablePrint: true}, so nelm's final
+// readiness tracking always ran and helm_release's wait = false had no
 // equivalent. The zero-value spec must keep waiting (fail-safe default).
 func TestInstallTrackingOptions(t *testing.T) {
 	if got := installTrackingOptions(ReleaseSpec{}); got.NoFinalTracking || !got.NoProgressTablePrint {

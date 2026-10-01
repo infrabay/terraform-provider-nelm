@@ -29,10 +29,10 @@ func TestNormalizeChartRef(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			// The repository-bypass regression (Opus 5 review): a bare name
-			// that HAPPENS to exist as a local directory must stay remote
-			// when a repository is set, or the repo would be silently
-			// defeated by an unrelated same-named directory on disk.
+			// The repository-bypass regression: a bare name that HAPPENS to
+			// exist as a local directory must stay remote when a repository is
+			// set, or the repo would be silently defeated by an unrelated
+			// same-named directory on disk.
 			name:       "bare name that exists on disk stays remote when repository is set",
 			chart:      "mychart",
 			repository: "https://charts.example.com",
@@ -49,10 +49,10 @@ func TestNormalizeChartRef(t *testing.T) {
 			wantRepo:   "https://charts.example.com",
 		},
 		{
-			// F16: helm_release's OCI form. Passed to nelm as-is, the
-			// repository is fetched as a classic index.yaml repo and every
-			// plan fails ("not a valid chart repository ... object
-			// required"); it must be folded into one oci:// chart ref.
+			// helm_release's OCI form. Passed to nelm as-is, the repository is
+			// fetched as a classic index.yaml repo and every plan fails ("not
+			// a valid chart repository ... object required"); it must be
+			// folded into one oci:// chart ref.
 			name:       "oci:// repository is folded into the chart reference",
 			chart:      "app",
 			repository: "oci://us-central1-docker.pkg.dev/my-project/helm",

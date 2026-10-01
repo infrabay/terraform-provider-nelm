@@ -23,9 +23,9 @@ func RepoRoot() string {
 }
 
 // BasicChartPath returns the absolute path to testdata/charts/basic — an
-// ABSOLUTE path, never a bare relative one, per design §3 chartref
-// discipline ("bare relative chart name must NEVER reach nelm
-// un-absolutized").
+// ABSOLUTE path, never a bare relative one, matching the provider's chart
+// reference rule (internal/nelmclient/chartref.go: a bare relative chart name
+// must NEVER reach nelm un-absolutized).
 func BasicChartPath() string {
 	return filepath.Join(RepoRoot(), "testdata", "charts", "basic")
 }

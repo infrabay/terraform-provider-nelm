@@ -1,12 +1,11 @@
 package provider_test
 
-// provider_test.go is the acceptance-test HARNESS (design §6, OWNERS.json
-// "acctest"). It replaces the Phase A pre-warm placeholder that used to live
-// here. release_resource_test.go (same package, same owner) holds the actual
-// scenario Test functions; everything below is shared plumbing: the
-// protocol-v6 provider factory, the triple orbstack safety guard, and small
-// kubectl/helm helpers the scenarios use to create out-of-band drift/fixtures
-// and to clean up after themselves.
+// provider_test.go is the acceptance-test HARNESS. release_resource_test.go
+// (same package) and the other *_acc_test.go files hold the actual scenario
+// Test functions; everything below is shared plumbing: the protocol-v6
+// provider factory, the triple orbstack safety guard, and small kubectl/helm
+// helpers the scenarios use to create out-of-band drift/fixtures and to clean
+// up after themselves.
 //
 // CLUSTER SAFETY: the machine this runs on may have its kubeconfig
 // current-context pointed at a remote or production cluster. Every helper here
@@ -385,10 +384,10 @@ func TestReleaseRecordsLeft(t *testing.T) {
 }
 
 // TestLocalContextServer is the offline regression test for the acceptance
-// guard (review finding F47; runs without TF_ACC). The guard used to resolve
-// the pinned context through `kubectl config view`, which honours $KUBECONFIG
-// while the provider never reads it, and accepted any server merely PREFIXED
-// with https://127.0.0.1 or https://localhost.
+// guard (runs without TF_ACC). The guard used to resolve the pinned context
+// through `kubectl config view`, which honours $KUBECONFIG while the provider
+// never reads it, and accepted any server merely PREFIXED with
+// https://127.0.0.1 or https://localhost.
 func TestLocalContextServer(t *testing.T) {
 	write := func(t *testing.T, name, server string) string {
 		t.Helper()
