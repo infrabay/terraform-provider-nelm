@@ -55,8 +55,8 @@ func TestNormalizeChartRef(t *testing.T) {
 			// folded into one oci:// chart ref.
 			name:       "oci:// repository is folded into the chart reference",
 			chart:      "app",
-			repository: "oci://us-central1-docker.pkg.dev/my-project/helm",
-			want:       "oci://us-central1-docker.pkg.dev/my-project/helm/app",
+			repository: "oci://us-central1-docker.pkg.dev/my-project/charts",
+			want:       "oci://us-central1-docker.pkg.dev/my-project/charts/app",
 		},
 		{
 			name:       "oci:// repository with a trailing slash",

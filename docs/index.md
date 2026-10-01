@@ -119,11 +119,11 @@ provider "nelm" {
 resource "nelm_release" "app" {
   name      = "app"
   namespace = "app-ns"
-  chart     = "oci://us-central1-docker.pkg.dev/my-project/helm/app"
+  chart     = "oci://us-central1-docker.pkg.dev/my-project/charts/app"
   version   = "0.2.0"
 
   # helm_release's OCI form is accepted too and resolves to the same chart:
-  #   repository = "oci://us-central1-docker.pkg.dev/my-project/helm"
+  #   repository = "oci://us-central1-docker.pkg.dev/my-project/charts"
   #   chart      = "app"
 }
 ```

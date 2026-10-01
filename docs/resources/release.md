@@ -1052,10 +1052,10 @@ classic `index.yaml` repository and fail). Both spellings install the same
 chart, and state keeps `chart` and `repository` exactly as written:
 
 ```hcl
-# Equivalent to chart = "oci://us-central1-docker.pkg.dev/my-project/helm/app"
+# Equivalent to chart = "oci://us-central1-docker.pkg.dev/my-project/charts/app"
 resource "nelm_release" "app" {
   name       = "app"
-  repository = "oci://us-central1-docker.pkg.dev/my-project/helm"
+  repository = "oci://us-central1-docker.pkg.dev/my-project/charts"
   chart      = "app"
   version    = "0.2.0"
 }

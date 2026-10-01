@@ -173,8 +173,8 @@ func TestToReleaseSpec_OCIRepositoryFoldedIntoChart(t *testing.T) {
 		{
 			name:       "oci:// repository + chart name",
 			chart:      "app",
-			repository: "oci://us-central1-docker.pkg.dev/my-project/helm",
-			wantChart:  "oci://us-central1-docker.pkg.dev/my-project/helm/app",
+			repository: "oci://us-central1-docker.pkg.dev/my-project/charts",
+			wantChart:  "oci://us-central1-docker.pkg.dev/my-project/charts/app",
 			wantRepo:   "",
 		},
 		{
@@ -206,8 +206,8 @@ func TestToReleaseSpec_OCIRepositoryFoldedIntoChart(t *testing.T) {
 	// A full oci:// chart AND a repository is contradictory: an attribute
 	// error on chart, not a garbage joined reference.
 	m := baseTestReleaseModel()
-	m.Chart = types.StringValue("oci://us-central1-docker.pkg.dev/my-project/helm/app")
-	m.Repository = types.StringValue("oci://us-central1-docker.pkg.dev/my-project/helm")
+	m.Chart = types.StringValue("oci://us-central1-docker.pkg.dev/my-project/charts/app")
+	m.Repository = types.StringValue("oci://us-central1-docker.pkg.dev/my-project/charts")
 
 	if _, diags := m.toReleaseSpec(ctx); !diags.HasError() {
 		t.Error("toReleaseSpec: want an error for an oci:// chart combined with a repository")
