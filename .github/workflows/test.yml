@@ -1,6 +1,9 @@
 name: test
 
 on:
+  # release.yml runs this whole workflow against a tagged commit before it
+  # builds the release.
+  workflow_call:
   pull_request:
     paths-ignore:
       - 'docs/**'

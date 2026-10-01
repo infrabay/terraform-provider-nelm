@@ -115,8 +115,8 @@ live in `~/.kube/config` (where OrbStack and kind write it by default).
 
 ## Continuous integration
 
-`.github/workflows/test.yml` runs on every pull request and every push to
-`main`:
+`.github/workflows/test.yml` runs on every pull request, every push to
+`main`, and for every release tag (`release.yml` calls it):
 
 - `build`: gofmt, `go vet`, `go build`, and the unit tests with `-race`;
 - `lint`: golangci-lint;
@@ -126,12 +126,33 @@ live in `~/.kube/config` (where OrbStack and kind write it by default).
 
 ## Releasing
 
-Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`:
-[GoReleaser](https://goreleaser.com/) (`.goreleaser.yml`) builds the binaries,
-one zip per platform, the Registry manifest and a GPG-signed `SHA256SUMS`, and
-publishes them as a GitHub release. The `GPG_PRIVATE_KEY` and `PASSPHRASE`
-secrets must be set, and the signing key's public half must be registered
-with the Terraform Registry publisher.
+Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`. It first runs
+the whole test workflow against the tagged commit, then
+[GoReleaser](https://goreleaser.com/) v2 (`.goreleaser.yml`) builds the
+binaries for every platform the Terraform Registry serves, one zip per
+platform, the Registry manifest and a GPG-signed `SHA256SUMS`, and publishes
+them as a GitHub release. Its before hook, `go mod tidy -diff`, fails the
+release when `go.mod`/`go.sum` at the tag are not tidy. Locally,
+`goreleaser check` validates the configuration and
+`goreleaser build --snapshot --clean` builds every platform into `dist/`
+(ignored by git) without publishing anything.
+
+One-time setup for the Terraform Registry:
+
+1. The repository must be public: the public Registry only publishes from
+   public GitHub repositories named `terraform-provider-<name>`.
+2. Create an RSA or DSA GPG key (the Registry rejects the default ECC
+   type), add its ASCII-armored public key in the Registry's publisher
+   settings (Signing Keys), and store the private key and its passphrase as
+   the `GPG_PRIVATE_KEY` and `PASSPHRASE` secrets.
+3. Once the repository is public, move those secrets into a `release`
+   environment (deployment tags `v*`, required reviewers) and uncomment
+   `environment: release` in `release.yml`; on the GitHub Free plan,
+   environment protection rules (and branch and tag rulesets) are only
+   available to public repositories.
+4. Sign in to the Registry with GitHub and publish the provider from this
+   repository. The Registry adds a webhook that picks up every later
+   release.
 
 ## Nelm source reference
 

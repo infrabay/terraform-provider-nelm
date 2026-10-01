@@ -7,7 +7,10 @@ version: 2
 
 before:
   hooks:
-    - go mod tidy
+    # A check, not a fix: this runs after GoReleaser's dirty-tree check, so a
+    # plain `go mod tidy` would silently build the release from a go.mod/go.sum
+    # that differs from the tagged commit.
+    - go mod tidy -diff
 
 builds:
   - env:
@@ -27,9 +30,18 @@ builds:
       - '386'
       - arm
       - arm64
+      - s390x
     ignore:
       - goos: darwin
         goarch: '386'
+      - goos: windows
+        goarch: arm
+      - goos: darwin
+        goarch: s390x
+      - goos: freebsd
+        goarch: s390x
+      - goos: windows
+        goarch: s390x
     binary: '{{ .ProjectName }}_v{{ .Version }}'
 
 archives:
