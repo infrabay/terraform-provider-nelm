@@ -6,17 +6,24 @@ on:
   workflow_call:
   pull_request:
     paths-ignore:
-      - 'docs/**'
       - 'README.md'
   push:
     branches:
       - main
     paths-ignore:
-      - 'docs/**'
       - 'README.md'
 
 permissions:
   contents: read
+
+# Tool versions, kept current by Renovate (customManagers:githubActionsVersions).
+env:
+  # renovate: datasource=github-releases depName=golangci/golangci-lint
+  GOLANGCI_LINT_VERSION: v2.14.0
+  # renovate: datasource=go depName=golang.org/x/vuln
+  GOVULNCHECK_VERSION: v1.8.0
+  # renovate: datasource=go depName=github.com/hashicorp/terraform-plugin-docs
+  TFPLUGINDOCS_VERSION: v0.25.0
 
 jobs:
   build:
@@ -38,6 +45,14 @@ jobs:
       - run: go build -v ./...
       # Acceptance tests (TF_ACC) need a live cluster and self-skip here.
       - run: go test -race -count=1 ./...
+      # Committed files end up on the Registry and in release archives; keep
+      # home directories and session scratch paths out of them.
+      - name: No workstation paths
+        run: |
+          if git grep -nE '/Users/[A-Za-z]|/home/[A-Za-z]|/private/tmp/[A-Za-z]'; then
+            echo "::error::tracked files contain workstation paths (above)"
+            exit 1
+          fi
 
   lint:
     name: golangci-lint
@@ -50,10 +65,60 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
       # v8 of the action is required for golangci-lint v2.x (the version this
-      # repo is validated against); v6 only drives the v1.x line.
+      # repo is validated against); v6 only drives the v1.x line. The linter
+      # itself is pinned to the version ./gates.sh is run with locally.
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: latest
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      # Lists every vulnerability the provider's code can reach and fails on
+      # those that have a fixed version to move to. The ones reachable through
+      # nelm's dependencies today (containerd 1.7, docker/docker,
+      # x/crypto/openpgp) have no fix in the module lines nelm pins, so a
+      # plain `govulncheck ./...` would fail every run without saying which
+      # findings are actionable.
+      - name: govulncheck
+        shell: bash
+        run: |
+          go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" -format json ./... > govulncheck.json
+          jq -r 'select(.finding.trace[0].function != null) | .finding
+            | "\(.osv) \(.trace[0].module)@\(.trace[0].version) fixed in: \(.fixed_version // "none")"' \
+            govulncheck.json | sort -u | tee reachable.txt
+          if grep -v 'fixed in: none$' reachable.txt; then
+            echo "::error::reachable vulnerabilities with a fixed version (above): upgrade those modules"
+            exit 1
+          fi
+
+  docs:
+    name: docs (tfplugindocs validate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      # tfplugindocs builds the provider and reads its schema with the
+      # terraform binary on PATH (it downloads the latest one otherwise).
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: '1.15.8'
+          terraform_wrapper: false
+      # Frontmatter, directory layout and file names of docs/ as the Terraform
+      # Registry expects them. The pages are hand-written, so nothing is
+      # generated.
+      - run: go run "github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@${TFPLUGINDOCS_VERSION}" validate --provider-name nelm
 
   acceptance:
     name: acceptance tests (kind)

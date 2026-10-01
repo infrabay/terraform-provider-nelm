@@ -26,7 +26,8 @@ installed). Please make sure it passes before opening a pull request.
   provider and resource docs and the guides are what the Terraform Registry
   renders, so link between them and to repository files with absolute
   `https://github.com/infrabay/terraform-provider-nelm/blob/main/...` URLs
-  (the Registry does not resolve relative links).
+  (the Registry does not resolve relative links). CI runs
+  `tfplugindocs validate` on them.
 
 ## Reporting issues
 

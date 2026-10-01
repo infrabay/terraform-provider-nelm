@@ -118,11 +118,25 @@ live in `~/.kube/config` (where OrbStack and kind write it by default).
 `.github/workflows/test.yml` runs on every pull request, every push to
 `main`, and for every release tag (`release.yml` calls it):
 
-- `build`: gofmt, `go vet`, `go build`, and the unit tests with `-race`;
-- `lint`: golangci-lint;
+- `build`: gofmt, `go vet`, `go build`, the unit tests with `-race`, and a
+  check that no tracked file contains a workstation path (`/Users/...`);
+- `lint`: golangci-lint, pinned to the version `./gates.sh` is run with;
+- `govulncheck`: lists the vulnerabilities the code can reach and fails on
+  those with a fixed version (the ones reachable through Nelm's dependencies
+  today have none);
+- `docs`: `tfplugindocs validate --provider-name nelm`, the Registry's
+  frontmatter and layout rules for the hand-written `docs/`;
 - `acceptance`: the acceptance suite against a
   [kind](https://kind.sigs.k8s.io/) cluster (`kind-nelm-acc` context), with
   Terraform 1.15.8 and the real helm CLI for the out-of-band import fixture.
+
+The tool versions are `*_VERSION` variables at the top of `test.yml`, which
+Renovate keeps current. To run the docs and vulnerability checks locally:
+
+```sh
+go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@latest validate --provider-name nelm
+go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+```
 
 ## Releasing
 
