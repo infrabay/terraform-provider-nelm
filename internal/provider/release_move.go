@@ -22,7 +22,8 @@ const helmProviderAddress = "registry.terraform.io/hashicorp/helm"
 // maps onto nelm_release. The attribute names and JSON shapes are the same in
 // the provider's v3 (schema version 2, framework) and v2 (SDK, where
 // set/set_sensitive were blocks) releases; everything else in the source
-// state is ignored. JSON nulls decode to the zero values.
+// state is ignored. JSON nulls decode to the zero values (Wait, whose
+// helm_release default is true, to nil).
 type helmReleaseState struct {
 	Name          string         `json:"name"`
 	Namespace     string         `json:"namespace"`
@@ -34,6 +35,7 @@ type helmReleaseState struct {
 	SetSensitive  []helmSetState `json:"set_sensitive"`
 	MaxHistory    int64          `json:"max_history"`
 	Atomic        bool           `json:"atomic"`
+	Wait          *bool          `json:"wait"`
 	SkipCRDs      bool           `json:"skip_crds"`
 	TakeOwnership bool           `json:"take_ownership"`
 }
@@ -88,13 +90,11 @@ func moveFromHelmRelease(ctx context.Context, req resource.MoveStateRequest, res
 		ns = "default"
 	}
 
-	// helm_release's split OCI form (repository = "oci://host/path", chart =
-	// "name") becomes nelm_release's single chart reference.
+	// chart and repository are carried over as written, helm_release's split
+	// OCI form (repository = "oci://host/path", chart = "name") included:
+	// nelm_release accepts it and keeps it in state as written, so a
+	// configuration that keeps the helm_release's form plans no change.
 	chart, repository := src.Chart, src.Repository
-	if strings.HasPrefix(repository, "oci://") && !strings.Contains(chart, "://") {
-		chart = strings.TrimSuffix(repository, "/") + "/" + chart
-		repository = ""
-	}
 
 	// helm_release's version is Computed: for a local chart it holds the
 	// chart's own Chart.yaml version even though no configuration sets it,
@@ -120,6 +120,11 @@ func moveFromHelmRelease(ctx context.Context, req resource.MoveStateRequest, res
 		historyLimit = types.Int64Value(src.MaxHistory)
 	}
 
+	wait := true
+	if src.Wait != nil {
+		wait = *src.Wait
+	}
+
 	// Every other attribute stays null: the TargetState starts as a null
 	// object of the nelm_release schema.
 	attrs := map[string]any{
@@ -133,6 +138,7 @@ func moveFromHelmRelease(ctx context.Context, req resource.MoveStateRequest, res
 		"set":                      movedSetEntries(src.Set),
 		"set_sensitive":            movedSetEntries(src.SetSensitive),
 		"auto_rollback":            src.Atomic,
+		"wait":                     wait,
 		"force_adoption":           src.TakeOwnership,
 		"no_remove_manual_changes": false,
 		"no_install_crds":          src.SkipCRDs,

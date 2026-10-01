@@ -112,9 +112,10 @@ func TestMoveFromHelmRelease(t *testing.T) {
 		{"id", got.ID.ValueString(), "app/app"},
 		{"name", got.Name.ValueString(), "app"},
 		{"namespace", got.Namespace.ValueString(), "app"},
-		// The split OCI form is joined into one chart reference.
-		{"chart", got.Chart.ValueString(), "oci://registry-1.docker.io/bitnamicharts/nginx"},
-		{"repository is null", got.Repository.IsNull(), true},
+		// The split OCI form is kept as written: nelm_release accepts it, so
+		// the helm_release's configuration plans no chart/repository change.
+		{"chart", got.Chart.ValueString(), "nginx"},
+		{"repository", got.Repository.ValueString(), "oci://registry-1.docker.io/bitnamicharts"},
 		{"version", got.Version.ValueString(), "1.2.3"},
 		{"values", len(got.Values.Elements()), 1},
 		{"set entries", len(got.Set), 2},
@@ -123,6 +124,7 @@ func TestMoveFromHelmRelease(t *testing.T) {
 		{"set_sensitive is null", got.SetSensitive == nil, true},
 		{"release_history_limit", got.ReleaseHistoryLimit.ValueInt64(), int64(10)},
 		{"auto_rollback (atomic)", got.AutoRollback.ValueBool(), true},
+		{"wait", got.Wait.ValueBool(), true},
 		{"no_install_crds (skip_crds)", got.NoInstallCRDs.ValueBool(), true},
 		{"force_adoption", got.ForceAdoption.ValueBool(), false},
 		{"adopt_existing", got.AdoptExisting.ValueBool(), false},
@@ -167,6 +169,41 @@ func TestMoveFromHelmRelease_Defaults(t *testing.T) {
 
 	if !got.Values.IsNull() || got.Set != nil || !got.ReleaseHistoryLimit.IsNull() {
 		t.Errorf("empty values/set and max_history 0 must map to null, got %v/%v/%v", got.Values, got.Set, got.ReleaseHistoryLimit)
+	}
+}
+
+// TestMoveFromHelmRelease_SeedsEverySchemaDefault: like ImportState, a move
+// must set every defaulted attribute, or the first plan after it shows a
+// `null -> default` update and its apply runs nelm install. A helm_release
+// with all its defaults maps onto nelm_release's defaults; wait, added to
+// nelm_release after the move was written, was left null this way.
+func TestMoveFromHelmRelease_SeedsEverySchemaDefault(t *testing.T) {
+	resp := runMove(t, helmProviderAddress, "helm_release",
+		`{"name": "web", "namespace": "default", "chart": "web", "repository": "https://charts.example", "version": "1.0.0"}`)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("unexpected errors: %v", resp.Diagnostics)
+	}
+
+	assertSchemaDefaults(t, resp.TargetState, "moved")
+}
+
+// TestMoveFromHelmRelease_Wait: helm_release's wait carries over, and a state
+// without it (wait defaults to true in every hashicorp/helm release) waits.
+func TestMoveFromHelmRelease_Wait(t *testing.T) {
+	for stateJSON, want := range map[string]bool{
+		`{"name": "web", "chart": "./web", "wait": false}`: false,
+		`{"name": "web", "chart": "./web", "wait": true}`:  true,
+		`{"name": "web", "chart": "./web", "wait": null}`:  true,
+		`{"name": "web", "chart": "./web"}`:                true,
+	} {
+		resp := runMove(t, helmProviderAddress, "helm_release", stateJSON)
+		if resp.Diagnostics.HasError() {
+			t.Fatalf("%s: unexpected errors: %v", stateJSON, resp.Diagnostics)
+		}
+
+		if got := stateModel(t, context.Background(), resp.TargetState).Wait; !got.Equal(types.BoolValue(want)) {
+			t.Errorf("%s: wait = %s, want %t", stateJSON, got, want)
+		}
 	}
 }
 

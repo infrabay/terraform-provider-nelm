@@ -612,10 +612,11 @@ depends on the field manager that added it:
 ### Migrating from `helm_release`
 
 A release created or upgraded by hashicorp/helm's `helm_release` is a plain
-Helm 3 release and is adopted like one (see Import above, or use a
-`removed { lifecycle { destroy = false } }` block plus an `import` block);
+Helm 3 release and is adopted like one (see Import above: a
+`removed { lifecycle { destroy = false } }` block plus an `import` block),
+or handed over with a `moved` block;
 [Migrating from `helm_release`](../guides/migrating-from-helm_release.md)
-walks through the procedure. Two field-ownership differences matter:
+walks through both. Two field-ownership differences matter:
 
 - **Field managers are handed over at apply.** `helm_release` writes objects
   client-side (Helm 3 SDK) under the field manager

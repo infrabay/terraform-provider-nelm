@@ -163,4 +163,8 @@ the old shape.
   download goes to the shared Helm cache under a `<name>-<version>.tgz` name
   that concurrent operations collide on. `fetchChart` mirrors nelm's
   downloader setup (`pkg/chart` `newChartDownloader`) and must be
-  re-checked against it on every nelm upgrade.
+  re-checked against it on every nelm upgrade. Both the download and the
+  nelm action get the chart reference and repository URL from
+  `NormalizeChartRef`, never `ReleaseSpec.Repository` itself: an `oci://`
+  repository is folded into the reference and must not reach either as a
+  classic repository URL.

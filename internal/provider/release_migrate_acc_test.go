@@ -24,16 +24,17 @@ var helmExternalProviders = map[string]resource.ExternalProvider{
 	"helm": {Source: "hashicorp/helm", VersionConstraint: "~> 3.0"},
 }
 
-// helmProviderBlock configures hashicorp/helm for the pinned test context,
-// explicitly (never the ambient current-context).
+// helmProviderBlock configures hashicorp/helm for the pinned test context in
+// the suite's kubeconfig file, explicitly (never the ambient current-context
+// or $KUBECONFIG), like providerBlock.
 func helmProviderBlock() string {
 	return fmt.Sprintf(`provider "helm" {
   kubernetes = {
-    config_path    = pathexpand("~/.kube/config")
+    config_path    = %q
     config_context = %q
   }
 }
-`, testKubeContext())
+`, testKubeconfigPath(), testKubeContext())
 }
 
 // helmReleaseConfig is the "before" configuration: the release managed by

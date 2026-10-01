@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -292,8 +293,22 @@ func TestImportState_SeedsEverySchemaDefault(t *testing.T) {
 		t.Fatalf("ImportState: unexpected diagnostics: %v", resp.Diagnostics)
 	}
 
-	for name, a := range sch.Attributes {
-		var want, got attr.Value
+	assertSchemaDefaults(t, resp.State, "imported")
+}
+
+// assertSchemaDefaults fails t for every Bool or String attribute with a
+// schema default whose value in state is not that default. what names the
+// state in failure messages ("imported", "moved").
+func assertSchemaDefaults(t *testing.T, state tfsdk.State, what string) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	for name, a := range releaseResourceSchema(ctx).Attributes {
+		var (
+			want, got attr.Value
+			diags     diag.Diagnostics
+		)
 
 		switch a := a.(type) {
 		case schema.BoolAttribute:
@@ -306,7 +321,7 @@ func TestImportState_SeedsEverySchemaDefault(t *testing.T) {
 			want = dr.PlanValue
 
 			var v types.Bool
-			resp.Diagnostics.Append(resp.State.GetAttribute(ctx, path.Root(name), &v)...)
+			diags = state.GetAttribute(ctx, path.Root(name), &v)
 			got = v
 		case schema.StringAttribute:
 			if a.Default == nil {
@@ -318,18 +333,18 @@ func TestImportState_SeedsEverySchemaDefault(t *testing.T) {
 			want = dr.PlanValue
 
 			var v types.String
-			resp.Diagnostics.Append(resp.State.GetAttribute(ctx, path.Root(name), &v)...)
+			diags = state.GetAttribute(ctx, path.Root(name), &v)
 			got = v
 		default:
 			continue
 		}
 
-		if resp.Diagnostics.HasError() {
-			t.Fatalf("read imported %q: %v", name, resp.Diagnostics)
+		if diags.HasError() {
+			t.Fatalf("read %s %q: %v", what, name, diags)
 		}
 
 		if !got.Equal(want) {
-			t.Errorf("imported %q = %s, want its schema default %s", name, got, want)
+			t.Errorf("%s %q = %s, want its schema default %s", what, name, got, want)
 		}
 	}
 }

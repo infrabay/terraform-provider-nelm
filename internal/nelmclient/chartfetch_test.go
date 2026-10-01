@@ -318,6 +318,61 @@ func TestFetchChart_StalledOCIRegistryIsBounded(t *testing.T) {
 	}
 }
 
+// TestRender_OCIRepositoryIsPulledAsOneReference covers the seam between
+// helm_release's OCI form (repository = "oci://host/path", chart = "name"),
+// which NormalizeChartRef folds into one oci:// reference with no repository
+// URL, and the per-operation chart download: the download must get that
+// folded repository URL, never spec.Repository. Given the oci:// repository as
+// ChartRepoURL, it looked the chart up as a classic index.yaml repository and
+// failed with "get chart URL: ... is not a valid chart repository" before
+// ever pulling the chart. The registry here drops every connection, so the
+// pull itself fails too, just later and differently.
+func TestRender_OCIRepositoryIsPulledAsOneReference(t *testing.T) {
+	ctx := context.Background()
+
+	if err := Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	c := NewClient(fakeKubeConfig(t))
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+
+			_ = conn.Close()
+		}
+	}()
+
+	_, err = c.Render(ctx, ReleaseSpec{
+		Name:       "app",
+		Namespace:  "default",
+		Chart:      "app",
+		Repository: "oci://" + ln.Addr().String() + "/charts",
+		Version:    "1.0.0",
+	}, 10*time.Second)
+	if err == nil {
+		t.Fatal("expected an error from a registry that drops every connection")
+	}
+
+	if want := fmt.Sprintf("download chart %q", "oci://"+ln.Addr().String()+"/charts/app"); !strings.Contains(err.Error(), want) {
+		t.Errorf("Render error does not come from pulling the folded reference (want %q):\n%v", want, err)
+	}
+
+	if strings.Contains(err.Error(), "get chart URL") {
+		t.Errorf("the oci:// repository was looked up as a classic chart repository:\n%v", err)
+	}
+}
+
 // TestFetchChart_HelmPanicIsAnError checks a panic in helm's download code
 // comes back as an error instead of crashing the process: fetchChart runs the
 // download on its own goroutine, where nothing else would recover it. nelm

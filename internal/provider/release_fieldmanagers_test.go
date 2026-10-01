@@ -2,8 +2,8 @@ package provider_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -36,17 +36,6 @@ func TestAccReleaseResource_migrateFromHelmRelease(t *testing.T) {
 	chart := fieldManagersChartPath(t)
 	configMap := name + "-fieldmanagers"
 
-	// hashicorp/helm reads neither KUBECONFIG nor kube_context: give it the
-	// same kubeconfig files kubectl resolves and the same pinned context
-	// testAccPreCheck verified is local.
-	helmProvider := fmt.Sprintf(`provider "helm" {
-  kubernetes = {
-    config_paths   = [%s]
-    config_context = %q
-  }
-}
-`, quotedList(kubeconfigPaths(t)), testKubeContext())
-
 	helmCfg := fmt.Sprintf(`%s
 resource "helm_release" "test" {
   name             = %q
@@ -61,7 +50,7 @@ resource "helm_release" "test" {
     },
   ]
 }
-`, helmProvider, name, namespace, chart)
+`, helmProviderBlock(), name, namespace, chart)
 
 	// The migration change also drops the "set": the first nelm apply renders
 	// the ConfigMap without FEATURE_X.
@@ -85,15 +74,13 @@ resource "nelm_release" "test" {
   namespace = %q
   chart     = %q
 }
-`, helmProvider, providerBlock(), namespace, name, name, namespace, chart)
+`, helmProviderBlock(), providerBlock(), namespace, name, name, namespace, chart)
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
-		ExternalProviders: map[string]resource.ExternalProvider{
-			"helm": {Source: "hashicorp/helm", VersionConstraint: "~> 3.0"},
-		},
-		CheckDestroy: testAccCheckReleaseDestroyed(namespace, name),
+		ExternalProviders:        helmExternalProviders,
+		CheckDestroy:             testAccCheckReleaseDestroyed(namespace, name),
 		Steps: []resource.TestStep{
 			{
 				// The premise: helm_release wrote FEATURE_X under its own
@@ -163,32 +150,6 @@ func fieldManagersChartPath(t *testing.T) string {
 	return abs
 }
 
-// kubeconfigPaths returns the kubeconfig files kubectl reads: $KUBECONFIG's
-// entries, else ~/.kube/config.
-func kubeconfigPaths(t *testing.T) []string {
-	t.Helper()
-
-	if v := os.Getenv("KUBECONFIG"); v != "" {
-		return filepath.SplitList(v)
-	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("could not resolve the home directory: %v", err)
-	}
-
-	return []string{filepath.Join(home, ".kube", "config")}
-}
-
-func quotedList(items []string) string {
-	quoted := make([]string, 0, len(items))
-	for _, s := range items {
-		quoted = append(quoted, fmt.Sprintf("%q", s))
-	}
-
-	return strings.Join(quoted, ", ")
-}
-
 // configMapView is the part of a live ConfigMap the migration test asserts on.
 type configMapView struct {
 	Data     map[string]string `json:"data"`
@@ -218,13 +179,20 @@ func (c configMapView) hasManagerPrefix(prefix string) bool {
 	return false
 }
 
-// liveConfigMap reads a ConfigMap from the pinned test context (explicitly,
-// like kubectl()). Only stdout is decoded, so a kubectl warning on stderr
-// cannot corrupt the JSON.
+// liveConfigMap reads a ConfigMap from the pinned test context in the suite's
+// kubeconfig file (explicitly, like kubectl()). Only stdout is decoded, so a
+// kubectl warning on stderr cannot corrupt the JSON.
 func liveConfigMap(namespace, name string) (configMapView, error) {
 	var cm configMapView
 
-	cmd := exec.Command("kubectl", "--context="+testKubeContext(), "get", "configmap", name, "-n", namespace, "-o", "json")
+	kubeconfig := testKubeconfigPath()
+	if kubeconfig == "" {
+		// An empty --kubeconfig would make kubectl fall back to $KUBECONFIG.
+		return cm, errors.New("kubectl: no acceptance-test kubeconfig path (home directory unknown)")
+	}
+
+	cmd := exec.Command("kubectl", "--kubeconfig="+kubeconfig, "--context="+testKubeContext(),
+		"get", "configmap", name, "-n", namespace, "-o", "json")
 
 	out, err := cmd.Output()
 	if err != nil {

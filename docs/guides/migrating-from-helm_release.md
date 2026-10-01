@@ -120,13 +120,13 @@ resource "nelm_release" "app" {
 ```
 
 The move carries over the release identity and the `helm_release` inputs
-that have a `nelm_release` counterpart: `name`, `namespace`, `chart` (a
-split `repository = "oci://..."` plus chart name becomes one `oci://`
-reference), `repository`, `version` (except for a local chart, whose
-`helm_release` version is just its `Chart.yaml` version), `values`, `set`,
-`set_sensitive`, `max_history`, `atomic`, `skip_crds` and `take_ownership`,
-mapped as in the [table](#attribute-mapping) below; `release_storage_driver`
-becomes `secret`. The refresh before the plan reads `status`, `revision`,
+that have a `nelm_release` counterpart: `name`, `namespace`, `chart` and
+`repository` as written (a split `repository = "oci://..."` plus chart name
+included), `version` (except for a local chart, whose `helm_release` version
+is just its `Chart.yaml` version), `values`, `set`, `set_sensitive`,
+`max_history`, `atomic`, `wait`, `skip_crds` and `take_ownership`, mapped as
+in the [table](#attribute-mapping) below; `release_storage_driver` becomes
+`secret`. The refresh before the plan reads `status`, `revision`,
 `metadata` and `resources` from the cluster. Unlike after an import,
 `chart` is known, so when the `nelm_release` configuration reproduces the
 `helm_release` inputs the plan can be empty: no install, no new revision, no
@@ -191,18 +191,19 @@ instead; the chart renders the same objects either way. See
 | `helm_release` | `nelm_release` | Notes |
 |---|---|---|
 | `name`, `namespace` | `name`, `namespace` | Both force replacement when changed. |
-| `chart`, `repository`, `version` | `chart`, `repository`, `version` | For OCI charts prefer the full reference in `chart` (`oci://host/path/name`) over `repository = "oci://..."` plus a bare chart name. Set `version` even where the `helm_release` left it unset — see [Values](#values-carry-them-over-verbatim). |
+| `chart`, `repository`, `version` | `chart`, `repository`, `version` | Both OCI forms work: `repository = "oci://host/path"` plus a bare chart name, or the full reference in `chart` (`oci://host/path/name`). Keep the form the `helm_release` used: after a `moved` block a different spelling of the same chart is still a change, and its apply installs. Set `version` even where the `helm_release` left it unset — see [Values](#values-carry-them-over-verbatim). |
 | `values` | `values` | Same list of YAML documents. |
 | `set`, `set_sensitive` | `set`, `set_sensitive` | Same `{ name, value, type }` objects; `type` also accepts `"json"`. |
 | `set_list`, `set_wo` | — | Express them in `values` (or `set` with `type = "json"`). |
 | `max_history` | `release_history_limit` | Not the same default — see [History limit](#history-limit). |
 | `timeout` (seconds) | `timeouts { create, update, delete }` | Go durations, e.g. `"600s"` or `"10m"`. |
-| `atomic` | `auto_rollback` | |
+| `atomic` | `auto_rollback` | Covers only part of `atomic`: no rollback when `timeouts` expires, and a failed first install is not uninstalled — see [`auto_rollback` vs `helm_release`'s `atomic`](../resources/release.md#auto_rollback-vs-helm_releases-atomic). |
 | `skip_crds` | `no_install_crds` | |
 | `take_ownership` | `force_adoption` | |
 | `upgrade_install` | `adopt_existing` | Create-only opt-in; prefer `import`. |
 | `create_namespace` | — | Nelm always creates a missing namespace. |
-| `wait`, `wait_for_jobs` | — | Nelm always tracks readiness; size `timeouts` accordingly. |
+| `wait` | `wait` | Same default (`true`), but Nelm's readiness tracking is stricter, and `wait = false` still waits for what later deploy steps depend on — see [Readiness tracking and `wait`](../resources/release.md#readiness-tracking-and-wait). Size `timeouts` accordingly. |
+| `wait_for_jobs` | — | With `wait = true` Nelm always waits for non-hook Jobs to complete. |
 | `force_update`, `recreate_pods`, `reset_values`, `reuse_values`, `cleanup_on_fail`, `replace`, `disable_webhooks`, `disable_crd_hooks`, `disable_openapi_validation`, `render_subchart_notes`, `dependency_update`, `devel`, `verify`, `keyring`, `lint`, `description`, `pass_credentials`, `postrender`, `repository_username`/`repository_password`/`repository_*_file` | — | Not supported. |
 | `id` (`<name>`) | `id` (`<namespace>/<name>`) | Rewire references that use the id. |
 | `metadata` | `metadata` (`app_version`, `chart_name`, `chart_version`, `values_json`), `revision`, `status` | `helm_release`'s `metadata.revision`/`notes`/`values` have no 1:1 counterpart. |
@@ -243,8 +244,11 @@ provider "nelm" {
 ```
 
 Configure the provider explicitly like this rather than relying on
-environment variables the `helm` provider reads (`KUBE_CONFIG_PATH`,
-`KUBE_CTX`, `HELM_DRIVER`, ...).
+environment variables the `helm` provider reads. `KUBE_CONFIG_PATH(S)` and
+`KUBE_CTX` are honoured as described in the provider docs'
+[Choosing the cluster](../index.md#choosing-the-cluster), but `KUBE_CTX`
+alone names no cluster, and `HELM_DRIVER` is not read at all (set
+`release_storage_driver` on each `nelm_release`).
 
 ## What the first apply does
 
@@ -280,13 +284,21 @@ for their status.
 
 Objects that `helm_release` created carry a field manager named after the
 `helm` provider binary (`terraform-provider-helm_v<version>_x5`), which Nelm
-itself does not recognise as Helm's own. Unless that manager is handed over,
-a field that the chart stops rendering after the migration can stay set on
-the live object without ever showing up in a plan. Keep the first
-`nelm_release` apply rendering exactly what `helm_release` last applied (see
-[Values](#values-carry-them-over-verbatim)), make removals afterwards, and
-check [`managedFields` and `terraform plan`](../resources/release.md#managedfields-and-terraform-plan)
-for how your provider version handles it.
+itself does not recognise as Helm's own. Right before each install (never
+during a plan), the provider renames that manager to `helm`, the Helm 3
+CLI's, so Nelm takes the fields over and prunes what the chart no longer
+renders; see
+[Migrating from `helm_release`](../resources/release.md#migrating-from-helm_release)
+in the resource docs. An object whose hand-over hits an unavailable admission
+webhook is skipped with a warning and handed over by a later apply. Keep the
+first `nelm_release` apply rendering exactly what `helm_release` last applied
+(see [Values](#values-carry-them-over-verbatim)) and make removals
+afterwards anyway: the handover apply then changes nothing but ownership.
+
+One default differs: with `no_remove_manual_changes = false`, fields added
+with `kubectl edit` are removed by the next update, which `helm_release`
+kept. Decide before the first plan; see
+[Fields added out of band](../resources/release.md#fields-added-out-of-band).
 
 ## If something goes wrong
 
