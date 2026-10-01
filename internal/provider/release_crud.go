@@ -286,7 +286,29 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 		return releaseModel{}, false, diags
 	}
 
-	installErr := r.client.Install(ctx, spec, opTimeout)
+	// Hand any field ownership hashicorp/helm's helm_release left on the
+	// release's objects over to nelm first, or this install cannot prune what
+	// the chart no longer renders (nelmclient.HandOverHelmProviderFieldManagers).
+	// Apply-only by design: ModifyPlan never runs it, so a plan adds no write
+	// of its own. It shares the operation's timeout budget with the install.
+	start := time.Now()
+
+	skipped, err := r.client.HandOverHelmProviderFieldManagers(ctx, spec.Name, spec.Namespace, spec.StorageDriver, opTimeout)
+	if err != nil {
+		diags.AddError("nelm_release: helm_release field-manager hand-over failed", plan.scrubSensitive(err.Error()))
+		return releaseModel{}, false, diags
+	}
+
+	if len(skipped) > 0 {
+		diags.AddWarning(
+			"nelm_release: helm_release field-manager hand-over skipped",
+			"An admission webhook was unavailable, so these objects keep a terraform-provider-helm field manager: "+
+				"fields it set that the chart no longer renders stay live until a later apply of this release "+
+				"completes the hand-over.\n\n"+plan.scrubSensitive(strings.Join(skipped, "\n")),
+		)
+	}
+
+	installErr := r.client.Install(ctx, spec, remainingTimeout(opTimeout, time.Since(start)))
 
 	// Always re-check the cluster after Install, success or failure: on
 	// failure this is the partial-failure-capture read (design §2.3); on
@@ -371,6 +393,17 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 	}
 
 	return state, true, diags
+}
+
+// remainingTimeout is what is left of an operation's timeout budget after
+// spent. A zero budget (no timeout) is returned as-is; an exhausted one is
+// floored at 1ns, because nelm reads a zero Timeout as "no timeout".
+func remainingTimeout(budget, spent time.Duration) time.Duration {
+	if budget <= 0 {
+		return budget
+	}
+
+	return max(budget-spent, time.Nanosecond)
 }
 
 type timeoutKind int

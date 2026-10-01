@@ -1,0 +1,10 @@
+apiVersion: v2
+name: fieldmanagers
+description: >-
+  Single-ConfigMap chart for the helm_release -> nelm_release field-manager
+  hand-over acceptance test: every entry of .Values.data becomes a ConfigMap
+  key, so a key can be added through one tool and dropped through the other.
+  Not published anywhere.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

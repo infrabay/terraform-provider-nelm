@@ -268,8 +268,10 @@ The import ID is exactly `<namespace>/<name>` — no other separator or
 format is accepted.
 
 Import adopts an existing release with **zero conversion**, whether it
-was created by `helm install`/`helm upgrade` (Helm 3 **or** Helm 4) or by
-Nelm itself: Nelm's default release-storage format
+was created by `helm install`/`helm upgrade` (Helm 3 **or** Helm 4), by
+hashicorp/helm's `helm_release` (see "Migrating from `helm_release`"
+below for its field managers) or by Nelm itself: Nelm's default
+release-storage format
 (`sh.helm.release.v1.<name>.v<rev>` Secrets, or the analogous ConfigMap
 form) is exactly the format Helm itself writes, so `ReleaseGet` reads a
 plain-helm release directly. `force_adoption = true` is **not** required
@@ -311,25 +313,34 @@ match immediately after import.
 ### `managedFields` and `terraform plan`
 
 Running a plan against a resource is not perfectly read-only at the
-Kubernetes API level: Nelm's plan machinery performs a dry-run
-server-side-apply internally, which can rewrite an object's
-`metadata.managedFields`.
+Kubernetes API level. Before its dry-run server-side apply of an existing
+object, Nelm's plan machinery fixes up the object's `metadata.managedFields`
+so that its own field manager (`helm`, operation `Apply`) owns what Helm
+owned, and it writes that fix-up to the cluster with a real (not dry-run)
+patch. It does so for:
 
-In practice, for resources originally created by a normal `helm install`
-(Helm 3 or Helm 4, both of which use server-side-apply with field manager
-`"helm"`), this does **not** happen: Nelm deliberately uses the same
-field-manager name (`"helm"`) that Helm itself uses, specifically so it
-recognizes that field ownership as already correct and makes no changes.
-This was verified live: `managedFields` was identical before and after
-the first plan, and stable across a second plan, against a plain
-`helm install`-created resource.
+- objects last written by the **Helm 3** CLI, which applies client-side
+  under field manager `helm` with operation `Update`: the first plan folds
+  that entry into Nelm's `helm`/`Apply` entry;
+- fields owned by `kubectl edit` (manager `kubectl-edit`, unless
+  `no_remove_manual_changes = true`) or by a legacy `werf*` manager, folded
+  the same way (see "Fields added out of band" below);
+- fields Nelm's `helm`/`Apply` entry owns (once Nelm has applied the object,
+  or folded a Helm 3 entry into it) that another manager co-owns: they are
+  removed from that other manager's entry.
 
-The rewrite is only expected against resources carrying a **legacy**
-field manager — a client-side-apply `kubectl edit`/`kubectl apply`
-manager, or an old werf-prefixed manager name from a pre-server-side-apply
-werf/Nelm version. `managedFields` are stripped by the normalization
-pipeline before entering `resources`, so even when this rewrite does
-occur, it never shows up as diff noise in `terraform plan` output.
+Objects written by **Helm 4** (server-side apply as `helm`/`Apply`, the
+manager Nelm itself uses) need no fix-up. This was verified live:
+`managedFields` was identical before and after the first plan, and stable
+across a second plan, against a resource created by `helm install` v4.
+Objects written by hashicorp/helm's **`helm_release`** carry a
+`terraform-provider-helm_v<version>_x5`/`Update` manager that Nelm does not
+recognize at all; this provider hands it over at apply, never during plan
+(see "Migrating from `helm_release`" below).
+
+`managedFields` are stripped by the normalization pipeline before entering
+`resources`, so none of this shows up as diff noise in `terraform plan`
+output, and none of it changes an object's spec (no rollout).
 
 ### Fields added out of band
 
@@ -356,6 +367,36 @@ depends on the field manager that added it:
 - **Any other manager** (`kubectl patch`/`label`/`annotate`/`apply`,
   controllers, admission webhooks): the field stays owned by that manager
   and survives Nelm's applies, as it does Helm's.
+
+### Migrating from `helm_release`
+
+A release created or upgraded by hashicorp/helm's `helm_release` is a plain
+Helm 3 release and is adopted like one (see Import above, or use a
+`removed { lifecycle { destroy = false } }` block plus an `import` block);
+[Migrating from `helm_release`](../guides/migrating-from-helm_release.md)
+walks through the procedure. Two field-ownership differences matter:
+
+- **Field managers are handed over at apply.** `helm_release` writes objects
+  client-side (Helm 3 SDK) under the field manager
+  `terraform-provider-helm_v<version>_x5`, one per provider version that
+  wrote the object, which Nelm does not recognize. Left as is, Nelm's
+  server-side apply would only co-own those fields, so a field the chart
+  stops rendering (a removed value's env var, label, annotation, ConfigMap
+  key, …) would stay live indefinitely, invisible in `resources`. So before
+  every install (Create/Update — never during `terraform plan`), the
+  provider renames those entries on the release's live objects (the
+  resources recorded in release storage) to `helm`/`Update`, the Helm 3
+  CLI's manager, and Nelm's Helm 3 hand-over above then takes ownership and
+  prunes as usual. The plan already shows such removals (an updated
+  resource's planned side is the chart's render); the hand-over is what
+  makes the apply carry them out. The rename is a `metadata.managedFields`
+  patch, conditional on the object's `resourceVersion` (no spec change, no
+  rollout), and shares the apply's `create`/`update` timeout. Once done it
+  is a no-op that costs one GET per object per apply. An object whose patch
+  hits an unavailable admission webhook is skipped with a warning and
+  handed over by a later apply.
+- **`kubectl edit` hotfixes** survive `helm_release` upgrades but not
+  Nelm's by default — see "Fields added out of band" above.
 
 ### Secret data in state
 

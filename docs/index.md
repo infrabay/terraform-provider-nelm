@@ -11,7 +11,12 @@ resource-tracking logic rather than shelling out.
 Nelm is a drop-in-compatible successor to Helm 3: release storage uses the
 same Secret/ConfigMap format Helm writes (`sh.helm.release.v1.<name>.v<rev>`
 by default), so this provider can adopt releases that were created with
-plain `helm install` — see the resource docs' Import section.
+plain `helm install` — see the resource docs' Import section. Releases
+managed by hashicorp/helm's `helm_release` are adopted the same way; the
+resource docs' "Migrating from `helm_release`" section covers how field
+ownership is handed over, and the one default that differs
+(`no_remove_manual_changes`: fields added with `kubectl edit` are removed on
+the next update).
 
 v1 of this provider ships exactly one resource, `nelm_release`. There is no
 `nelm_release` data source and no chart-repository data source in v1.

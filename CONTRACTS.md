@@ -18,6 +18,14 @@ methods:
 - `Install(ctx, ReleaseSpec, timeout) error`
 - `Uninstall(ctx, name, namespace, storageDriver string, timeout) error`
 - `Get(ctx, name, namespace, storageDriver string) (*ReleaseInfo, error)`
+- `HandOverHelmProviderFieldManagers(ctx, name, namespace, storageDriver string, timeout) ([]string, error)`
+  — Create/Update call it right before `Install`, sharing the operation's
+  timeout budget, and NEVER from ModifyPlan: it renames hashicorp/helm's
+  `terraform-provider-helm*`/Update managedFields entries on the release's
+  live objects to `helm`/Update so nelm's own Helm 3 field-ownership
+  hand-over takes over (a real `managedFields` patch, which a plan must not
+  add to nelm's own). The returned strings name objects skipped because an
+  admission webhook was unavailable (surfaced as a warning).
 
 `*plan.ResourceChange` (from `github.com/werf/nelm/pkg/plan`) passes through
 `PlanResult.Changes` **opaquely** — `internal/planconv` consumes it directly

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
@@ -257,5 +258,31 @@ func TestApplyReleaseInfo_IDDerivedFromReleaseInfoNamespace(t *testing.T) {
 
 	if got, want := model.ID.ValueString(), "kube-system/my-release"; got != want {
 		t.Errorf("ID = %q, want %q", got, want)
+	}
+}
+
+// --- remainingTimeout ----------------------------------------------------
+
+// TestRemainingTimeout pins the shared timeout budget of an apply: the
+// helm_release field-manager hand-over runs first and the install gets what
+// is left — never 0, which nelm would read as "no timeout" and run unbounded.
+func TestRemainingTimeout(t *testing.T) {
+	tests := []struct {
+		name          string
+		budget, spent time.Duration
+		want          time.Duration
+	}{
+		{name: "what is left of the budget", budget: 10 * time.Minute, spent: 2 * time.Second, want: 10*time.Minute - 2*time.Second},
+		{name: "exhausted budget stays bounded", budget: time.Minute, spent: time.Minute, want: time.Nanosecond},
+		{name: "overspent budget stays bounded", budget: time.Minute, spent: 2 * time.Minute, want: time.Nanosecond},
+		{name: "no timeout stays no timeout", budget: 0, spent: time.Minute, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := remainingTimeout(tt.budget, tt.spent); got != tt.want {
+				t.Errorf("remainingTimeout(%s, %s) = %s, want %s", tt.budget, tt.spent, got, tt.want)
+			}
+		})
 	}
 }
