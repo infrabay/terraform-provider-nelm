@@ -127,13 +127,31 @@ the old shape.
 ## Global-state rules
 
 - `nelmclient.Init` (`bootstrap.go`) is the **only** caller of
-  `log.SetupLogging` and any `featgate.*.Enable()` in this codebase. It runs
-  its setup exactly once per process (`sync.Once`), never per-CRUD-call.
+  `log.SetupLogging` and any `featgate.*.Enable()` / `Disable()` in this
+  codebase. It runs its setup exactly once per process (`sync.Once`), never
+  per-CRUD-call, and pins EVERY nelm feature gate (remote-charts on, all
+  others off) so ambient `NELM_FEAT_*` variables cannot change behavior.
+  `planconv`'s redaction must not depend on gate state either.
+- `main` calls `nelmclient.Shutdown()` after `providerserver.Serve` returns
+  (and before any `log.Fatal`), removing the per-process temp root `Init`
+  created. No `Client` method may run after it.
 - No `SecretKey` / `WERF_SECRET_KEY` anywhere in this codebase (werf secret
   values are out of scope for v1; this also avoids the `os.Setenv` race that
   encrypted plan artifacts would otherwise require).
 - Every Nelm action call passes its own per-operation `TempDirPath` (a fresh
   0700 subdirectory under `nelmclient.TempRoot()`) and `OutputNoPrint: true`
-  discipline. Plan artifacts are read and then deleted in the same function
-  call frame that created them — they contain cleartext Secret data and must
-  never outlive the call that produced them.
+  discipline. `OutputNoPrint` alone is NOT enough for `action.ChartRender`:
+  nelm ignores it there and prints every rendered manifest (Secret data
+  included) to the process stdout — a pipe Terraform core logs — unless
+  `OutputFilePath` is set, so `ChartRender` always gets an `OutputFilePath`
+  inside its per-operation directory. Plan artifacts and render output are
+  written and deleted in the same function call frame that created them —
+  they contain cleartext Secret data and must never outlive the call that
+  produced them.
+- Remote charts never reach nelm as remote references:
+  `nelmclient.fetchChart` downloads them into the per-operation directory
+  first and nelm gets the archive's absolute path, because nelm's own
+  download goes to the shared Helm cache under a `<name>-<version>.tgz` name
+  that concurrent operations collide on. `fetchChart` mirrors nelm's
+  downloader setup (`pkg/chart` `newChartDownloader`) and must be
+  re-checked against it on every nelm upgrade.

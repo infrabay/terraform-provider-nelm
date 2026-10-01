@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,9 +73,31 @@ func captureCtx(ctx context.Context) (context.Context, *syncBuffer) {
 	return logboek.NewContext(ctx, logboek.NewLogger(buf, buf)), buf
 }
 
-// tailErr folds buf's captured nelm output into err's message, if any was
-// captured, so operators get actionable diagnostics without nelm ever
-// writing to the real process stdout/stderr.
+// captureWarningsCtx is captureCtx without nelm's info output: only warnings
+// and errors (logboek's err stream) reach the buffer. Plan uses it because
+// ReleasePlanInstall logs every planned change's unified diff at info level,
+// and nelm's diff hides only fully-sensitive objects — a Secret annotated
+// werf.io/sensitive: "false" (or whose werf.io/sensitive-paths miss data) is
+// diffed with its data, bypassing planconv's unconditional Secret redaction
+// on the way into an error diagnostic. Plan's info output carries nothing
+// else a failure needs (progress lines and the change summary).
+func captureWarningsCtx(ctx context.Context) (context.Context, *syncBuffer) {
+	buf := &syncBuffer{}
+	return logboek.NewContext(ctx, logboek.NewLogger(io.Discard, buf)), buf
+}
+
+// maxErrTail bounds the captured nelm output tailErr folds into an error.
+// nelm reports what failed last (failed operations, the final error), so the
+// end of the log is what diagnoses a failure; the whole log of a large
+// release would bury the actual error in plan/apply output.
+const maxErrTail = 8 << 10
+
+// tailErr folds the last maxErrTail bytes of buf's captured nelm output into
+// err's message, if any was captured, so operators get actionable
+// diagnostics without nelm's log output ever reaching the real process
+// stdout/stderr. The capture covers nelm's logger only: anything nelm writes
+// to os.Stdout directly (ChartRender's manifest printout, see render.go)
+// bypasses it and must be redirected at the call site.
 func tailErr(err error, buf *syncBuffer) error {
 	if err == nil {
 		return nil
@@ -82,6 +106,17 @@ func tailErr(err error, buf *syncBuffer) error {
 	tail := buf.String()
 	if tail == "" {
 		return err
+	}
+
+	if len(tail) > maxErrTail {
+		cut := len(tail) - maxErrTail
+
+		// Start the tail on a line boundary rather than mid-line.
+		if i := strings.IndexByte(tail[cut:], '\n'); i >= 0 && cut+i+1 < len(tail) {
+			cut += i + 1
+		}
+
+		tail = fmt.Sprintf("[... %d earlier bytes omitted ...]\n%s", cut, tail[cut:])
 	}
 
 	return fmt.Errorf("%w\n--- nelm output ---\n%s", err, tail)
@@ -170,19 +205,24 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 		return nil, err
 	}
 
+	repoOpts := chartRepoOptions(spec, timeout)
+
+	chartPath, err := fetchChart(ctx, opDir, chartRef, spec.Version, repoOpts, registryConfig, timeout)
+	if err != nil {
+		return nil, err
+	}
+
 	artifactPath := filepath.Join(opDir, "plan.artifact")
 
-	ctx, buf := captureCtx(ctx)
+	ctx, buf := captureWarningsCtx(ctx)
 
 	opts := action.ReleasePlanInstallOptions{
-		ChartRepoConnectionOptions: common.ChartRepoConnectionOptions{
-			ChartRepoURL: spec.Repository,
-		},
+		ChartRepoConnectionOptions:   repoOpts,
 		KubeConnectionOptions:        c.toKubeConnectionOptions(),
 		ReleaseInstallRuntimeOptions: runtimeOptions(spec),
 		ValuesOptions:                valuesOpts,
 
-		Chart:                   chartRef,
+		Chart:                   chartPath,
 		ChartVersion:            spec.Version,
 		NoFinalTracking:         true,
 		PlanArtifactPath:        artifactPath,
@@ -195,9 +235,11 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 		return nil, tailErr(fmt.Errorf("release plan install: %w", err), buf)
 	}
 
+	// No nelm output here: planning already succeeded, so the log cannot
+	// explain a failure to read the artifact back.
 	artifact, err := plan.ReadPlanArtifact(ctx, artifactPath, "", "")
 	if err != nil {
-		return nil, tailErr(fmt.Errorf("read plan artifact: %w", err), buf)
+		return nil, fmt.Errorf("read plan artifact: %w", err)
 	}
 
 	return &PlanResult{
@@ -235,12 +277,17 @@ func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Dur
 		return err
 	}
 
+	repoOpts := chartRepoOptions(spec, timeout)
+
+	chartPath, err := fetchChart(ctx, opDir, chartRef, spec.Version, repoOpts, registryConfig, timeout)
+	if err != nil {
+		return err
+	}
+
 	ctx, buf := captureCtx(ctx)
 
 	opts := action.ReleaseInstallOptions{
-		ChartRepoConnectionOptions: common.ChartRepoConnectionOptions{
-			ChartRepoURL: spec.Repository,
-		},
+		ChartRepoConnectionOptions:   repoOpts,
 		KubeConnectionOptions:        c.toKubeConnectionOptions(),
 		ReleaseInstallRuntimeOptions: runtimeOptions(spec),
 		TrackingOptions: common.TrackingOptions{
@@ -249,7 +296,7 @@ func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Dur
 		ValuesOptions: valuesOpts,
 
 		AutoRollback:            spec.AutoRollback,
-		Chart:                   chartRef,
+		Chart:                   chartPath,
 		ChartVersion:            spec.Version,
 		RegistryCredentialsPath: registryConfig,
 		TempDirPath:             opDir,

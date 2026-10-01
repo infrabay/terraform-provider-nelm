@@ -235,12 +235,18 @@ chart-managed fields from live ones.
   joining the worker; the provider then removes the per-operation temp dir. A
   genuinely stuck worker could briefly outlive cleanup (the provider's log
   capture buffer is mutex-guarded, so this is not a data race on our side).
-  Set generous `timeouts` for very large releases. Upstream in nelm.
+  Set generous `timeouts` for very large releases. Upstream in nelm. The
+  same goes for a remote chart download cut off by its timeout: Helm's
+  download code takes no context, so the abandoned download keeps running
+  in the background — for an OCI pull, whose registry client has no HTTP
+  timeout, until the registry answers or drops the connection.
 
-- **The per-process 0700 temp root survives abnormal termination.** Ordinary
-  error paths clean per-operation directories in the same call frame, but a
-  SIGKILL mid-operation can leave values/plan-artifact files (0600, inside a
-  0700 root) until the OS temp cleaner runs.
+- **A killed or crashed provider leaves its 0700 temp root behind.** Each
+  provider process removes its `tf-nelm-*` temp root when Terraform shuts
+  it down normally, and ordinary error paths clean per-operation
+  directories in the same call frame, but a SIGKILL or crash mid-operation
+  can leave values/plan-artifact files (0600, inside the 0700 root) until
+  the OS temp cleaner runs.
 
 - **A nelm global (`loader.NoChartLockWarning`) is written by ReleaseGet
   without synchronization**, so highly-parallel `Read` + chart-loading is a

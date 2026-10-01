@@ -153,6 +153,13 @@ Optional block; all four are Go duration strings (e.g. `"20m"`):
 - `delete` (String) Timeout for the uninstall action backing Delete.
   Defaults to 5m.
 
+`create`, `update` and `read` also bound the remote-chart download that
+precedes each install and each plan-time diffing step, separately from the
+Nelm action itself; a stalled chart repository or registry fails the
+operation once the timeout expires instead of hanging it. Each HTTP request
+to a classic chart repository is additionally capped at 2 minutes (Helm's
+default).
+
 ### Dropped by design (not attributes of this resource)
 
 These exist on comparable Helm-based providers but are intentionally not
@@ -279,10 +286,12 @@ correctly:
 - If the cluster is unreachable at plan time, `resources` (along with
   `status`/`revision`/`metadata`) becomes Unknown and the plan proceeds
   with a warning; the actual diff is only knowable once `apply` reaches a
-  reachable cluster. If your Terraform configuration itself has any
-  unknown inputs (e.g. `chart` computed from another resource not yet
-  applied), the same Unknown degradation applies — the provider never
-  guesses at a diff it can't actually compute.
+  reachable cluster. (A remote chart is downloaded before the cluster is
+  contacted, so its repository or registry must still be reachable; a
+  failed chart download is a plan error.) If your Terraform configuration
+  itself has any unknown inputs (e.g. `chart` computed from another
+  resource not yet applied), the same Unknown degradation applies — the
+  provider never guesses at a diff it can't actually compute.
 - The same Unknown degradation (with a warning) applies to a **new**
   release while the provider configuration itself is not yet known (e.g.
   `host` comes from a cluster created in the same run); a release already
@@ -560,6 +569,14 @@ CLI — this provider persists `resources` durably into `terraform.tfstate`
 and prints it in plan output. A `Secret`'s contents are treated as
 sensitive by definition; the opt-out is deliberately ignored.
 
+An object of any other kind annotated `werf.io/sensitive: "true"` (and no
+`werf.io/sensitive-paths`) enters `resources` reduced to its identity —
+`apiVersion`, `kind`, `metadata.name` and `metadata.namespace` — so none of
+its fields show up in plan output or state. This is Nelm's v1 behavior, and
+it holds even where `NELM_FEAT_FIELD_SENSITIVE` / `NELM_FEAT_PREVIEW_V2`
+are exported: the provider ignores Nelm's feature-gate environment
+variables (see the provider docs).
+
 ### Sensitive values in non-`Secret` resources
 
 Redaction by kind only covers `Secret`s and objects annotated sensitive. A
@@ -738,6 +755,15 @@ Setting `repository` makes the chart reference unambiguously **remote**: it
 is then never resolved against the local filesystem (a same-named local
 directory cannot hijack it), and combining `repository` with a local path
 (`/abs`, `./rel`) is rejected as contradictory.
+
+Each plan and apply step downloads a remote chart afresh into its own
+private temporary directory, removed when the step ends. No chart archive
+is stored in the shared Helm cache (`~/.cache/helm/repository`), so
+releases whose charts share a name and version but come from different
+repositories or registries never pick up each other's archive, even when
+Terraform runs them in parallel or several Terraform runs share a host.
+`repo/name` references are still resolved from the usual `helm repo add`
+configuration and index cache.
 
 Private **OCI registries** are supported via the provider-level `registries`
 block (see the provider docs' GKE + Artifact Registry example). Out of scope
