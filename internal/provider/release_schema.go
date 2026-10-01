@@ -177,6 +177,19 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 				Description: `Skip installing CustomResourceDefinitions from the chart's "crds/" ` +
 					`directory.`,
 			},
+			"adopt_existing": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				Default:  booldefault.StaticBool(false),
+				Description: "Allow Create to take over a release of the same name that already exists in " +
+					"the namespace (one with a deployed revision). Defaults to false: Create then fails " +
+					"instead, like helm_release without upgrade_install, so a forgotten import, a duplicate " +
+					"resource, or a create_before_destroy replacement can never silently adopt (and then " +
+					"uninstall) a live release. Prefer `terraform import`. A release that only has failed or " +
+					"uninstalled revisions (e.g. a failed first install), or a stale pending-install left by a " +
+					"killed first install, is always installed over. It does not override the pending-* lock, " +
+					"and it cannot take over a release stored in the other storage backend. Only Create reads it.",
+			},
 			"release_history_limit": schema.Int64Attribute{
 				Optional: true,
 				Description: "Maximum number of release revisions kept in storage. Null or 0 uses " +
@@ -195,7 +208,9 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 					`is enum-validated ("memory" and "sql" are rejected in v1). Changing it forces ` +
 					`replacement: Nelm does not migrate release history between backends, so an in-place ` +
 					`switch would install into an empty new backend and orphan the old release records. ` +
-					`RequiresReplace makes destroy use the OLD backend and create use the new one.`,
+					`RequiresReplace makes destroy use the OLD backend and create use the new one; apply ` +
+					`it destroy-first, since under create_before_destroy Create refuses to install while ` +
+					`the release is still deployed in the old backend.`,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

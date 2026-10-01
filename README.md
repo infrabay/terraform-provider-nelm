@@ -20,7 +20,9 @@ computed from Nelm's own plan engine, not just "this release will change".
   edit`/`scale`, a controller mutating a chart-set field) show up on the next
   plan.
 - **`terraform import`** — adopt releases created by plain `helm install`
-  (Helm 3 **or** Helm 4) or by Nelm, with zero storage conversion.
+  (Helm 3 **or** Helm 4) or by Nelm, with zero storage conversion. Moving
+  off `hashicorp/helm`? Follow
+  [Migrating from `helm_release`](docs/guides/migrating-from-helm_release.md).
 - **Chart sources** — local directories and `.tgz`, plus `oci://` and
   `repo/name` remote charts.
 - **Secret redaction** — Secret data (and `werf.io/sensitive`-annotated fields)

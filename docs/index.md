@@ -11,7 +11,12 @@ resource-tracking logic rather than shelling out.
 Nelm is a drop-in-compatible successor to Helm 3: release storage uses the
 same Secret/ConfigMap format Helm writes (`sh.helm.release.v1.<name>.v<rev>`
 by default), so this provider can adopt releases that were created with
-plain `helm install` — see the resource docs' Import section.
+plain `helm install` — see the resource docs' Import section. Releases
+managed by `hashicorp/helm`'s `helm_release` are handed over without a
+reinstall by following
+[Migrating from `helm_release`](guides/migrating-from-helm_release.md);
+**never** just rename `helm_release` to `nelm_release`, which uninstalls the
+release.
 
 v1 of this provider ships exactly one resource, `nelm_release`. There is no
 `nelm_release` data source and no chart-repository data source in v1.
@@ -90,6 +95,10 @@ username/password here (written to a private, per-operation Docker
 `config.json`) is what the `helm` provider's `registries` block does too, and it
 authenticates reliably. The access token is short-lived (~1h); because it comes
 from a data source it is refreshed on every `plan`/`apply`.
+
+For the `helm` provider's settings and their `nelm` equivalents, see the
+provider-block mapping in the
+[migration guide](guides/migrating-from-helm_release.md#provider-configuration).
 
 ## Schema
 

@@ -44,6 +44,7 @@ func baseTestReleaseModel() releaseModel {
 		ForceAdoption:         types.BoolValue(false),
 		NoRemoveManualChanges: types.BoolValue(false),
 		NoInstallCRDs:         types.BoolValue(false),
+		AdoptExisting:         types.BoolValue(false),
 		ReleaseHistoryLimit:   types.Int64Null(),
 		ReleaseStorageDriver:  types.StringValue("secret"),
 		Timeouts:              timeouts.Value{Object: types.ObjectNull(timeoutsAttrTypes)},
@@ -450,6 +451,14 @@ func TestReleaseWillReinstall(t *testing.T) {
 		{
 			name:       "flag change with no resource change",
 			mutatePlan: func(m *releaseModel) { m.NoInstallCRDs = types.BoolValue(true) },
+			planned:    sameMap, prior: sameMap,
+			want: true,
+		},
+		{
+			// adopt_existing only matters to Create, but an edit to it makes
+			// Terraform call Update, whose Install can bump the revision.
+			name:       "adopt_existing change with no resource change",
+			mutatePlan: func(m *releaseModel) { m.AdoptExisting = types.BoolValue(true) },
 			planned:    sameMap, prior: sameMap,
 			want: true,
 		},

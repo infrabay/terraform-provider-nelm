@@ -12,17 +12,32 @@ this is the load-bearing summary that ships with the repo.
 `github.com/werf/nelm/pkg/action`.
 
 `internal/provider` consumes `*nelmclient.Client` only through its exported
-methods:
+methods, declared as the `releaseClient` interface in
+`internal/provider/release_client.go` (the resource holds that interface so
+unit tests can substitute an offline fake; `Configure` always stores a
+`*nelmclient.Client`):
 
 - `Plan(ctx, ReleaseSpec, timeout) (*PlanResult, error)`
+- `Render(ctx, ReleaseSpec, timeout) ([]*unstructured.Unstructured, error)` —
+  with `ReleaseSpec.RenderAsFirstInstall` it ignores the release history
+  (create plans render exactly what a first install renders)
 - `Install(ctx, ReleaseSpec, timeout) error`
 - `Uninstall(ctx, name, namespace, storageDriver string, timeout) error`
-- `Get(ctx, name, namespace, storageDriver string) (*ReleaseInfo, error)`
+- `Get(ctx, name, namespace, storageDriver string, timeout) (*ReleaseInfo, error)`
+- `History(ctx, name, namespace, storageDriver string, timeout) (*ReleaseHistory, error)`
+  — the stored-revision summary behind Create's adoption guards (the
+  configured storage backend and, on Create, the other one) and the
+  pending-* lock check
+- `LiveObjects(ctx, refs)` and `IsNamespaced(gvk)` (the `planconv.KeyScoper`)
 
 `*plan.ResourceChange` (from `github.com/werf/nelm/pkg/plan`) passes through
 `PlanResult.Changes` **opaquely** — `internal/planconv` consumes it directly
 from Nelm's own type; nothing re-derives Nelm's create/update/delete/"blind
-apply" classification.
+apply" classification. Test-only exception: `internal/provider`'s unit tests
+may import `github.com/werf/nelm/pkg/plan` (and `pkg/resource/spec`) to
+hand-build `PlanResult.Changes` fixtures for the fake `releaseClient`
+(release_plan_create_test.go); the provider code itself only passes them
+through.
 
 ## Seam 2 — `internal/planconv` consumed by both sides of the diff
 

@@ -53,8 +53,66 @@ chart-managed fields from live ones.
   stays identical — the plan can come out empty and `Update` is not invoked.
   Rare in practice; a fix depends on surfacing nelm's own "release up to
   date" signal. (A *failed or pending* release is NOT affected: it always
-  re-plans as an update until deployed. Nor is a `timeouts`-only edit: it
-  marks status/revision/metadata unknown like any other update.)
+  re-plans as an update until deployed — though the apply refuses to run
+  over a pending revision until it is stale, see below. Nor is a
+  `timeouts`-only edit: it marks status/revision/metadata unknown like any
+  other update.)
+
+- **`create_before_destroy` cannot replace a release under the same name.**
+  The new and the old object are the same Helm release — across a
+  `release_storage_driver` change too — so the create half of such a
+  replacement is refused (`already exists`, or `already exists in the
+  <driver> storage backend` for a driver change): the apply fails and the
+  release stays installed. Remove `create_before_destroy` — Terraform also
+  enables it implicitly when a dependent resource has it (`+/-` in the plan
+  instead of `-/+`). Only the apply refuses: the plan does not warn for a
+  driver change or a `-replace`. With `adopt_existing = true` the
+  same-backend refusal is off and such a replacement would uninstall the
+  release, so set that flag only for the apply that adopts a release. The
+  driver-change check reads the other backend's Secrets or ConfigMaps; if
+  the provider's credentials may not list them, Create only warns, and a
+  `create_before_destroy` driver change would again install into the new
+  backend and then uninstall the release from the old one.
+
+- **The pending-release lock is a fixed-age heuristic.** The apply refuses
+  to install over a `pending-*` revision younger than the operation timeout
+  (at least 15 minutes, not configurable) and takes an older one over. The
+  age comes from the timestamp the writer (helm, nelm) stored, so large
+  clock skew between machines shifts it; an operation that starts between
+  the provider's history read and nelm's install is not detected; destroy
+  does not check the lock (like `helm uninstall`). See "Pending releases" in
+  the resource docs for manual recovery.
+
+- **Replacing a release whose chart `lookup`s live objects can abort.** A
+  replacement's create is planned while the old release still exists and
+  re-planned after its destroy removed it; a template whose output depends
+  on `lookup` (or on random functions) renders differently in the two, and
+  Terraform aborts with "Provider produced inconsistent final plan" after
+  the uninstall ran; the next apply installs the release. To replace such a
+  release without the failed apply, do it in two steps:
+  `terraform destroy -target=...`, then `terraform apply`.
+
+- **A replacement's conflicts with live objects are only warnings at plan
+  time.** The create half of a replacement (a `name`/`namespace`/
+  `release_storage_driver` change, a tainted resource) is planned while the
+  old release still owns its objects, so Nelm's ownership and
+  immutable-field checks against live objects only warn there and run for
+  real after the destroy. A conflict with an object the old release does
+  NOT own (another release's, or one created outside Helm) therefore fails
+  the apply after the old release was uninstalled. Read the objects the
+  `re-checked at apply` warning names before applying. Telling the two
+  apart needs owner information Nelm's error does not carry in structured
+  form.
+
+- **`-replace` cannot get past an immutable-field change.** Terraform plans
+  `-replace` as an update of the same release first, and Nelm's
+  immutable-field check fails that plan. Use `terraform taint` (planned as
+  a plain create) or `terraform destroy -target=...` then `terraform apply`.
+
+- **A create plan lists the chart's `crds/` CRDs even with
+  `no_install_crds = true`.** The planned `resources` of a create is the
+  chart's render, which includes `crds/`; the first refresh after the apply
+  drops them again. Cosmetic.
 
 - **Import assumes the `secret` storage backend.** `terraform import` seeds
   `release_storage_driver = "secret"`. Importing a `configmap`-backed release
@@ -63,8 +121,10 @@ chart-managed fields from live ones.
 
 - **First plan after import is an in-place update.** `chart` is not
   recoverable from release storage, so it is null right after import; any
-  real configuration supplies a chart, making the first post-import plan a
-  metadata-only update. Inherent to Helm/nelm storage.
+  real configuration supplies a chart, making the first post-import plan an
+  update whose apply runs `nelm install` for real: a new revision, and the
+  chart's upgrade hooks (migration Jobs, webhook certificate patch Jobs) run
+  as on any `helm upgrade`. Inherent to Helm/nelm storage.
 
 - **`werf.io/resource-policy` skip policies are invisible in the diff.**
   Since nelm 1.26, a resource annotated with a `skip-create`, `skip-update`
