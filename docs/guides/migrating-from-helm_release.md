@@ -30,7 +30,8 @@ reinstalled.
 ## Requirements
 
 - Terraform **1.7 or later** (`removed` blocks with
-  `lifecycle { destroy = false }`, and `import` blocks).
+  `lifecycle { destroy = false }`, and `import` blocks); 1.8 or later for the
+  [`moved` alternative](#alternative-a-moved-block-terraform-18).
 - Keep `hashicorp/helm` in `required_providers`, and its `provider "helm"`
   block, until the migration has been applied: the `helm_release` objects are
   still in the state while Terraform plans the handover.
@@ -101,6 +102,40 @@ in all instances of the module), so every instance needs its own `import`
 block (or one `import` block with `for_each`) in the same change. When a
 shared module switches from `helm_release` to `nelm_release`, migrate every
 caller of that module in the same apply.
+
+## Alternative: a `moved` block (Terraform 1.8+)
+
+`nelm_release` also accepts a cross-provider move from `helm_release`:
+
+```hcl
+moved {
+  from = helm_release.app
+  to   = nelm_release.app
+}
+
+resource "nelm_release" "app" {
+  # ... the same inputs as in the recipe above
+}
+```
+
+The move carries over the release identity and the `helm_release` inputs
+that have a `nelm_release` counterpart: `name`, `namespace`, `chart` (a
+split `repository = "oci://..."` plus chart name becomes one `oci://`
+reference), `repository`, `version` (except for a local chart, whose
+`helm_release` version is just its `Chart.yaml` version), `values`, `set`,
+`set_sensitive`, `max_history`, `atomic`, `skip_crds` and `take_ownership`,
+mapped as in the [table](#attribute-mapping) below; `release_storage_driver`
+becomes `secret`. The refresh before the plan reads `status`, `revision`,
+`metadata` and `resources` from the cluster. Unlike after an import,
+`chart` is known, so when the `nelm_release` configuration reproduces the
+`helm_release` inputs the plan can be empty: no install, no new revision, no
+hooks. Whatever differs is an ordinary in-place update.
+
+Check the plan the same way: `has moved to`, no destroy, never
+`must be replaced`. In a shared module, put the `moved` block inside the
+module, next to the new resource: it applies to every instance of the
+module. Keep `hashicorp/helm` installed for this apply too — the moved object
+still names it in the state.
 
 ## Values: carry them over verbatim
 
@@ -178,8 +213,9 @@ environment variables the `helm` provider reads (`KUBE_CONFIG_PATH`,
 
 ## What the first apply does
 
-The first apply after the import is an in-place update, and it runs
-`nelm install` for real. Expect a new release revision, and expect **hooks to
+The first apply after the import is an in-place update (after a `moved`
+block, only if the configuration differs), and it runs `nelm install` for
+real. Expect a new release revision, and expect **hooks to
 run**: a hook without a `helm.sh/hook-delete-policy` (or with
 `before-hook-creation`) is re-created, so `pre-upgrade`/`post-upgrade` Jobs
 — admission-webhook certificate patch Jobs, database migrations — run again,
@@ -198,10 +234,11 @@ unlimited history.
 
 ## Release storage driver
 
-`terraform import` assumes the default `secret` storage driver. Releases that
-were installed with `HELM_DRIVER=configmap` (or the `helm` provider's
-`helm_driver = "configmap"`) are not found by the import; see the resource
-docs and [Known limitations](../KNOWN_LIMITATIONS.md) for their status.
+`terraform import` and the `moved` block assume the default `secret`
+storage driver. Releases that were installed with `HELM_DRIVER=configmap`
+(or the `helm` provider's `helm_driver = "configmap"`) are not found that
+way; see the resource docs and [Known limitations](../KNOWN_LIMITATIONS.md)
+for their status.
 
 ## Field managers
 

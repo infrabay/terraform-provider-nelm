@@ -270,6 +270,11 @@ terraform import nelm_release.example namespace/name
 The import ID is exactly `<namespace>/<name>` — no other separator or
 format is accepted.
 
+A release managed by `hashicorp/helm`'s `helm_release` can also be handed
+over with `moved { from = helm_release.x  to = nelm_release.x }`
+(Terraform 1.8+), which carries the `helm_release` inputs over as well; see
+the [migration guide](../guides/migrating-from-helm_release.md).
+
 Import adopts an existing release with **zero conversion**, whether it
 was created by `helm install`/`helm upgrade` (Helm 3 **or** Helm 4) or by
 Nelm itself: Nelm's default release-storage format
