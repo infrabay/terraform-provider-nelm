@@ -177,6 +177,18 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 				Description: `Skip installing CustomResourceDefinitions from the chart's "crds/" ` +
 					`directory.`,
 			},
+			"adopt_existing": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				Default:  booldefault.StaticBool(false),
+				Description: "Allow Create to take over a release of the same name that already exists in " +
+					"the namespace (one with a deployed revision, or whose last revision is pending-*). " +
+					"Defaults to false: Create then fails instead, like helm_release without " +
+					"upgrade_install, so a forgotten import, a duplicate resource, or a " +
+					"create_before_destroy replacement can never silently adopt (and then uninstall) a live " +
+					"release. Prefer `terraform import`. A release that only has failed or uninstalled " +
+					"revisions (e.g. a failed first install) is always installed over. Only Create reads it.",
+			},
 			"release_history_limit": schema.Int64Attribute{
 				Optional: true,
 				Description: "Maximum number of release revisions kept in storage. Null or 0 uses " +

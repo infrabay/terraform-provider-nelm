@@ -77,3 +77,35 @@ func IsClusterUnreachable(err error) bool {
 
 	return false
 }
+
+// liveConflictSignals are the phrases of nelm plan failures that are relative
+// to the objects CURRENTLY LIVE in the cluster rather than to the chart or
+// values: the adoption check (pkg/plan/validate.go, "validate adoptable
+// resources: adopt ...": a live object carries another release's ownership
+// annotations) and an immutable-field change nelm will not recreate for
+// (pkg/plan/resource_info.go, "immutable fields change in resource ..., but
+// recreation is not requested"). Both are re-checked by Install itself.
+var liveConflictSignals = []string{
+	"validate adoptable resources",
+	"immutable fields change in resource",
+}
+
+// IsLiveConflict reports whether err is a nelm plan failure caused by a
+// conflict with objects that are live right now (see liveConflictSignals).
+// On the plan of a replacement those objects belong to the release being
+// replaced, whose destroy removes them before the create runs, so the
+// conflict says nothing about whether the create itself will succeed.
+func IsLiveConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := err.Error()
+	for _, signal := range liveConflictSignals {
+		if strings.Contains(msg, signal) {
+			return true
+		}
+	}
+
+	return false
+}

@@ -66,7 +66,7 @@ func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Dura
 		RegistryCredentialsPath: registryConfig,
 		ReleaseName:             spec.Name,
 		ReleaseNamespace:        spec.Namespace,
-		ReleaseStorageDriver:    spec.StorageDriver,
+		ReleaseStorageDriver:    renderStorageDriver(spec),
 		Remote:                  true,
 		TempDirPath:             opDir,
 	}
@@ -86,4 +86,17 @@ func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Dura
 	}
 
 	return objs, nil
+}
+
+// renderStorageDriver is the release storage Render reads the release history
+// from (the history decides the deploy type and revision the templates see).
+// A RenderAsFirstInstall render uses nelm's in-memory driver, which is always
+// empty: no history means deploy type "Initial" and revision 1, exactly what
+// Install renders when the release does not exist (yet, or any more).
+func renderStorageDriver(spec ReleaseSpec) string {
+	if spec.RenderAsFirstInstall {
+		return common.ReleaseStorageDriverMemory
+	}
+
+	return spec.StorageDriver
 }

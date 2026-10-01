@@ -40,6 +40,12 @@ type ReleaseSpec struct {
 	NoRemoveManualChanges bool
 	NoInstallCRDs         bool
 	AutoRollback          bool
+
+	// RenderAsFirstInstall makes Render ignore the release's stored history
+	// and render the chart exactly as a first install would (deploy type
+	// "Initial", revision 1), whatever is live. Only Render reads it: Plan
+	// and Install always run against the real history.
+	RenderAsFirstInstall bool
 }
 
 // PlanResult is the result of Client.Plan: the resource changes read back

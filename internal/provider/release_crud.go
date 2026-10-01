@@ -25,7 +25,7 @@ import (
 // implemented here (design §2.3-2.4); ModifyPlan's implementation
 // (release_plan.go) is owned by T-resplan (design §2.2).
 type releaseResource struct {
-	client *nelmclient.Client
+	client releaseClient
 }
 
 var (
@@ -215,38 +215,94 @@ func (r *releaseResource) refreshedRelease(ctx context.Context, model releaseMod
 }
 
 // planFallbackState derives a persistable state from the plan for the case
-// where Install succeeded (or may have partially succeeded) but the immediate
-// refresh failed, so the release is not lost from Terraform state. The computed
-// cluster attrs (status/revision/metadata) are set to safe concretes — the next
-// Read replaces them with live values. The KNOWN plan resources value is
-// reproduced verbatim (the ModifyPlan consistency rule); an Unknown plan value
-// becomes an empty map.
+// where Install succeeded but the immediate refresh failed, so the release is
+// not lost from Terraform state. Since the apply then succeeds, the result
+// must match the plan wherever the plan is KNOWN (Terraform's "inconsistent
+// result after apply" check): known plan values — resources, and an Update's
+// status/revision/metadata when ModifyPlan expected no reinstall — are
+// reproduced verbatim. Unknown computed cluster attrs are set to safe
+// concretes that the next Read replaces with live values; an Unknown
+// resources value becomes an empty map.
 func planFallbackState(plan releaseModel) (releaseModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	out := plan
 	out.ID = types.StringValue(plan.Namespace.ValueString() + "/" + plan.Name.ValueString())
-	out.Status = types.StringValue("")
-	out.Revision = types.Int64Value(0)
 
-	metaObj, d := types.ObjectValue(metadataAttrTypes, map[string]attr.Value{
-		"app_version":   types.StringValue(""),
-		"chart_name":    types.StringValue(""),
-		"chart_version": types.StringValue(""),
-		"values_json":   types.StringValue("{}"),
-	})
-	diags.Append(d...)
-	out.Metadata = metaObj
+	if plan.Status.IsUnknown() || plan.Status.IsNull() {
+		out.Status = types.StringValue("")
+	}
+
+	if plan.Revision.IsUnknown() || plan.Revision.IsNull() {
+		out.Revision = types.Int64Value(0)
+	}
+
+	if plan.Metadata.IsUnknown() || plan.Metadata.IsNull() {
+		metaObj, d := types.ObjectValue(metadataAttrTypes, map[string]attr.Value{
+			"app_version":   types.StringValue(""),
+			"chart_name":    types.StringValue(""),
+			"chart_version": types.StringValue(""),
+			"values_json":   types.StringValue("{}"),
+		})
+		diags.Append(d...)
+		out.Metadata = metaObj
+	}
 
 	if plan.Resources.IsUnknown() || plan.Resources.IsNull() {
-		emptyMap, md := types.MapValue(types.StringType, map[string]attr.Value{})
-		diags.Append(md...)
-		out.Resources = emptyMap
-	} else {
-		out.Resources = plan.Resources
+		out.Resources = emptyResourcesMap()
 	}
 
 	return out, diags
+}
+
+// emptyResourcesMap is the known, empty "resources" value persisted when no
+// resources map could be computed; the next Read rebuilds it from live refs.
+func emptyResourcesMap() types.Map {
+	return types.MapValueMust(types.StringType, map[string]attr.Value{})
+}
+
+// failedUpdateState builds the state a FAILED Update persists: the
+// PRIOR state's configuration — so the attempted change is still a diff on
+// the next plan and is retried, instead of being recorded as applied —
+// overlaid with what the cluster reports now (id/status/revision/metadata/
+// resources from refreshed). Persisting the plan's configuration instead
+// silently dropped any failed change that the retry triggers (status !=
+// deployed, a resources-map difference) do not see: e.g. a hook-only change
+// after a successful auto_rollback, or a failure before nelm wrote a revision.
+// Terraform skips its "inconsistent result after apply" check when Update
+// returns an error, so a state that differs from the plan is legal here.
+func failedUpdateState(prior, refreshed releaseModel) releaseModel {
+	out := prior
+	out.ID = refreshed.ID
+	out.Status = refreshed.Status
+	out.Revision = refreshed.Revision
+	out.Metadata = refreshed.Metadata
+	out.Resources = refreshed.Resources
+
+	return out
+}
+
+// installedButUnreadWarnings downgrades the error diagnostics of a failed
+// post-install read to warnings. The install itself succeeded, so the
+// apply must not fail: a failed Create makes Terraform taint the resource and
+// replace — uninstall and reinstall — a healthy release on the next apply.
+func installedButUnreadWarnings(diags diag.Diagnostics) diag.Diagnostics {
+	var out diag.Diagnostics
+
+	for _, d := range diags {
+		if d.Severity() != diag.SeverityError {
+			out.Append(d)
+			continue
+		}
+
+		out.AddWarning(
+			"nelm_release installed, but reading it back failed",
+			"The install succeeded, so the apply is not failed; status, revision, metadata and resources are "+
+				"filled in from the cluster by the next refresh.\n\n"+d.Summary()+": "+d.Detail(),
+		)
+	}
+
+	return out
 }
 
 // createOrUpdate is the shared body of Create and Update (design §2.3): both
@@ -256,10 +312,16 @@ func planFallbackState(plan releaseModel) (releaseModel, diag.Diagnostics) {
 // resources is copied verbatim from the plan when the plan value is KNOWN
 // (a known plan value MUST be reproduced exactly at apply); otherwise it is
 // computed from a live read. On a partial failure (Install errors but the
-// release exists per client.Get), the full refreshed state is persisted so
+// release exists per client.Get), the refreshed state is persisted so
 // Terraform does not lose track of a partially-applied release, and an
-// error diagnostic is still added so the apply fails.
-func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel, timeout timeoutKind) (state releaseModel, hasState bool, diags diag.Diagnostics) {
+// error diagnostic is still added so the apply fails; on an Update it keeps
+// the prior configuration (failedUpdateState) so the change is retried.
+//
+// prior is the Update's prior state, nil on Create. Before installing, the
+// release's stored history is checked by installGuardDiags: Create never
+// silently adopts an existing release, and neither path installs over a
+// pending-* revision another operation still holds.
+func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel, prior *releaseModel, timeout timeoutKind) (state releaseModel, hasState bool, diags diag.Diagnostics) {
 	spec, d := plan.toReleaseSpec(ctx)
 	diags.Append(d...)
 	if diags.HasError() {
@@ -286,6 +348,23 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 		return releaseModel{}, false, diags
 	}
 
+	ns := plan.Namespace.ValueString()
+
+	// Pre-install guards against the release's CURRENT history (read at
+	// apply, not plan, time): no silent adoption on Create, no install over a
+	// pending-* revision another operation holds. A history read failure
+	// fails the apply before anything is changed.
+	history, err := r.client.History(ctx, plan.Name.ValueString(), ns, plan.ReleaseStorageDriver.ValueString(), readTimeout)
+	if err != nil {
+		diags.AddError("Failed to read nelm release history", err.Error())
+		return releaseModel{}, false, diags
+	}
+
+	diags.Append(installGuardDiags(plan, history, prior == nil, pendingTakeoverAge(opTimeout), time.Now())...)
+	if diags.HasError() {
+		return releaseModel{}, false, diags
+	}
+
 	installErr := r.client.Install(ctx, spec, opTimeout)
 
 	// Always re-check the cluster after Install, success or failure: on
@@ -297,45 +376,51 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 	// what lets a successful install survive a transient refresh failure.
 	refreshed, info, found, rdiags := r.refreshedRelease(ctx, plan, readTimeout)
 	getErrored := rdiags.HasError()
-	diags.Append(rdiags...)
-
-	ns := plan.Namespace.ValueString()
 
 	switch {
+	case installErr == nil && getErrored:
+		// Install SUCCEEDED but the immediate refresh failed (e.g. a transient
+		// API error). The release exists and is healthy: do NOT drop it from
+		// state, and do NOT fail the apply — a failed Create is tainted, and
+		// the next apply would replace (uninstall and reinstall) the release.
+		// Persist a plan-derived state and only warn; the next Read fills in
+		// status/revision/metadata.
+		fallback, fdiags := planFallbackState(plan)
+		diags.Append(fdiags...)
+		diags.Append(installedButUnreadWarnings(rdiags)...)
+		return fallback, true, diags
+
 	case installErr == nil && found:
 		// Happy path — handled after the switch.
 
-	case installErr == nil && getErrored:
-		// Install SUCCEEDED but the immediate refresh failed transiently (e.g.
-		// the API connection reset). The release exists; do NOT drop it from
-		// state. Persist a plan-derived state so Terraform keeps tracking it
-		// (the next Read fills in status/revision/metadata) — the getErrored
-		// diagnostic already in diags still fails this apply.
-		fallback, fdiags := planFallbackState(plan)
-		diags.Append(fdiags...)
-		return fallback, true, diags
-
-	case installErr == nil && !found:
+	case installErr == nil:
 		diags.AddError(
 			"nelm_release install reported success but the release was not found",
 			"This is unexpected; please report it as a provider bug.",
 		)
 		return releaseModel{}, false, diags
 
-	case installErr != nil && found:
+	case found:
 		// Partial failure: Install errored but the release exists (e.g. it
 		// installed some resources before failing, or a prior apply already
-		// created it). Persist the full refreshed state — including a
-		// freshly live-computed resources map, since the plan's (possibly
-		// KNOWN) resources value described the intended post-apply state
-		// that this partial apply did NOT fully reach — so Terraform does
-		// not lose track of the release, but still fail the apply. The plan's
-		// resources (when KNOWN) are the projection template.
+		// created it). Persist the refreshed state — including a freshly
+		// live-computed resources map, since the plan's (possibly KNOWN)
+		// resources value described the intended post-apply state that this
+		// partial apply did NOT fully reach — so Terraform does not lose track
+		// of the release, but still fail the apply. The plan's resources (when
+		// KNOWN) are the projection template. A failed Update keeps the PRIOR
+		// configuration so the change is retried (failedUpdateState).
+		diags.Append(rdiags...)
+
 		desired, ddiags := desiredResources(ctx, plan.Resources)
 		diags.Append(ddiags...)
 		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, desired, readTimeout)
 		diags.Append(mdiags...)
 		refreshed.Resources = resMap
+
+		if prior != nil {
+			refreshed = failedUpdateState(*prior, refreshed)
+		}
 
 		diags.AddError(
 			"nelm_release install failed (partial state persisted)",
@@ -346,12 +431,14 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 	default:
 		// installErr != nil && (getErrored || genuine not-found): the release
 		// is absent or unconfirmable, so don't persist a possibly-nonexistent
-		// release. Any getErrored diagnostic is already in diags.
+		// release (an Update's prior state is kept by the framework).
+		diags.Append(rdiags...)
 		diags.AddError("nelm_release install failed", plan.scrubSensitive(installErr.Error()))
 		return releaseModel{}, false, diags
 	}
 
 	// installErr == nil && found.
+	diags.Append(rdiags...)
 	state = refreshed
 
 	// A KNOWN plan value MUST be reproduced exactly at apply (ModifyPlan
@@ -364,9 +451,17 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 	} else {
 		// Degraded (Unknown) plan: the cluster was unreachable at plan time,
 		// so there is no stored desired to project against — pass nil and let
-		// the map converge on the next plan.
+		// the map converge on the next plan. A failed live read must not fail
+		// the successful install either (see above): persist an empty map,
+		// which the next Read rebuilds.
 		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, nil, readTimeout)
-		diags.Append(mdiags...)
+		if mdiags.HasError() {
+			diags.Append(installedButUnreadWarnings(mdiags)...)
+			resMap = emptyResourcesMap()
+		} else {
+			diags.Append(mdiags...)
+		}
+
 		state.Resources = resMap
 	}
 
@@ -387,7 +482,7 @@ func (r *releaseResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	state, hasState, diags := r.createOrUpdate(ctx, plan, timeoutCreate)
+	state, hasState, diags := r.createOrUpdate(ctx, plan, nil, timeoutCreate)
 	resp.Diagnostics.Append(diags...)
 	if !hasState {
 		// No usable state to persist (hard failure, no release found).
@@ -400,15 +495,18 @@ func (r *releaseResource) Create(ctx context.Context, req resource.CreateRequest
 }
 
 func (r *releaseResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan releaseModel
+	var plan, prior releaseModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	state, hasState, diags := r.createOrUpdate(ctx, plan, timeoutUpdate)
+	state, hasState, diags := r.createOrUpdate(ctx, plan, &prior, timeoutUpdate)
 	resp.Diagnostics.Append(diags...)
 	if !hasState {
+		// UpdateResponse.State starts as the prior state: not setting it
+		// keeps the prior state.
 		return
 	}
 
@@ -531,6 +629,11 @@ func (r *releaseResource) ImportState(ctx context.Context, req resource.ImportSt
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("no_remove_manual_changes"), false)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("no_install_crds"), false)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("release_storage_driver"), "secret")...)
+	// adopt_existing is seeded false, not true: it is only read by Create,
+	// which an imported resource never runs (its first apply is an Update),
+	// and false matches a configuration that leaves it at its default, so
+	// importing never plans a change to it.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("adopt_existing"), false)...)
 
 	// The framework runs Read after ImportState to fill in the remaining
 	// computed attributes (status/revision/metadata/resources).
