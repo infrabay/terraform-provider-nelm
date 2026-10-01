@@ -17,8 +17,8 @@ package smokelib
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
-	"strings"
 
 	"github.com/werf/nelm/pkg/common"
 	"github.com/werf/nelm/pkg/kube"
@@ -66,8 +66,8 @@ func MustGuardOrbstack(ctx context.Context) *kube.KubeConfig {
 	host := kubeConfig.RestConfig.Host
 	if !isLocalHost(host) {
 		fmt.Fprintf(os.Stderr,
-			"ORBSTACK GUARD FAILED: context %q resolves to server %q -- expected an https://127.0.0.1*"+
-				" or https://localhost* endpoint. This looks like it could be a remote (possibly"+
+			"ORBSTACK GUARD FAILED: context %q resolves to server %q -- expected a 127.0.0.1, ::1"+
+				" or localhost host. This looks like it could be a remote (possibly"+
 				" production) cluster. REFUSING to proceed.\n", OrbstackContext, host)
 		os.Exit(1)
 	}
@@ -77,11 +77,18 @@ func MustGuardOrbstack(ctx context.Context) *kube.KubeConfig {
 	return kubeConfig
 }
 
+// isLocalHost reports whether the API server URL's host is exactly a loopback
+// name. A prefix test would also accept https://localhost.example.com or
+// https://127.0.0.1.nip.io.
 func isLocalHost(host string) bool {
-	for _, prefix := range []string{"https://127.0.0.1", "http://127.0.0.1", "https://localhost", "http://localhost"} {
-		if strings.HasPrefix(host, prefix) {
-			return true
-		}
+	u, err := url.Parse(host)
+	if err != nil {
+		return false
+	}
+
+	switch u.Hostname() {
+	case "127.0.0.1", "::1", "localhost":
+		return true
 	}
 
 	return false

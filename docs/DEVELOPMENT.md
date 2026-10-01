@@ -98,11 +98,16 @@ make testacc NELM_TEST_KUBE_CONTEXT=kind-nelm-acc # e.g. a kind cluster
 ```
 
 This exports `TF_ACC=1` and `NELM_TEST_KUBE_CONTEXT=<context>`. Test code
-additionally hard-fails (`t.Fatal`) unless that kubeconfig context exists and
-its `cluster.server` looks like `127.0.0.1`/`localhost` — a deliberate triple
-guard (explicit env pin with no default + context existence + explicit
-`kube_context = <context>` in every test's provider config) so acceptance
-tests can never accidentally run against a real cloud cluster.
+additionally hard-fails (`t.Fatal`) unless that context exists in
+`~/.kube/config` and its cluster's server host is exactly `127.0.0.1`, `::1`
+or `localhost` — a deliberate triple guard (explicit env pin with no default +
+context existence + explicit `kube_config_paths` and `kube_context` in every
+test's provider config) so acceptance tests can never accidentally run
+against a real cloud cluster. The guard, the
+provider and the `kubectl`/`helm` fixture helpers all read that one file
+(`--kubeconfig` is passed explicitly), so an ambient `$KUBECONFIG` cannot make
+them disagree about which cluster a context names; the context must therefore
+live in `~/.kube/config` (where OrbStack and kind write it by default).
 
 CI (`.github/workflows/test.yml`, job `acceptance`) runs the same suite on
 every pull request against a [kind](https://kind.sigs.k8s.io/) cluster

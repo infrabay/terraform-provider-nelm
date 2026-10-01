@@ -10,8 +10,9 @@ endif
 # running acceptance tests at all; NELM_TEST_KUBE_CONTEXT pins the ONLY
 # context test code is allowed to touch (default: orbstack; CI overrides it
 # to the kind cluster's context). testAccPreCheck (provider_test.go)
-# additionally asserts that context exists and its cluster.server is
-# 127.0.0.1/localhost — never a cloud endpoint — before any test runs.
+# additionally asserts that context exists in ~/.kube/config (the one file
+# the provider, kubectl and helm are all pointed at) and its server host is
+# 127.0.0.1/::1/localhost — never a cloud endpoint — before any test runs.
 NELM_TEST_KUBE_CONTEXT ?= orbstack
 .PHONY: build
 build:
