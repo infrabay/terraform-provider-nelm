@@ -162,12 +162,12 @@ func (c *Client) IsNamespaced(gvk schema.GroupVersionKind) (bool, error) {
 }
 
 // LiveObjects fetches the current live cluster state for each ref via the
-// cached RESTMapper + dynamic client (design §2.4: Read builds the live side
-// of the diff from these, normalized through the same
-// planconv.NormalizeUnstructured pipeline as the planned side). A ref whose
-// object no longer exists (NotFound) is simply omitted from the result — an
-// out-of-band deletion is signaled by absence, not an error, and diffs as a
-// re-create at the next plan.
+// cached RESTMapper + dynamic client (Read builds the live side of the diff
+// from these, normalized through the same planconv.NormalizeUnstructured
+// pipeline as the planned side). A ref whose object no longer exists
+// (NotFound) is simply omitted from the result — an out-of-band deletion is
+// signaled by absence, not an error, and diffs as a re-create at the next
+// plan.
 func (c *Client) LiveObjects(ctx context.Context, refs []ResourceRef) (map[ResourceRef]*unstructured.Unstructured, error) {
 	factory, err := c.ensureKubeFactory(ctx)
 	if err != nil {

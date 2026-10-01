@@ -91,12 +91,12 @@ func collectDiffPaths(prefix string, a, b interface{}, out *[]string) {
 	}
 }
 
-// TestNormalizeUnstructuredDeterministic verifies design §2.1 step 5's
-// determinism claim (normalize.go lines 41-44): encoding/json.Marshal sorts
+// TestNormalizeUnstructuredDeterministic verifies the pipeline's determinism
+// claim (normalize.go lines 41-44): encoding/json.Marshal sorts
 // map[string]interface{} keys alphabetically by construction, so canonical
-// JSON output must not depend on either (a) how many times NormalizeUnstructured
-// runs against equivalent input, or (b) the original map's key insertion
-// order.
+// JSON output must not depend on either (a) how many times
+// NormalizeUnstructured runs against equivalent input, or (b) the original
+// map's key insertion order.
 func TestNormalizeUnstructuredDeterministic(t *testing.T) {
 	t.Run("repeated calls agree", func(t *testing.T) {
 		for _, kind := range append(append([]string{}, unpatchedKinds...), "Deployment") {

@@ -265,8 +265,8 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 }
 
 // Install runs action.ReleaseInstall for the given spec WITHOUT a
-// PlanArtifactPath (design §2.3: Create/Update always use a fresh install,
-// never artifact replay).
+// PlanArtifactPath (Create/Update always use a fresh install, never artifact
+// replay).
 func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Duration) error {
 	if c.configUnknown {
 		return ErrConfigUnknown

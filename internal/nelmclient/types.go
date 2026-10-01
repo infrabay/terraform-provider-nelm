@@ -87,7 +87,7 @@ type ReleaseInfo struct {
 	Values map[string]any
 
 	// Resources are the resource identities recorded in the stored release
-	// (used by Read to know what to live-GET; see design §2.4).
+	// (used by Read to know what to live-GET).
 	Resources []ResourceRef
 
 	// Manifests are the stored release's resource manifests (hooks

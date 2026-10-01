@@ -157,7 +157,7 @@ type releaseModel struct {
 // absolute; an oci:// repository is folded into the chart ref; other remote
 // refs pass through) so every call path applies the rule identically. Callers
 // MUST first ensure the config attributes this reads are known (not Unknown) —
-// ModifyPlan degrades to Unknown before calling this (design §2.2 step 2).
+// ModifyPlan degrades to Unknown before calling this (ModifyPlan step 2).
 func (m releaseModel) toReleaseSpec(ctx context.Context) (nelmclient.ReleaseSpec, diag.Diagnostics) {
 	var diags diag.Diagnostics
 

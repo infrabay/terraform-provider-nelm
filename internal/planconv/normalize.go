@@ -12,18 +12,17 @@ import (
 )
 
 // NormalizeUnstructured is the single most correctness-critical function in
-// this provider (design §2.1): it turns an arbitrary Kubernetes object into a
-// canonical, redacted JSON string. It is used verbatim for the PLANNED side of
-// the diff (a nelm plan's After object, which nelm renders client-side and so
-// carries no server-side defaulting); the LIVE side goes through
-// NormalizeLiveAgainst, which calls this and then projects onto the planned
-// shape (see below).
+// this provider: it turns an arbitrary Kubernetes object into a canonical,
+// redacted JSON string. It is used verbatim for the PLANNED side of the diff
+// (a nelm plan's After object, which nelm renders client-side and so carries
+// no server-side defaulting); the LIVE side goes through NormalizeLiveAgainst,
+// which calls this and then projects onto the planned shape (see below).
 //
 // CONTRACTS.md's bold invariant: both sides of the diff MUST key identically
 // (Key, same KeyScoper) and normalize through this same pipeline, or phantom
 // diffs result.
 //
-// Pipeline (design §2.1):
+// Pipeline:
 //  1. sensitivePathsFor(gvk, annotations) — the redaction paths, including the
 //     unconditional core/v1 Secret data/stringData override.
 //  2. resource.RedactSensitiveData(obj, paths) — deterministic, pure;
@@ -165,9 +164,9 @@ func stripClientBookkeeping(obj *unstructured.Unstructured) {
 // (from BuildPlannedResources or a previous Read). When it is empty — a
 // resource seen live with no stored desired counterpart, e.g. the first Read
 // after a plain-helm import — no projection is possible and the full
-// normalized live object is returned; subsequent plans converge it (design
-// §2.4). desired must have been scrubbed of the same secrets, or a map key
-// carrying one would not project.
+// normalized live object is returned; subsequent plans converge it. desired
+// must have been scrubbed of the same secrets, or a map key carrying one would
+// not project.
 func NormalizeLiveAgainst(obj *unstructured.Unstructured, desired string, secrets []string) (string, error) {
 	liveJSON, err := NormalizeUnstructured(obj, secrets)
 	if err != nil {

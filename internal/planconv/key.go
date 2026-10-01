@@ -18,7 +18,7 @@ import (
 // "resources" map key: its GroupVersionKind plus namespace/name. It mirrors
 // internal/nelmclient.ResourceRef but is redeclared here so that planconv
 // stays a leaf package with no dependency on nelmclient (or any cluster
-// client) — see design §3 package architecture.
+// client) — see CONTRACTS.md, Seam 2.
 type Ref struct {
 	GroupVersionKind schema.GroupVersionKind
 	Namespace        string
@@ -44,14 +44,13 @@ type KeyScoper interface {
 // later live read always carries an explicit one — both must converge on the
 // same key.
 //
-// Namespace resolution (design §2.1): ref.Namespace wins if non-empty
-// (callers are expected to have already preferred the object's own
-// metadata.namespace, falling back to nelm's ResourceMeta.Namespace, before
-// constructing ref — see BuildPlannedResources/BuildLiveResources). If
-// ref.Namespace is empty, scoper.IsNamespaced resolves whether the
-// GroupVersionKind is namespace-scoped at all: namespaced kinds fall back to
-// releaseNS (the implicit-namespace case above); cluster-scoped kinds keep
-// the empty segment.
+// Namespace resolution: ref.Namespace wins if non-empty (callers are expected
+// to have already preferred the object's own metadata.namespace, falling back
+// to nelm's ResourceMeta.Namespace, before constructing ref — see
+// BuildPlannedResources/BuildLiveResources). If ref.Namespace is empty,
+// scoper.IsNamespaced resolves whether the GroupVersionKind is
+// namespace-scoped at all: namespaced kinds fall back to releaseNS (the
+// implicit-namespace case above); cluster-scoped kinds keep the empty segment.
 func Key(ref Ref, releaseNS string, scoper KeyScoper) (string, error) {
 	if scoper == nil {
 		return "", fmt.Errorf("planconv: Key: nil KeyScoper for %s", ref.GroupVersionKind)

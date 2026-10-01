@@ -33,9 +33,9 @@ type nelmProvider struct {
 	version string
 }
 
-// providerModel mirrors the schema in Schema below (design §1.1). Every
-// field maps onto github.com/werf/nelm/pkg/common.KubeConnectionOptions via
-// nelmclient.Config / nelmclient.Client.toKubeConnectionOptions.
+// providerModel mirrors the schema in Schema below. Every field maps onto
+// github.com/werf/nelm/pkg/common.KubeConnectionOptions via nelmclient.Config
+// / nelmclient.Client.toKubeConnectionOptions.
 type providerModel struct {
 	KubeConfigPaths    types.List   `tfsdk:"kube_config_paths"`
 	KubeConfigBase64   types.String `tfsdk:"kube_config_base64"`

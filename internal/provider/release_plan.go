@@ -20,9 +20,8 @@ import (
 
 // metadataAttrTypes mirrors the "metadata" schema attribute's nested attribute
 // types (release_schema.go). It is the single source of truth for the metadata
-// object's shape. It is used to build
-// types.ObjectUnknown(...) values when degrading the diff surface (design
-// §2.2 steps 2 and 5a).
+// object's shape. It is used to build types.ObjectUnknown(...) values when
+// degrading the diff surface (ModifyPlan steps 2 and 5a).
 var metadataAttrTypes = map[string]attr.Type{
 	"app_version":   types.StringType,
 	"chart_name":    types.StringType,
@@ -31,13 +30,13 @@ var metadataAttrTypes = map[string]attr.Type{
 }
 
 // unknownCheckStringPaths/unknownCheckBoolPaths are the top-level scalar
-// config attributes design §2.2 step 2 says must never be guessed at: if any
-// is Unknown, the whole diff surface degrades to Unknown rather than being
-// computed against a guessed value. release_history_limit, auto_rollback,
-// wait and adopt_existing are deliberately excluded: toReleaseSpec already
-// treats an unknown/null history limit as "omit" (release_model.go),
-// auto_rollback and wait have no effect on Client.Plan's inputs at all (they
-// are Install-only options), and adopt_existing is read by Create alone (an
+// config attributes ModifyPlan step 2 says must never be guessed at: if any is
+// Unknown, the whole diff surface degrades to Unknown rather than being
+// computed against a guessed value. release_history_limit, auto_rollback, wait
+// and adopt_existing are deliberately excluded: toReleaseSpec already treats
+// an unknown/null history limit as "omit" (release_model.go), auto_rollback
+// and wait have no effect on Client.Plan's inputs at all (they are
+// Install-only options), and adopt_existing is read by Create alone (an
 // unknown value only suppresses ModifyPlan's existing-release warning).
 var (
 	unknownCheckStringPaths = []string{"chart", "repository", "version", "name", "namespace", "release_storage_driver", "diff_mode"}
@@ -72,7 +71,7 @@ func containsUnknown(v attr.Value) bool {
 	return false
 }
 
-// planHasUnknownInputs implements design §2.2 step 2: it reports whether any
+// planHasUnknownInputs implements ModifyPlan step 2: it reports whether any
 // input ModifyPlan would need to feed to Client.Plan is Unknown, WITHOUT ever
 // calling plan.Get(ctx, &releaseModel{}) first. That distinction matters:
 // releaseModel.Set/SetSensitive are native Go slices ([]setModel), and
@@ -242,17 +241,17 @@ func releaseIdentityChanged(plan, priorState releaseModel) bool {
 		!plan.ReleaseStorageDriver.Equal(priorState.ReleaseStorageDriver)
 }
 
-// releaseID computes the "id" attribute value: a pure, deterministic
-// function of namespace and name, so it is always safe to set KNOWN (design
-// §2.2 step 3's consistency requirement — it must be byte-identical whether
-// this is the plan-phase or the apply-phase ModifyPlan invocation).
+// releaseID computes the "id" attribute value: a pure, deterministic function
+// of namespace and name, so it is always safe to set KNOWN (ModifyPlan step
+// 3's consistency requirement — it must be byte-identical whether this is the
+// plan-phase or the apply-phase ModifyPlan invocation).
 func releaseID(namespace, name string) string {
 	return namespace + "/" + name
 }
 
 // degradeDiffToUnknown sets every volatile computed attribute (resources,
 // status, revision, metadata) to Unknown on resp.Plan. It is the shared body
-// of design §2.2 steps 2 (unknown inputs) and 5a (cluster unreachable at plan
+// of ModifyPlan steps 2 (unknown inputs) and 5a (cluster unreachable at plan
 // time): in both cases ModifyPlan has no safe value to compute the diff
 // surface from and must never guess. "id" is deliberately NOT touched here:
 // callers of this helper return before step 3 ever runs, so id stays exactly
@@ -264,22 +263,22 @@ func degradeDiffToUnknown(ctx context.Context, resp *resource.ModifyPlanResponse
 	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("metadata"), types.ObjectUnknown(metadataAttrTypes))...)
 }
 
-// ModifyPlan implements the diff architecture in design §2.2 — the heart of
-// this provider: destroy plans stay null, unknown inputs (and an unreachable
-// cluster) degrade the diff surface to Unknown rather than guess, and
-// otherwise "resources" is rebuilt from a fresh action.ReleasePlanInstall
-// (via Client.Plan) — or, on a create, from the chart's first-install render
-// (step 6c) — and set UNCONDITIONALLY, even on an entirely unchanged
-// plan, so out-of-band cluster drift is always visible. ModifyPlan runs at
-// both the plan and the apply phase, and Terraform aborts the apply ("Provider
-// produced inconsistent final plan") unless every value the plan phase set
-// KNOWN comes out identical at the apply phase. The ONLY values it ever sets
-// KNOWN are "id" (a pure function of known inputs) and the elements of
-// "resources" that two independent renders agree on (step 6e: an object that
-// renders differently every time is Unknown, or keeps its prior value) —
-// every other computed attribute either stays Unknown or is left untouched
-// at whatever prior state already holds (CONTRACTS.md/design §2.2
-// consistency policy). diff_mode = "none" skips all of this (planWithoutDiff).
+// ModifyPlan implements the diff architecture — the heart of this provider:
+// destroy plans stay null, unknown inputs (and an unreachable cluster) degrade
+// the diff surface to Unknown rather than guess, and otherwise "resources" is
+// rebuilt from a fresh action.ReleasePlanInstall (via Client.Plan) — or, on a
+// create, from the chart's first-install render (step 6c) — and set
+// UNCONDITIONALLY, even on an entirely unchanged plan, so out-of-band cluster
+// drift is always visible. ModifyPlan runs at both the plan and the apply
+// phase, and Terraform aborts the apply ("Provider produced inconsistent final
+// plan") unless every value the plan phase set KNOWN comes out identical at
+// the apply phase. The ONLY values it ever sets KNOWN are "id" (a pure
+// function of known inputs) and the elements of "resources" that two
+// independent renders agree on (step 6e: an object that renders differently
+// every time is Unknown, or keeps its prior value) — every other computed
+// attribute either stays Unknown or is left untouched at whatever prior state
+// already holds (the CONTRACTS.md consistency policy). diff_mode = "none"
+// skips all of this (planWithoutDiff).
 func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
 	// 1. DESTROY: req.Plan.Raw is null on a destroy plan. The response
 	// plan MUST stay entirely null. resp.Plan already equals req.Plan
@@ -703,7 +702,7 @@ func (r *releaseResource) ModifyPlan(ctx context.Context, req resource.ModifyPla
 	// whenever the proposed new state equals the prior state, so an
 	// unconditional overwrite here is the ONLY thing that makes
 	// out-of-band cluster drift visible on an otherwise no-change plan
-	// (design §2.2 step 7). This call must NOT be made conditional on
+	// (step 7). This call must NOT be made conditional on
 	// hasChanges/createPlan below.
 	resp.Diagnostics.Append(resp.Plan.SetAttribute(ctx, path.Root("resources"), plannedMap)...)
 	if resp.Diagnostics.HasError() {

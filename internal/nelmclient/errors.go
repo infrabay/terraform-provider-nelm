@@ -37,9 +37,9 @@ const clusterUnreachableSignal = "check kubernetes cluster version to check kube
 // deliberate: some other failure could in principle happen to embed the
 // connectivity-check phrase without actually being a network-reachability
 // problem, and being wrong in that direction (degrading a real error to a
-// silent "plan at apply time" warning, design §2.2 step 5a) is worse than
-// being wrong in the other direction (surfacing a real cluster-unreachable
-// condition as a hard error).
+// silent "plan at apply time" warning, ModifyPlan step 5a) is worse than being
+// wrong in the other direction (surfacing a real cluster-unreachable condition
+// as a hard error).
 var clusterUnreachableCauses = []string{
 	"dial tcp",
 	"connection refused",

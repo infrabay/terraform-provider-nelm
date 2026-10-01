@@ -35,7 +35,7 @@ func normalizeFixture(elems ...string) string {
 
 // fakeScoper is a deterministic, pure test double for KeyScoper: no cluster
 // access, no cached RESTMapper — just a fixed GVK->namespaced table, matching
-// planconv's leaf-package/pure-function design (design §3).
+// planconv's leaf-package/pure-function design (CONTRACTS.md, Seam 2).
 type fakeScoper struct {
 	namespaced map[schema.GroupVersionKind]bool
 	err        error

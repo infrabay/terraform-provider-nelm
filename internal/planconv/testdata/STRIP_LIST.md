@@ -67,7 +67,7 @@ manifest to begin with.
 - `metadata.namespace` -- the chart's rendered manifests never set an
   explicit namespace (helm convention: namespace comes from the release
   context), but any live GET always has it populated. Key resolution
-  already accounts for this (design §2.1's `releaseNS` fallback), so it
+  already accounts for this (`Key`'s `releaseNS` fallback), so it
   should also be stripped from the compared VALUE to avoid a values-level
   phantom diff on every single namespaced resource, every time.
 - `metadata.annotations["deployment.kubernetes.io/revision"]` -- written by
@@ -93,8 +93,7 @@ manifest to begin with.
 ## Resource kinds with NO residual diff after `CleanUnstruct` alone
 
 `ClusterRole` and `ClusterRoleBinding` (`rbac.authorization.k8s.io/v1`, both
-cluster-scoped -- the key-scoping case design §2.1/§6 calls out explicitly)
-required NO additional stripping: RBAC objects have no spec-level
+cluster-scoped -- the key-scoping case) required NO additional stripping: RBAC objects have no spec-level
 server-side defaulting, so `CleanUnstruct{CleanRuntimeData, CleanHelmShAnnos,
 CleanWerfIoAnnos, CleanManagedFields}` alone was already sufficient for
 both of them.

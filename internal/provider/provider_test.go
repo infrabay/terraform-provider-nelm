@@ -79,11 +79,10 @@ func testKubeconfigPath() string {
 	return filepath.Join(home, ".kube", "config")
 }
 
-// testAccPreCheck is the triple local-cluster safety guard (design §6,
-// GNUmakefile testacc target, DEVELOPMENT.md): it MUST hard-fail
-// (t.Fatal, not t.Skip) unless ALL of the following hold, so acceptance
-// tests can never silently no-op against -- or worse, actually run against
-// -- a real cluster:
+// testAccPreCheck is the triple local-cluster safety guard (GNUmakefile
+// testacc target, DEVELOPMENT.md): it MUST hard-fail (t.Fatal, not t.Skip)
+// unless ALL of the following hold, so acceptance tests can never silently
+// no-op against -- or worse, actually run against -- a real cluster:
 //
 //  1. TF_ACC is set (resource.Test's own gate already skips before PreCheck
 //     runs when this is unset; checked again here defensively in case this
@@ -239,11 +238,10 @@ func mustKubectl(t *testing.T, args ...string) string {
 	return out
 }
 
-// scaleDeployment performs the out-of-band `kubectl scale` design §6
-// scenario 3 (drift) needs: a live mutation the next `terraform plan` must
-// detect via the resources map diff (design §2.4 -- Read always live-reads
-// resources, never the stored/rendered manifest, precisely so this kind of
-// drift is visible).
+// scaleDeployment performs the out-of-band `kubectl scale` acceptance scenario
+// 3 (drift) needs: a live mutation the next `terraform plan` must detect via
+// the resources map diff (Read always live-reads resources, never the
+// stored/rendered manifest, precisely so this kind of drift is visible).
 func scaleDeployment(t *testing.T, namespace, deployment string, replicas int) {
 	t.Helper()
 
@@ -251,9 +249,9 @@ func scaleDeployment(t *testing.T, namespace, deployment string, replicas int) {
 }
 
 // helmInstallOOB installs chartDir as release name/namespace using the real,
-// locally installed helm CLI (v4.2.3, never nelm/Terraform) -- design §6
-// scenario 6 (import) and design §7 risk #2 (whether nelm's vendored helm v3
-// release-storage reader can read what a real, current helm v4 CLI writes).
+// locally installed helm CLI (v4.2.3, never nelm/Terraform) -- acceptance
+// scenario 6 (import), which also checks whether nelm's vendored helm v3
+// release-storage reader can read what a real, current helm v4 CLI writes.
 // --kubeconfig and --kube-context are explicit here for the same
 // cluster-safety reason as every other helper in this file.
 func helmInstallOOB(t *testing.T, namespace, name, chartDir string) {
@@ -280,16 +278,15 @@ func helmInstallOOB(t *testing.T, namespace, name, chartDir string) {
 }
 
 // testAccCheckReleaseDestroyed is the CheckDestroy every scenario that
-// actually creates a release uses. Design §6: "CheckDestroy asserts the
-// release secret + namespace are gone (delete the namespace in CheckDestroy
-// since nelm Uninstall leaves it)":
+// actually creates a release uses. It asserts the release secret + namespace
+// are gone (and deletes the namespace, since nelm Uninstall leaves it):
 //
 //  1. Assert no release record remains in either storage backend
 //     (releaseRecordsLeft): a release that moved to release_storage_driver
 //     = "configmap" leaves ConfigMaps, not Secrets, and the namespace
 //     deletion below would hide them.
 //  2. Delete the namespace -- ReleaseUninstall always runs with
-//     DeleteReleaseNamespace:false (design §2.3), so nothing else will ever
+//     DeleteReleaseNamespace:false, so nothing else will ever
 //     clean this up -- and confirm it is actually gone afterwards, so a
 //     stuck namespace-terminating condition fails the test loudly instead of
 //     leaking silently.

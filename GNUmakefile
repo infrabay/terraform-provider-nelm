@@ -6,7 +6,7 @@ ifeq ($(GOBIN),)
 GOBIN := $(shell go env GOPATH)/bin
 endif
 
-# Strictly-local acceptance test guard (design §6): TF_ACC=1 opts into
+# Strictly-local acceptance test guard: TF_ACC=1 opts into
 # running acceptance tests at all; NELM_TEST_KUBE_CONTEXT pins the ONLY
 # context test code is allowed to touch (default: orbstack; CI overrides it
 # to the kind cluster's context). testAccPreCheck (provider_test.go)

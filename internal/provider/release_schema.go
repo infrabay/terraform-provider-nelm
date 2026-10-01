@@ -26,7 +26,7 @@ const (
 	defaultUpdateTimeout = 10 * time.Minute
 	defaultDeleteTimeout = 5 * time.Minute
 	// defaultReadTimeout also bounds the ReleasePlanInstall call inside
-	// ModifyPlan (design §2.2 step 4) in addition to Read's ReleaseGet.
+	// ModifyPlan (step 4) in addition to Read's ReleaseGet.
 	defaultReadTimeout = 5 * time.Minute
 )
 

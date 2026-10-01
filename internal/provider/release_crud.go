@@ -73,7 +73,7 @@ func (r *releaseResource) Configure(_ context.Context, req resource.ConfigureReq
 // canonicalValuesJSON marshals values (the coalesced values nelm used to
 // render the release) to canonical JSON for metadata.values_json.
 // encoding/json sorts map[string]interface{} keys alphabetically by
-// construction, giving a deterministic byte representation (design §2.4).
+// construction, giving a deterministic byte representation.
 func canonicalValuesJSON(values map[string]any) (string, error) {
 	b, err := json.Marshal(values)
 	if err != nil {
@@ -83,12 +83,11 @@ func canonicalValuesJSON(values map[string]any) (string, error) {
 	return string(b), nil
 }
 
-// applyReleaseInfo copies the cluster-derived fields of info onto model:
-// id, status, revision, and metadata. It never touches config-only
-// attributes (chart/repository/version/values/set/set_sensitive) or
-// resources — callers set resources separately (design §2.3/§2.4: the
-// resources-population strategy differs between Create/Update's
-// plan-known-verbatim-copy path and Read's always-live path).
+// applyReleaseInfo copies the cluster-derived fields of info onto model: id,
+// status, revision, and metadata. It never touches config-only attributes
+// (chart/repository/version/values/set/set_sensitive) or resources — callers
+// set resources separately (the resources-population strategy differs between
+// Create/Update's plan-known-verbatim-copy path and Read's always-live path).
 func applyReleaseInfo(model *releaseModel, info *nelmclient.ReleaseInfo) diag.Diagnostics {
 	var diags diag.Diagnostics
 
@@ -115,12 +114,12 @@ func applyReleaseInfo(model *releaseModel, info *nelmclient.ReleaseInfo) diag.Di
 }
 
 // liveResourcesMap builds the "resources" map attribute value from a live
-// cluster read of refs (design §2.4: Read's live path, a failed install's
-// partial state, and — via liveResources — what Create/Update read back for
-// an Unknown plan value). It fetches the live objects via
-// r.client.LiveObjects, normalizes them through the SAME planconv pipeline +
-// Key as ModifyPlan (CONTRACTS.md seam 2's bold invariant), using r.client
-// itself as the KeyScoper (it implements planconv.KeyScoper via IsNamespaced).
+// cluster read of refs (Read's live path, a failed install's partial state,
+// and — via liveResources — what Create/Update read back for an Unknown plan
+// value). It fetches the live objects via r.client.LiveObjects, normalizes
+// them through the SAME planconv pipeline + Key as ModifyPlan (CONTRACTS.md
+// seam 2's bold invariant), using r.client itself as the KeyScoper (it
+// implements planconv.KeyScoper via IsNamespaced).
 //
 // desired is the projection template keyed identically (projectionTemplate:
 // the stored values, or the release manifests); each live object is
@@ -348,18 +347,17 @@ func refsWithKeys(refs []nelmclient.ResourceRef, releaseNS string, scoper planco
 }
 
 // refreshedRelease fetches the current cluster state for the release
-// identified by model's name/namespace/release_storage_driver and, if
-// found, returns a releaseModel with id/status/revision/metadata populated
-// (config attrs copied verbatim from model) plus the raw ReleaseInfo so
-// callers can decide how to populate "resources" (design §2.3: Create/Update
-// copy it verbatim from a KNOWN plan value instead of re-deriving it; only
-// the degraded/partial-failure paths need a live resources computation, so
-// that cost — and its own failure mode — is left to the caller rather than
-// paid unconditionally here). found is false (with nil diags) when the
-// release does not exist, distinguishing "not found" from a real error
-// (design §2.3's partial-failure capture: Install err + Get finds a release
-// => persist full refreshed state + AddError; Install err + no release =>
-// AddError only).
+// identified by model's name/namespace/release_storage_driver and, if found,
+// returns a releaseModel with id/status/revision/metadata populated (config
+// attrs copied verbatim from model) plus the raw ReleaseInfo so callers can
+// decide how to populate "resources" (Create/Update copy it verbatim from a
+// KNOWN plan value instead of re-deriving it; only the
+// degraded/partial-failure paths need a live resources computation, so that
+// cost — and its own failure mode — is left to the caller rather than paid
+// unconditionally here). found is false (with nil diags) when the release does
+// not exist, distinguishing "not found" from a real error (the partial-failure
+// capture: Install err + Get finds a release => persist full refreshed state +
+// AddError; Install err + no release => AddError only).
 func (r *releaseResource) refreshedRelease(ctx context.Context, model releaseModel, timeout time.Duration) (out releaseModel, info *nelmclient.ReleaseInfo, found bool, diags diag.Diagnostics) {
 	name := model.Name.ValueString()
 	ns := model.Namespace.ValueString()
@@ -492,17 +490,17 @@ func installedButUnreadWarnings(diags diag.Diagnostics) diag.Diagnostics {
 	return out
 }
 
-// createOrUpdate is the shared body of Create and Update (design §2.3): both
-// call client.Install (a fresh install, never artifact replay — nelm
-// install is an idempotent upgrade) and, on success, build the full state
-// from the plan (config attrs verbatim) plus the cluster (computed attrs).
-// resources keeps the plan's KNOWN elements verbatim (a known plan value MUST
-// be reproduced exactly at apply); whatever the plan left Unknown is read
-// from the cluster (appliedResources). On a partial failure (Install errors
-// but the release exists per client.Get), the refreshed state is persisted
-// so Terraform does not lose track of a partially-applied release, and an
-// error diagnostic is still added so the apply fails; on an Update it keeps
-// the prior configuration (failedUpdateState) so the change is retried.
+// createOrUpdate is the shared body of Create and Update: both call
+// client.Install (a fresh install, never artifact replay — nelm install is an
+// idempotent upgrade) and, on success, build the full state from the plan
+// (config attrs verbatim) plus the cluster (computed attrs). resources keeps
+// the plan's KNOWN elements verbatim (a known plan value MUST be reproduced
+// exactly at apply); whatever the plan left Unknown is read from the cluster
+// (appliedResources). On a partial failure (Install errors but the release
+// exists per client.Get), the refreshed state is persisted so Terraform does
+// not lose track of a partially-applied release, and an error diagnostic is
+// still added so the apply fails; on an Update it keeps the prior
+// configuration (failedUpdateState) so the change is retried.
 //
 // prior is the Update's prior state, nil on Create. Before installing, the
 // release's stored history is checked by installGuardDiags: Create never
@@ -588,12 +586,12 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 	installErr := r.client.Install(ctx, spec, remainingTimeout(opTimeout, time.Since(start)))
 
 	// Always re-check the cluster after Install, success or failure: on
-	// failure this is the partial-failure-capture read (design §2.3); on
-	// success it fetches the computed attrs (status/revision/metadata) that
-	// were Unknown going into apply. refreshedRelease returns found=false with
-	// NIL diags for a genuine not-found, and found=false WITH an error
-	// diagnostic when the Get itself failed (getErrored) — that distinction is
-	// what lets a successful install survive a transient refresh failure.
+	// failure this is the partial-failure-capture read; on success it fetches
+	// the computed attrs (status/revision/metadata) that were Unknown going
+	// into apply. refreshedRelease returns found=false with NIL diags for a
+	// genuine not-found, and found=false WITH an error diagnostic when the Get
+	// itself failed (getErrored) — that distinction is what lets a successful
+	// install survive a transient refresh failure.
 	refreshed, info, found, rdiags := r.refreshedRelease(ctx, plan, readTimeout)
 	getErrored := rdiags.HasError()
 
@@ -755,21 +753,20 @@ func (r *releaseResource) Read(ctx context.Context, req resource.ReadRequest, re
 		return
 	}
 
-	// Resources is always recomputed from a LIVE cluster read (never from
-	// the stored release manifests) so out-of-band drift is visible at the
-	// next plan (design §2.4). The resources already in state are the
-	// projection template: their shape is the chart's desired shape, so
-	// projecting the live objects onto it strips server-side defaulting while
-	// keeping genuine drift visible. An object state has no value for (the
-	// first Read after an import or a moved block) is projected onto its
-	// stored release manifest instead of being kept in full: a volatile
-	// object (ModifyPlan step 6e) only keeps its value when it has the
-	// chart's shape. The state's set_sensitive values are scrubbed, as
-	// ModifyPlan scrubs the plan's from the planned side (CONTRACTS.md seam
-	// 2); state has none right after an import, until the first apply. So
-	// are the values the release's last revision holds at those names: a
-	// failed update keeps the previous configuration in state, while the
-	// objects it partly applied carry the new values.
+	// Resources is always recomputed from a LIVE cluster read (never from the
+	// stored release manifests) so out-of-band drift is visible at the next
+	// plan. The resources already in state are the projection template: their
+	// shape is the chart's desired shape, so projecting the live objects onto
+	// it strips server-side defaulting while keeping genuine drift visible. An
+	// object state has no value for (the first Read after an import or a moved
+	// block) is projected onto its stored release manifest instead of being
+	// kept in full: a volatile object (ModifyPlan step 6e) only keeps its
+	// value when it has the chart's shape. The state's set_sensitive values
+	// are scrubbed, as ModifyPlan scrubs the plan's from the planned side
+	// (CONTRACTS.md seam 2); state has none right after an import, until the
+	// first apply. So are the values the release's last revision holds at
+	// those names: a failed update keeps the previous configuration in state,
+	// while the objects it partly applied carry the new values.
 	secrets := append(state.sensitiveValues(), state.storedSensitiveValues(info.Values)...)
 
 	desired, ddiags := r.projectionTemplate(ctx, state.Resources, info, state.Namespace.ValueString(), secrets)
@@ -823,8 +820,8 @@ func (r *releaseResource) Delete(ctx context.Context, req resource.DeleteRequest
 	// not call resp.State.RemoveResource ourselves.
 }
 
-// parseImportID splits "namespace/name" import IDs (design §2.4). It is a
-// free function so it can be unit-tested without a *releaseResource.
+// parseImportID splits "namespace/name" import IDs. It is a free function so
+// it can be unit-tested without a *releaseResource.
 func parseImportID(id string) (namespace, name string, err error) {
 	ns, n, ok := strings.Cut(id, "/")
 	// Reject extra slashes too: Kubernetes/Helm release names cannot contain
@@ -850,9 +847,8 @@ func (r *releaseResource) ImportState(ctx context.Context, req resource.ImportSt
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), ns+"/"+name)...)
 
 	// Explicitly force every defaulted flag to its schema default so a
-	// post-import ImportStateVerify matches post-create state (design
-	// §2.4): the framework does not run schema defaults during import,
-	// only during a "create" plan.
+	// post-import ImportStateVerify matches post-create state: the framework
+	// does not run schema defaults during import, only during a "create" plan.
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("auto_rollback"), false)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("wait"), true)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("force_adoption"), false)...)

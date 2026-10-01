@@ -1,6 +1,6 @@
 package provider_test
 
-// release_resource_test.go implements design §6's acceptance scenarios for
+// release_resource_test.go implements the acceptance scenarios for
 // nelm_release, strictly against the orbstack cluster (see provider_test.go
 // for the harness and the triple safety guard). Every Config below embeds
 // providerBlock() (kube_config_paths and kube_context = "orbstack" explicit,
@@ -20,11 +20,11 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/tfjsonpath"
 )
 
-// TestAccReleaseResource_lifecycle covers design §6 scenarios (1) create+read,
-// (2) post-apply no-change plan (the phantom-diff guarantee), (3) drift
-// (out-of-band kubectl scale -> next plan non-empty), and (4) a values change
-// -> in-place update with a revision bump, all against one release so state
-// carries across steps the way a real user's workflow would.
+// TestAccReleaseResource_lifecycle covers acceptance scenarios (1)
+// create+read, (2) post-apply no-change plan (the phantom-diff guarantee),
+// (3) drift (out-of-band kubectl scale -> next plan non-empty), and (4) a
+// values change -> in-place update with a revision bump, all against one
+// release so state carries across steps the way a real user's workflow would.
 func TestAccReleaseResource_lifecycle(t *testing.T) {
 	namespace := uniqueNamespace("lc")
 	const name = "lc"
@@ -68,7 +68,7 @@ resource "nelm_release" "test" {
 			},
 			{
 				// (2) post-apply no-change plan: re-applying the identical
-				// config must show an empty plan (design §7 risk #1's hard
+				// config must show an empty plan (the phantom-diff hard
 				// gate). terraform-plugin-testing already enforces this by
 				// default for every non-PlanOnly step's own post-apply
 				// refresh plan; PlanOnly + the explicit plancheck here make
@@ -83,7 +83,7 @@ resource "nelm_release" "test" {
 				// (3) drift: an out-of-band kubectl scale changes the live
 				// Deployment's spec.replicas without touching desired
 				// config. The next plan's REFRESH pass re-reads live
-				// resources (design §2.4) and must show a non-empty diff.
+				// resources and must show a non-empty diff.
 				PreConfig:          func() { scaleDeployment(t, namespace, deployment, 5) },
 				Config:             cfg(1, "hello-lifecycle-v1"),
 				PlanOnly:           true,
@@ -103,7 +103,7 @@ resource "nelm_release" "test" {
 	})
 }
 
-// TestAccReleaseResource_secretSensitive covers design §6 scenario (5): a
+// TestAccReleaseResource_secretSensitive covers acceptance scenario (5): a
 // set_sensitive-provided Secret value must never appear in cleartext anywhere
 // under the "resources" computed attribute -- only the deterministic "<hidden
 // N sensitive bytes, hash ...>" placeholder (planconv/sensitive.go's local
@@ -203,41 +203,40 @@ resource "nelm_release" "test" {
 	})
 }
 
-// TestAccReleaseResource_import covers design §6 scenario (6): adopting a
+// TestAccReleaseResource_import covers acceptance scenario (6): adopting a
 // release the real, locally installed helm CLI (v4.2.3) created entirely
-// out-of-band -- never through Terraform/nelm -- and confirming the
-// resulting state needs no further changes.
+// out-of-band -- never through Terraform/nelm -- and confirming the resulting
+// state needs no further changes.
 //
 // This deliberately does NOT use ImportStateVerify's built-in "old vs new"
 // comparison (traced directly against terraform-plugin-testing v1.16.0's
 // testing_new_import_state.go testImportCommand): that comparison diffs the
-// freshly imported state against whatever resource with the same "id"
-// ALREADY existed in this TestCase's own (persistent) working-directory
-// state before this step ran -- which is empty by construction, since this
-// release was never created by Terraform. That comparison is structurally
-// unsatisfiable as a TestCase's first step touching a resource, regardless
-// of ImportStateVerifyIgnore contents. (design §2.4's literal alternative,
+// freshly imported state against whatever resource with the same "id" ALREADY
+// existed in this TestCase's own (persistent) working-directory state before
+// this step ran -- which is empty by construction, since this release was
+// never created by Terraform. That comparison is structurally unsatisfiable as
+// a TestCase's first step touching a resource, regardless of
+// ImportStateVerifyIgnore contents. (The obvious alternative,
 // "ImportStateKind: ImportBlockWithID + ImportPlanChecks", was tried first
 // here and rejected for a narrower, purely mechanical reason:
-// terraform-plugin-testing v1.16.0 hard-rejects
-// ImportStatePersist=true combined with a plannable ImportStateKind
-// ("ImportStatePersist is not supported with plannable import blocks"), and
-// without persisting, the follow-up empty-plan step has no state to plan
-// against.) Instead: ImportStateCheck asserts a few key attributes directly
-// on the freshly imported InstanceState (no baseline needed), and the second
-// TestStep asserts the actual "zero-diff adoption" guarantee design §2.4
-// calls for via a plain follow-up plan against the (now persisted) imported
-// state.
+// terraform-plugin-testing v1.16.0 hard-rejects ImportStatePersist=true
+// combined with a plannable ImportStateKind ("ImportStatePersist is not
+// supported with plannable import blocks"), and without persisting, the
+// follow-up empty-plan step has no state to plan against.) Instead:
+// ImportStateCheck asserts a few key attributes directly on the freshly
+// imported InstanceState (no baseline needed), and the second TestStep asserts
+// the actual "zero-diff adoption" guarantee via a plain follow-up plan against
+// the (now persisted) imported state.
 func TestAccReleaseResource_import(t *testing.T) {
 	namespace := uniqueNamespace("imp")
 	const name = "imp"
 
 	chart := chartPath(t)
 
-	// No values/set/set_sensitive overrides: design §2.4 "a config without
-	// values overrides" -- chart defaults must match exactly what the plain
-	// `helm install` below also used (also chart defaults), so nothing here
-	// is a legitimate config-vs-cluster diff.
+	// No values/set/set_sensitive overrides (a config without values
+	// overrides) -- chart defaults must match exactly what the plain `helm
+	// install` below also used (also chart defaults), so nothing here is a
+	// legitimate config-vs-cluster diff.
 	cfg := fmt.Sprintf(`%s
 resource "nelm_release" "test" {
   name      = %q
@@ -259,10 +258,10 @@ resource "nelm_release" "test" {
 				Config:       cfg,
 				ImportState:  true,
 				ImportStateIdFunc: func(_ *terraform.State) (string, error) {
-					// "namespace/name" (design §2.4 import ID format);
-					// built directly rather than read back from prior TF
-					// state, since there is none yet -- this release was
-					// created by helm, not Terraform.
+					// "namespace/name" (the import ID format); built directly
+					// rather than read back from prior TF state, since there
+					// is none yet -- this release was created by helm, not
+					// Terraform.
 					return wantID, nil
 				},
 				// Persist into the TestCase's real working-directory state
@@ -374,7 +373,7 @@ resource "nelm_release" "test" {
 	})
 }
 
-// TestAccReleaseResource_invalidStorageDriver covers design §6 scenario (7):
+// TestAccReleaseResource_invalidStorageDriver covers acceptance scenario (7):
 // release_storage_driver's OneOf validator must reject "memory" (explicitly
 // out of v1 -- verified fact: an unrecognized driver string panics inside
 // Nelm's NewReleaseStorage) and any other unrecognized value at PLAN time,

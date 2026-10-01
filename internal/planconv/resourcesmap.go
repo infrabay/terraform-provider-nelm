@@ -20,8 +20,8 @@ type Warning struct {
 	Reason string
 }
 
-// BuildPlannedResources builds the planned side of the "resources" map
-// (design §2.1) from nelm's own plan.ResourceChange classification:
+// BuildPlannedResources builds the planned side of the "resources" map from
+// nelm's own plan.ResourceChange classification:
 //
 //   - starts from a copy of prior (the previous/live resources map — nelm's
 //     Changes contains only changed resources, so unchanged ones must retain
@@ -169,9 +169,9 @@ func isHookChange(change *plan.ResourceChange) bool {
 }
 
 // plannedRef builds the Ref to key a plan.ResourceChange by, preferring the
-// change's own object namespace (design §2.1: obj.GetNamespace() first) over
-// nelm's ResourceMeta.Namespace (which NewResourceMeta zeroes out whenever it
-// equals the release namespace — see nelm's pkg/resource/spec/resource_meta.go),
+// change's own object namespace (obj.GetNamespace() first) over nelm's
+// ResourceMeta.Namespace (which NewResourceMeta zeroes out whenever it equals
+// the release namespace — see nelm's pkg/resource/spec/resource_meta.go),
 // falling back to Key's own releaseNS/scoper resolution when both are empty.
 func plannedRef(change *plan.ResourceChange) Ref {
 	ns := ""
@@ -234,10 +234,10 @@ func BuildRenderedResources(objs []*unstructured.Unstructured, releaseNS string,
 	return out, nil
 }
 
-// BuildLiveResources builds the live side of the "resources" map (design
-// §2.1) from a set of live cluster GETs: it is the Read-path counterpart to
-// BuildPlannedResources and MUST key through the same Key + KeyScoper
-// (CONTRACTS.md seam 2's bold invariant), or phantom diffs result.
+// BuildLiveResources builds the live side of the "resources" map from a set of
+// live cluster GETs: it is the Read-path counterpart to BuildPlannedResources
+// and MUST key through the same Key + KeyScoper (CONTRACTS.md seam 2's bold
+// invariant), or phantom diffs result.
 //
 // desired is the previously stored resources map (the prior state's, or the
 // KNOWN plan's) keyed identically. Each live object is normalized and then
