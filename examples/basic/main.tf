@@ -6,7 +6,7 @@ terraform {
   }
 }
 
-# This example is meant to be run via dev_overrides (see docs/DEVELOPMENT.md);
+# This example is meant to be run via dev_overrides (see DEVELOPMENT.md);
 # `terraform init` is intentionally never run against it.
 provider "nelm" {
   kube_context = "orbstack"

@@ -12,30 +12,106 @@ this is the load-bearing summary that ships with the repo.
 `github.com/werf/nelm/pkg/action`.
 
 `internal/provider` consumes `*nelmclient.Client` only through its exported
-methods:
+methods, declared as the `releaseClient` interface in
+`internal/provider/release_client.go` (the resource holds that interface so
+unit tests can substitute an offline fake; `Configure` always stores a
+`*nelmclient.Client`):
 
 - `Plan(ctx, ReleaseSpec, timeout) (*PlanResult, error)`
+- `Render(ctx, ReleaseSpec, timeout) ([]*unstructured.Unstructured, error)` —
+  with `ReleaseSpec.RenderAsFirstInstall` it ignores the release history
+  (create plans render exactly what a first install renders)
 - `Install(ctx, ReleaseSpec, timeout) error`
 - `Uninstall(ctx, name, namespace, storageDriver string, timeout) error`
-- `Get(ctx, name, namespace, storageDriver string) (*ReleaseInfo, error)`
+- `Get(ctx, name, namespace, storageDriver string, timeout) (*ReleaseInfo, error)`
+  — `ReleaseInfo.Manifests` carries the stored release's manifests (cleartext,
+  like Render's output): the projection template for objects the plan or
+  state has no value for
+- `History(ctx, name, namespace, storageDriver string, timeout) (*ReleaseHistory, error)`
+  — the stored-revision summary behind Create's adoption guards (the
+  configured storage backend and, on Create, the other one) and the
+  pending-* lock check; ModifyPlan also reads the other backend's on a
+  create plan nelm plans as `DeployTypeInitial` (a release still live there
+  makes the create's `resources` Unknown, step 6c'; a read that fails other
+  than forbidden is an error at the plan phase and the apply-time re-plan
+  alike, as on Create, and a forbidden one finds no release)
+- `HandOverHelmProviderFieldManagers(ctx, name, namespace, storageDriver string, timeout) ([]string, error)`
+  — Create/Update call it right before `Install`, after the History guards
+  (a refused Create writes nothing), sharing the operation's timeout budget,
+  and NEVER from ModifyPlan: it renames hashicorp/helm's
+  `terraform-provider-helm*`/Update managedFields entries on the release's
+  live objects to `helm`/Update so nelm's own Helm 3 field-ownership
+  hand-over takes over (a real `managedFields` patch, which a plan must not
+  add to nelm's own). The returned strings name objects skipped because an
+  admission webhook was unavailable (surfaced as a warning).
+- `LiveObjects(ctx, refs)` and `IsNamespaced(gvk)` (the `planconv.KeyScoper`)
+
+plus two package functions: `SetValueStrings(setType, arg)`, the strings
+Nelm's own `--set*` parsing (helm strvals) makes of a `set`/`set_sensitive`
+argument — what a chart can render, and so what `releaseModel.sensitiveValues`
+scrubs (seam 2) — and `StoredSetValueStrings(setType, arg, values)`, the
+strings a release's stored values (`ReleaseInfo.Values`) hold at the
+positions that argument assigns (`releaseModel.storedSensitiveValues`).
+
+While the provider configuration is not fully known at plan time, Configure
+hands resources the `nelmclient.NewUnknownConfigClient()` placeholder instead
+(`ConfigUnknown()` reports it). It carries no connection settings, and every
+cluster-facing method above returns `nelmclient.ErrConfigUnknown` before
+calling Nelm: a zero `Config` must never reach Nelm, whose defaults load
+`~/.kube/config`'s current-context. Any new cluster-facing method must keep
+that guard.
 
 `*plan.ResourceChange` (from `github.com/werf/nelm/pkg/plan`) passes through
 `PlanResult.Changes` **opaquely** — `internal/planconv` consumes it directly
 from Nelm's own type; nothing re-derives Nelm's create/update/delete/"blind
-apply" classification.
+apply" classification. Test-only exception: `internal/provider`'s unit tests
+may import `github.com/werf/nelm/pkg/plan` (and `pkg/resource/spec`) to
+hand-build `PlanResult.Changes` fixtures for the fake `releaseClient`
+(release_plan_create_test.go); the provider code itself only passes them
+through.
 
 ## Seam 2 — `internal/planconv` consumed by both sides of the diff
 
 `internal/planconv` exposes pure functions (no cluster access):
 
 - `Key(ref Ref, releaseNS string, scoper KeyScoper) (string, error)`
-- `NormalizeUnstructured(...)` (Phase B, T-planconv) — planned side
-- `NormalizeLiveAgainst(obj, desired)` (Phase D) — live side; wraps
+- `NormalizeUnstructured(obj, secrets)` (Phase B, T-planconv) — planned side
+- `NormalizeLiveAgainst(obj, desired, secrets)` (Phase D) — live side; wraps
   `NormalizeUnstructured` then projects the live object onto the planned
   shape, stripping Kubernetes' server-side defaulting generically
-- `BuildPlannedResources(prior, changes, releaseNS, scoper)` (Phase B)
-- `BuildLiveResources(objs, releaseNS, scoper, desired)` (Phase B; `desired`
-  projection template added in Phase D)
+- `BuildPlannedResources(prior, changes, releaseNS, scoper, rendered, secrets)`
+  (Phase B) — every non-delete change takes its value from `rendered`, the
+  chart render (`BuildRenderedResources(objs, releaseNS, scoper, secrets)`)
+- `BuildLiveResources(objs, releaseNS, scoper, desired, secrets)` (Phase B;
+  `desired` projection template added in Phase D)
+- `ScrubSecrets(obj, secrets)` / `ScrubString(s, secrets, placeholder)` —
+  the scrubbing step of the pipeline, and the same span replacement for
+  diagnostics (`releaseModel.scrubSensitive`)
+- `CompareRenders(a, b)` — what two independent renders disagree on
+  (volatile objects, planned Unknown on a reinstall, see ModifyPlan step 6e)
+- `NewRenderScoper(renderObjs, scoper)` — the planned side's KeyScoper: the
+  real scoper, plus the scope of kinds not served yet from the CRDs in the
+  render; `Unresolved()` lists the kinds whose scope had to be guessed (the
+  planned map is then not known at plan time)
+
+`NormalizeUnstructured` strips the release ownership metadata nelm stamps at
+install (`meta.helm.sh/release-name`, `meta.helm.sh/release-namespace`,
+`app.kubernetes.io/managed-by`), so a render, a create's After and a live
+object of the same chart output normalize identically.
+
+`secrets` (`releaseModel.sensitiveValues()`: the `set_sensitive` values in
+every form Nelm or a template renders them) are scrubbed from every value
+after redaction and cleaning (`ScrubSecrets`, on the decoded tree: string
+values and map keys, deterministic `<hidden N sensitive bytes, hash ...>`
+placeholders, values shorter than `MinSecretLength` skipped). ModifyPlan and
+Create/Update pass the plan's, Read the state's — the same values whenever
+the state was written by an apply of that configuration. A failed Update's
+live read passes the plan's and the prior state's together, since its
+objects can hold either; Read adds the values the release's last revision
+stores at the state's `set_sensitive` names (`storedSensitiveValues`), which
+after a failed rotation are the new ones that state, keeping the prior
+configuration, does not list (after a successful apply they are the
+state's own, so both sides still scrub the same strings).
 
 Both `internal/provider/release_plan.go` (ModifyPlan — the **planned** side,
 built from `*plan.ResourceChange`) and `internal/provider/release_crud.go`
@@ -44,9 +120,12 @@ built from `*plan.ResourceChange`) and `internal/provider/release_crud.go`
 pipeline and the same key function.
 
 > **Invariant (bold on purpose): both sides of the diff MUST key through
-> `Key` with the same `KeyScoper` implementation, and the live side MUST be
+> `Key` with the same `KeyScoper` implementation (`RenderScoper` answers
+> exactly like the wrapped scoper for every kind the cluster serves, and the
+> live side never sees an unserved kind), the live side MUST be
 > projected onto the planned shape (`NormalizeLiveAgainst`) so server-side
-> defaulting is stripped identically, or phantom diffs result.** A `KeyScoper`
+> defaulting is stripped identically, and both sides MUST scrub the same
+> `secrets` (a projection template included), or phantom diffs result.** A `KeyScoper`
 > mismatch (e.g. one side guessing namespace-scoping instead of asking the
 > cached RESTMapper) is the single most likely source of a permanent,
 > un-fixable noisy diff in this provider.
@@ -67,13 +146,35 @@ the old shape.
 ## Global-state rules
 
 - `nelmclient.Init` (`bootstrap.go`) is the **only** caller of
-  `log.SetupLogging` and any `featgate.*.Enable()` in this codebase. It runs
-  its setup exactly once per process (`sync.Once`), never per-CRUD-call.
+  `log.SetupLogging` and any `featgate.*.Enable()` / `Disable()` in this
+  codebase. It runs its setup exactly once per process (`sync.Once`), never
+  per-CRUD-call, and pins EVERY nelm feature gate (remote-charts on, all
+  others off) so ambient `NELM_FEAT_*` variables cannot change behavior.
+  `planconv`'s redaction must not depend on gate state either.
+- `main` calls `nelmclient.Shutdown()` after `providerserver.Serve` returns
+  (and before any `log.Fatal`), removing the per-process temp root `Init`
+  created. No `Client` method may run after it.
 - No `SecretKey` / `WERF_SECRET_KEY` anywhere in this codebase (werf secret
   values are out of scope for v1; this also avoids the `os.Setenv` race that
   encrypted plan artifacts would otherwise require).
 - Every Nelm action call passes its own per-operation `TempDirPath` (a fresh
   0700 subdirectory under `nelmclient.TempRoot()`) and `OutputNoPrint: true`
-  discipline. Plan artifacts are read and then deleted in the same function
-  call frame that created them — they contain cleartext Secret data and must
-  never outlive the call that produced them.
+  discipline. `OutputNoPrint` alone is NOT enough for `action.ChartRender`:
+  nelm ignores it there and prints every rendered manifest (Secret data
+  included) to the process stdout — a pipe Terraform core logs — unless
+  `OutputFilePath` is set, so `ChartRender` always gets an `OutputFilePath`
+  inside its per-operation directory. Plan artifacts and render output are
+  written and deleted in the same function call frame that created them —
+  they contain cleartext Secret data and must never outlive the call that
+  produced them.
+- Remote charts never reach nelm as remote references:
+  `nelmclient.fetchChart` downloads them into the per-operation directory
+  first and nelm gets the archive's absolute path, because nelm's own
+  download goes to the shared Helm cache under a `<name>-<version>.tgz` name
+  that concurrent operations collide on. `fetchChart` mirrors nelm's
+  downloader setup (`pkg/chart` `newChartDownloader`) and must be
+  re-checked against it on every nelm upgrade. Both the download and the
+  nelm action get the chart reference and repository URL from
+  `NormalizeChartRef`, never `ReleaseSpec.Repository` itself: an `oci://`
+  repository is folded into the reference and must not reach either as a
+  classic repository URL.

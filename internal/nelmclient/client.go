@@ -1,12 +1,21 @@
 package nelmclient
 
 import (
+	"errors"
 	"sync"
 	"time"
 
 	"github.com/werf/nelm/pkg/common"
 	"github.com/werf/nelm/pkg/kube"
 )
+
+// ErrConfigUnknown is returned by every cluster-facing method of a Client
+// built by NewUnknownConfigClient.
+var ErrConfigUnknown = errors.New("the nelm provider configuration depends on values that are not known until " +
+	"apply (e.g. a cluster created or replaced in this run), so there is no cluster to talk to yet. A new " +
+	"nelm_release is planned at apply instead, but an existing one cannot be read or planned without its " +
+	"cluster: apply the cluster change first (terraform apply -target=...) or keep the cluster and its " +
+	"releases in separate root modules")
 
 // Config holds the subset of Nelm Kubernetes connection options exposed by
 // the provider's own configuration block (internal/provider/provider.go
@@ -57,6 +66,9 @@ type Client struct {
 	// every later read for the process lifetime.
 	kubeMu      sync.Mutex
 	kubeFactory *kube.ClientFactory
+
+	// configUnknown marks the NewUnknownConfigClient placeholder.
+	configUnknown bool
 }
 
 // NewClient constructs a Client bound to the given connection Config. It
@@ -64,6 +76,23 @@ type Client struct {
 // any Client method.
 func NewClient(cfg Config) *Client {
 	return &Client{cfg: cfg}
+}
+
+// NewUnknownConfigClient returns the placeholder Client the provider hands to
+// resources when its own configuration is not fully known at plan time (e.g.
+// host comes from a GKE cluster created in the same run). It has no
+// connection settings at all, so every cluster-facing method (Plan, Install,
+// Uninstall, Get, Render, LiveObjects, IsNamespaced) fails with
+// ErrConfigUnknown before doing anything: a zero Config must never reach
+// nelm, whose defaults would silently load ~/.kube/config's current-context.
+func NewUnknownConfigClient() *Client {
+	return &Client{configUnknown: true}
+}
+
+// ConfigUnknown reports whether c is the NewUnknownConfigClient placeholder.
+// A nil Client (resource not yet configured) is not.
+func (c *Client) ConfigUnknown() bool {
+	return c != nil && c.configUnknown
 }
 
 // toKubeConnectionOptions maps Config onto Nelm's common.KubeConnectionOptions,

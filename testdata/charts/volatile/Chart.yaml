@@ -1,0 +1,10 @@
+apiVersion: v2
+name: volatile
+description: >-
+  Fixture chart whose render changes on every render, like many public charts
+  (a lookup-guarded generated password, Helm's "rollme" annotation, a deploy
+  timestamp), next to a deterministic ConfigMap. Used by terraform-provider-nelm
+  unit and acceptance tests. Not published anywhere.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

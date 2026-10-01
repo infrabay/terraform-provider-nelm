@@ -1,9 +1,19 @@
 package provider
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/path"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/defaults"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
 	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
 )
@@ -257,5 +267,110 @@ func TestApplyReleaseInfo_IDDerivedFromReleaseInfoNamespace(t *testing.T) {
 
 	if got, want := model.ID.ValueString(), "kube-system/my-release"; got != want {
 		t.Errorf("ID = %q, want %q", got, want)
+	}
+}
+
+// --- ImportState ---------------------------------------------------------
+
+// TestImportState_SeedsEverySchemaDefault guards ImportState's "force every
+// defaulted flag to its schema default" rule: the framework does not apply
+// schema defaults on import, so an attribute ImportState forgets (as `wait`
+// would have been) stays null in state, and the first post-import plan shows
+// a spurious `null -> default` update plus an ImportStateVerify mismatch. It
+// walks the schema rather than listing attributes so a future defaulted
+// attribute cannot be missed. The import ID uses the "default" namespace so
+// namespace's own default is checked by the same loop.
+func TestImportState_SeedsEverySchemaDefault(t *testing.T) {
+	ctx := context.Background()
+
+	sch := releaseResourceSchema(ctx)
+	resp := &resource.ImportStateResponse{
+		State: tfsdk.State{Schema: sch, Raw: tftypes.NewValue(sch.Type().TerraformType(ctx), nil)},
+	}
+
+	(&releaseResource{}).ImportState(ctx, resource.ImportStateRequest{ID: "default/my-release"}, resp)
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("ImportState: unexpected diagnostics: %v", resp.Diagnostics)
+	}
+
+	assertSchemaDefaults(t, resp.State, "imported")
+}
+
+// assertSchemaDefaults fails t for every Bool or String attribute with a
+// schema default whose value in state is not that default. what names the
+// state in failure messages ("imported", "moved").
+func assertSchemaDefaults(t *testing.T, state tfsdk.State, what string) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	for name, a := range releaseResourceSchema(ctx).Attributes {
+		var (
+			want, got attr.Value
+			diags     diag.Diagnostics
+		)
+
+		switch a := a.(type) {
+		case schema.BoolAttribute:
+			if a.Default == nil {
+				continue
+			}
+
+			var dr defaults.BoolResponse
+			a.Default.DefaultBool(ctx, defaults.BoolRequest{}, &dr)
+			want = dr.PlanValue
+
+			var v types.Bool
+			diags = state.GetAttribute(ctx, path.Root(name), &v)
+			got = v
+		case schema.StringAttribute:
+			if a.Default == nil {
+				continue
+			}
+
+			var dr defaults.StringResponse
+			a.Default.DefaultString(ctx, defaults.StringRequest{}, &dr)
+			want = dr.PlanValue
+
+			var v types.String
+			diags = state.GetAttribute(ctx, path.Root(name), &v)
+			got = v
+		default:
+			continue
+		}
+
+		if diags.HasError() {
+			t.Fatalf("read %s %q: %v", what, name, diags)
+		}
+
+		if !got.Equal(want) {
+			t.Errorf("%s %q = %s, want its schema default %s", what, name, got, want)
+		}
+	}
+}
+
+// --- remainingTimeout ----------------------------------------------------
+
+// TestRemainingTimeout pins the shared timeout budget of an apply: the
+// helm_release field-manager hand-over runs first and the install gets what
+// is left — never 0, which nelm would read as "no timeout" and run unbounded.
+func TestRemainingTimeout(t *testing.T) {
+	tests := []struct {
+		name          string
+		budget, spent time.Duration
+		want          time.Duration
+	}{
+		{name: "what is left of the budget", budget: 10 * time.Minute, spent: 2 * time.Second, want: 10*time.Minute - 2*time.Second},
+		{name: "exhausted budget stays bounded", budget: time.Minute, spent: time.Minute, want: time.Nanosecond},
+		{name: "overspent budget stays bounded", budget: time.Minute, spent: 2 * time.Minute, want: time.Nanosecond},
+		{name: "no timeout stays no timeout", budget: 0, spent: time.Minute, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := remainingTimeout(tt.budget, tt.spent); got != tt.want {
+				t.Errorf("remainingTimeout(%s, %s) = %s, want %s", tt.budget, tt.spent, got, tt.want)
+			}
+		})
 	}
 }

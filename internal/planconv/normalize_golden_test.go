@@ -69,11 +69,11 @@ func TestNormalizeGoldenPhantomDiff(t *testing.T) {
 	normalizedPair := func(t *testing.T, live, planAfter *unstructured.Unstructured) (planNorm, projected string) {
 		t.Helper()
 
-		planNorm, err := NormalizeUnstructured(planAfter)
+		planNorm, err := NormalizeUnstructured(planAfter, nil)
 		if err != nil {
 			t.Fatalf("NormalizeUnstructured(planAfter): %v", err)
 		}
-		projected, err = NormalizeLiveAgainst(live, planNorm)
+		projected, err = NormalizeLiveAgainst(live, planNorm, nil)
 		if err != nil {
 			t.Fatalf("NormalizeLiveAgainst(live): %v", err)
 		}

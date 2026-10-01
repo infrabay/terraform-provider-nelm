@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -71,9 +73,31 @@ func captureCtx(ctx context.Context) (context.Context, *syncBuffer) {
 	return logboek.NewContext(ctx, logboek.NewLogger(buf, buf)), buf
 }
 
-// tailErr folds buf's captured nelm output into err's message, if any was
-// captured, so operators get actionable diagnostics without nelm ever
-// writing to the real process stdout/stderr.
+// captureWarningsCtx is captureCtx without nelm's info output: only warnings
+// and errors (logboek's err stream) reach the buffer. Plan uses it because
+// ReleasePlanInstall logs every planned change's unified diff at info level,
+// and nelm's diff hides only fully-sensitive objects — a Secret annotated
+// werf.io/sensitive: "false" (or whose werf.io/sensitive-paths miss data) is
+// diffed with its data, bypassing planconv's unconditional Secret redaction
+// on the way into an error diagnostic. Plan's info output carries nothing
+// else a failure needs (progress lines and the change summary).
+func captureWarningsCtx(ctx context.Context) (context.Context, *syncBuffer) {
+	buf := &syncBuffer{}
+	return logboek.NewContext(ctx, logboek.NewLogger(io.Discard, buf)), buf
+}
+
+// maxErrTail bounds the captured nelm output tailErr folds into an error.
+// nelm reports what failed last (failed operations, the final error), so the
+// end of the log is what diagnoses a failure; the whole log of a large
+// release would bury the actual error in plan/apply output.
+const maxErrTail = 8 << 10
+
+// tailErr folds the last maxErrTail bytes of buf's captured nelm output into
+// err's message, if any was captured, so operators get actionable
+// diagnostics without nelm's log output ever reaching the real process
+// stdout/stderr. The capture covers nelm's logger only: anything nelm writes
+// to os.Stdout directly (ChartRender's manifest printout, see render.go)
+// bypasses it and must be redirected at the call site.
 func tailErr(err error, buf *syncBuffer) error {
 	if err == nil {
 		return nil
@@ -82,6 +106,17 @@ func tailErr(err error, buf *syncBuffer) error {
 	tail := buf.String()
 	if tail == "" {
 		return err
+	}
+
+	if len(tail) > maxErrTail {
+		cut := len(tail) - maxErrTail
+
+		// Start the tail on a line boundary rather than mid-line.
+		if i := strings.IndexByte(tail[cut:], '\n'); i >= 0 && cut+i+1 < len(tail) {
+			cut += i + 1
+		}
+
+		tail = fmt.Sprintf("[... %d earlier bytes omitted ...]\n%s", cut, tail[cut:])
 	}
 
 	return fmt.Errorf("%w\n--- nelm output ---\n%s", err, tail)
@@ -139,19 +174,39 @@ func runtimeOptions(spec ReleaseSpec) common.ReleaseInstallRuntimeOptions {
 	}
 }
 
+// installTrackingOptions maps the ReleaseSpec onto Install's
+// common.TrackingOptions. NoFinalTracking (wait = false) makes nelm squash
+// every readiness-tracking operation that no later resource operation in the
+// deploy plan depends on (pkg/plan squashFinalTrackingOperations). It is NOT
+// a blanket "track nothing": pre-install/pre-upgrade hooks, earlier weight
+// groups, werf.io/deploy-dependency state=ready targets, every resource ahead
+// of a post-install/post-upgrade hook, and a hook with a hook-succeeded
+// delete policy are still awaited (actions_test.go pins this against nelm's
+// plan builder).
+func installTrackingOptions(spec ReleaseSpec) common.TrackingOptions {
+	return common.TrackingOptions{
+		NoFinalTracking:      spec.NoFinalTracking,
+		NoProgressTablePrint: true,
+	}
+}
+
 // Plan runs Nelm's release-install planning machinery
 // (action.ReleasePlanInstall) against a per-op temp dir and plan-artifact
 // path, reads the artifact back (plan.ReadPlanArtifact), deletes the
 // artifact and its directory before returning, and surfaces the resulting
 // []*plan.ResourceChange as a PlanResult.
 func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Duration) (*PlanResult, error) {
+	if c.configUnknown {
+		return nil, ErrConfigUnknown
+	}
+
 	opDir, cleanup, err := newOpDir("nelm-plan-")
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
 
-	chartRef, err := NormalizeChartRef(spec.Chart, spec.Repository)
+	chartRef, repoURL, err := NormalizeChartRef(spec.Chart, spec.Repository)
 	if err != nil {
 		return nil, fmt.Errorf("normalize chart reference: %w", err)
 	}
@@ -166,19 +221,24 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 		return nil, err
 	}
 
+	repoOpts := chartRepoOptions(repoURL, timeout)
+
+	chartPath, err := fetchChart(ctx, opDir, chartRef, spec.Version, repoOpts, registryConfig, timeout)
+	if err != nil {
+		return nil, err
+	}
+
 	artifactPath := filepath.Join(opDir, "plan.artifact")
 
-	ctx, buf := captureCtx(ctx)
+	ctx, buf := captureWarningsCtx(ctx)
 
 	opts := action.ReleasePlanInstallOptions{
-		ChartRepoConnectionOptions: common.ChartRepoConnectionOptions{
-			ChartRepoURL: spec.Repository,
-		},
+		ChartRepoConnectionOptions:   repoOpts,
 		KubeConnectionOptions:        c.toKubeConnectionOptions(),
 		ReleaseInstallRuntimeOptions: runtimeOptions(spec),
 		ValuesOptions:                valuesOpts,
 
-		Chart:                   chartRef,
+		Chart:                   chartPath,
 		ChartVersion:            spec.Version,
 		NoFinalTracking:         true,
 		PlanArtifactPath:        artifactPath,
@@ -191,9 +251,11 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 		return nil, tailErr(fmt.Errorf("release plan install: %w", err), buf)
 	}
 
+	// No nelm output here: planning already succeeded, so the log cannot
+	// explain a failure to read the artifact back.
 	artifact, err := plan.ReadPlanArtifact(ctx, artifactPath, "", "")
 	if err != nil {
-		return nil, tailErr(fmt.Errorf("read plan artifact: %w", err), buf)
+		return nil, fmt.Errorf("read plan artifact: %w", err)
 	}
 
 	return &PlanResult{
@@ -206,13 +268,17 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 // PlanArtifactPath (design §2.3: Create/Update always use a fresh install,
 // never artifact replay).
 func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Duration) error {
+	if c.configUnknown {
+		return ErrConfigUnknown
+	}
+
 	opDir, cleanup, err := newOpDir("nelm-install-")
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	chartRef, err := NormalizeChartRef(spec.Chart, spec.Repository)
+	chartRef, repoURL, err := NormalizeChartRef(spec.Chart, spec.Repository)
 	if err != nil {
 		return fmt.Errorf("normalize chart reference: %w", err)
 	}
@@ -227,21 +293,24 @@ func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Dur
 		return err
 	}
 
+	repoOpts := chartRepoOptions(repoURL, timeout)
+
+	chartPath, err := fetchChart(ctx, opDir, chartRef, spec.Version, repoOpts, registryConfig, timeout)
+	if err != nil {
+		return err
+	}
+
 	ctx, buf := captureCtx(ctx)
 
 	opts := action.ReleaseInstallOptions{
-		ChartRepoConnectionOptions: common.ChartRepoConnectionOptions{
-			ChartRepoURL: spec.Repository,
-		},
+		ChartRepoConnectionOptions:   repoOpts,
 		KubeConnectionOptions:        c.toKubeConnectionOptions(),
 		ReleaseInstallRuntimeOptions: runtimeOptions(spec),
-		TrackingOptions: common.TrackingOptions{
-			NoProgressTablePrint: true,
-		},
-		ValuesOptions: valuesOpts,
+		TrackingOptions:              installTrackingOptions(spec),
+		ValuesOptions:                valuesOpts,
 
 		AutoRollback:            spec.AutoRollback,
-		Chart:                   chartRef,
+		Chart:                   chartPath,
 		ChartVersion:            spec.Version,
 		RegistryCredentialsPath: registryConfig,
 		TempDirPath:             opDir,
@@ -258,6 +327,10 @@ func (c *Client) Install(ctx context.Context, spec ReleaseSpec, timeout time.Dur
 // Uninstall runs action.ReleaseUninstall for the given release. Idempotent:
 // a missing release/namespace is not an error (nelm behavior).
 func (c *Client) Uninstall(ctx context.Context, name, namespace, storageDriver string, timeout time.Duration) error {
+	if c.configUnknown {
+		return ErrConfigUnknown
+	}
+
 	opDir, cleanup, err := newOpDir("nelm-uninstall-")
 	if err != nil {
 		return err
@@ -293,6 +366,10 @@ func (c *Client) Uninstall(ctx context.Context, name, namespace, storageDriver s
 // given release and maps the result onto ReleaseInfo. A not-found release
 // surfaces as an error satisfying IsReleaseNotFound (errors.go).
 func (c *Client) Get(ctx context.Context, name, namespace, storageDriver string, timeout time.Duration) (*ReleaseInfo, error) {
+	if c.configUnknown {
+		return nil, ErrConfigUnknown
+	}
+
 	opDir, cleanup, err := newOpDir("nelm-get-")
 	if err != nil {
 		return nil, err
@@ -346,6 +423,8 @@ func (c *Client) Get(ctx context.Context, name, namespace, storageDriver string,
 	}
 
 	for _, res := range result.Resources {
+		info.Manifests = append(info.Manifests, &unstructured.Unstructured{Object: res})
+
 		ref := resourceRefFromObject(res)
 
 		if ref.Namespace == "" {

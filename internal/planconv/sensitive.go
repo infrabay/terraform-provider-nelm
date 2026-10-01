@@ -3,7 +3,9 @@ package planconv
 import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
+	"github.com/werf/nelm/pkg/common"
 	"github.com/werf/nelm/pkg/resource"
+	"github.com/werf/nelm/pkg/resource/spec"
 )
 
 // sensitivePathsFor returns the jsonpath-style sensitive paths that
@@ -12,7 +14,7 @@ import (
 //
 // It is a thin, pure wrapper around nelm's own resource.GetSensitiveInfo
 // (which honors the werf.io/sensitive / werf.io/sensitive-paths annotations
-// and nelm's default "Secrets are sensitive" rule), with two deliberate
+// and nelm's default "Secrets are sensitive" rule), with three deliberate
 // overrides:
 //
 //  1. A core/v1 Secret's data/stringData is redacted UNCONDITIONALLY — even
@@ -31,13 +33,21 @@ import (
 //     changed key alongside a changed value) is avoided.
 //
 //  2. Non-Secret FullySensitive kinds (there are none built into nelm today,
-//     but a future custom werf.io/sensitive=true on any kind without
-//     werf.io/sensitive-paths would produce one) keep GetSensitiveInfo's
-//     HideAll skeleton: it is the safe default for a kind with no known field
-//     layout, and the resulting NormalizeUnstructured output is still
-//     deterministic and free of cleartext.
+//     but a werf.io/sensitive=true on any kind without werf.io/sensitive-paths
+//     produces one) keep the HideAll skeleton: it is the safe default for a
+//     kind with no known field layout, and the resulting NormalizeUnstructured
+//     output is still deterministic and free of cleartext.
+//
+//  3. The answer never depends on nelm's feature gates. GetSensitiveInfo's
+//     werf.io/sensitive=true and default-Secret answers flip from HideAll to
+//     data.*/stringData.* under the field-sensitive / preview-v2 gates, which
+//     would expose a sensitive CR's spec and double-redact Secret data.
+//     nelmclient.Init pins those gates off; this function does not rely on
+//     it: only paths from an explicit werf.io/sensitive-paths annotation
+//     (whose handling no gate changes) are taken from nelm verbatim.
 func sensitivePathsFor(gvk schema.GroupVersionKind, annotations map[string]string) []string {
 	info := resource.GetSensitiveInfo(gvk.GroupKind(), annotations)
+	custom := hasSensitivePathsAnnotation(annotations)
 
 	// Core/v1 Secret: always redact data/stringData, regardless of any
 	// werf.io/sensitive opt-out annotation. Guarded on the empty (core) group
@@ -46,13 +56,13 @@ func sensitivePathsFor(gvk schema.GroupVersionKind, annotations map[string]strin
 		paths := []string{"data.*", "stringData.*"}
 
 		// Also honor an explicit werf.io/sensitive-paths annotation IN ADDITION
-		// (never the HideAll skeleton — we keep field-level visibility). nelm's
-		// GetSensitiveInfo returns custom, non-HideAll paths only when that
-		// annotation is present; its default/opt-in Secret answer is HideAll,
-		// which FullySensitive() detects and we skip. Without this a Secret that
-		// used werf.io/sensitive-paths to redact a non-data field (e.g. an
-		// annotation) would leak that field.
-		if info.IsSensitive && !info.FullySensitive() {
+		// (never the HideAll skeleton — we keep field-level visibility). Only
+		// that annotation's paths are unioned: nelm's own default answer for a
+		// Secret is either HideAll or, under a v2 gate, data.*/stringData.*
+		// again, which would redact the placeholders a second time. Without
+		// this a Secret that used werf.io/sensitive-paths to redact a non-data
+		// field (e.g. an annotation) would leak that field.
+		if custom {
 			paths = append(paths, info.SensitivePaths...)
 		}
 
@@ -63,5 +73,21 @@ func sensitivePathsFor(gvk schema.GroupVersionKind, annotations map[string]strin
 		return nil
 	}
 
-	return info.SensitivePaths
+	if custom {
+		return info.SensitivePaths
+	}
+
+	// werf.io/sensitive: "true" without werf.io/sensitive-paths: the v1
+	// HideAll answer, whatever nelm's gates would make of it.
+	return []string{resource.HideAll}
+}
+
+// hasSensitivePathsAnnotation reports whether annotations carry a
+// werf.io/sensitive-paths annotation that GetSensitiveInfo answers from (the
+// same lookup and non-empty-parse test nelm applies, so the two cannot
+// disagree about which branch produced the answer).
+func hasSensitivePathsAnnotation(annotations map[string]string) bool {
+	_, value, found := spec.FindAnnotationOrLabelByKeyPattern(annotations, common.AnnotationKeyPatternSensitivePaths)
+
+	return found && len(resource.ParseSensitivePaths(value)) > 0
 }

@@ -16,24 +16,38 @@ computed from Nelm's own plan engine, not just "this release will change".
 
 - **`nelm_release`** — manage a chart release like `helm_release`, but with a
   field-level plan diff surfaced through a computed `resources` map.
-- **Drift detection** — out-of-band changes to managed resources (`kubectl
-  edit`/`scale`, a controller mutating a chart-set field) show up on the next
-  plan.
+- **Drift detection** — out-of-band changes to fields the chart sets
+  (`kubectl edit`/`scale`, `helm upgrade`/`rollback`, a controller mutating a
+  chart-set field) show up on the next plan, and the next apply reverts them
+  (`diff_mode = "none"` turns this off). Fields added out of band that the
+  chart does not render are not drift; note that ones added with
+  `kubectl edit` are removed on the next update unless
+  `no_remove_manual_changes = true` (see the resource docs).
 - **`terraform import`** — adopt releases created by plain `helm install`
-  (Helm 3 **or** Helm 4) or by Nelm, with zero storage conversion.
+  (Helm 3 **or** Helm 4) or by Nelm, with zero storage conversion. Moving
+  off `hashicorp/helm`? Follow
+  [Migrating from `helm_release`](docs/guides/migrating-from-helm_release.md).
 - **Chart sources** — local directories and `.tgz`, plus `oci://` and
   `repo/name` remote charts.
 - **Secret redaction** — Secret data (and `werf.io/sensitive`-annotated fields)
-  are redacted to deterministic placeholders before entering state.
-- **Flexible connection** — a kubeconfig (`kube_config_paths` / `kube_context`)
-  or an inline `host` / `token` / `cluster_ca_certificate` (mirrors the
+  are redacted to deterministic placeholders before entering state, and so
+  are `set_sensitive` values wherever a chart renders them.
+- **Flexible connection** — a kubeconfig (`kube_config_paths` / `kube_context`,
+  or the `helm` provider's `KUBE_CONFIG_PATH(S)` / `KUBE_CTX` variables) or an
+  inline `host` / `token` / `cluster_ca_certificate` (mirrors the
   `kubernetes`/`helm` providers), plus a `registries` block for private OCI
-  charts.
+  charts. A configuration that names no cluster is an error — never an
+  implicit `~/.kube/config` current-context.
 
-## Using the provider
+## Installation
 
-> Not yet published to the Terraform Registry. Until it is, use the local
-> `dev_overrides` flow below. Once published, usage will be:
+Releases will be published to the
+[Terraform Registry](https://registry.terraform.io/providers/infrabay/nelm/latest)
+as `infrabay/nelm`. None has been published yet: until the first one,
+`terraform init` installs the provider from a mirror, under the same
+address — see
+[Installing before the first Registry release](DEVELOPMENT.md#installing-before-the-first-registry-release).
+Declare the provider and run `terraform init`:
 
 ```hcl
 terraform {
@@ -57,77 +71,46 @@ resource "nelm_release" "example" {
 }
 ```
 
-Full documentation: [`docs/index.md`](docs/index.md) (provider) and
-[`docs/resources/release.md`](docs/resources/release.md) (`nelm_release`),
-including a GKE + Google Artifact Registry example.
+Pin the provider version and commit `.terraform.lock.hcl`: the provider is
+pre-1.0, so read the release notes before moving to a new minor version.
 
 ## Requirements
 
-- [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
-- [Go](https://go.dev/dl/) (matching the `go` directive in `go.mod`) — to build
-  the provider.
+- [Terraform](https://developer.hashicorp.com/terraform/downloads) 1.0 or
+  later (CI tests 1.15.8). Migrating from `helm_release` needs 1.7 or later
+  (`removed` and `import` blocks), or 1.8 or later for a `moved` block.
+- [Go](https://go.dev/dl/) (matching the `go` directive in `go.mod`) — only
+  to build the provider from source.
 
-## Local development (`dev_overrides`)
+## Documentation
 
-Until the provider is published, it is used locally via Terraform's
-`dev_overrides`, which also means **`terraform init` is skipped entirely** —
-see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for the full explanation.
+- [Provider configuration](docs/index.md), including a GKE + Google Artifact
+  Registry example
+- [`nelm_release`](docs/resources/release.md)
+- [Migrating from `helm_release`](docs/guides/migrating-from-helm_release.md)
+- [Known limitations](docs/guides/known-limitations.md)
 
-```sh
-# 1. Build and install the binary.
-make install                       # -> $(go env GOBIN) (or $(go env GOPATH)/bin)
+The Terraform Registry will render the same pages.
 
-# 2. Point a CLI config file at it. (GOBIN is empty on a default Go install,
-#    so fall back to GOPATH/bin — the same fallback `make install` uses.)
-BIN_DIR="$(go env GOBIN)"; BIN_DIR="${BIN_DIR:-$(go env GOPATH)/bin}"
-cat > /tmp/terraformrc.nelm-dev <<EOF
-provider_installation {
-  dev_overrides {
-    "registry.terraform.io/infrabay/nelm" = "${BIN_DIR}"
-  }
-  direct {}
-}
-EOF
-export TF_CLI_CONFIG_FILE=/tmp/terraformrc.nelm-dev
-
-# 3. Run Terraform directly against the example — no `terraform init`.
-cd examples/basic
-terraform plan
-terraform apply
-terraform destroy
-```
-
-Terraform prints a warning that a provider is dev-overridden; that's expected
-and confirms the override is active.
-
-## Testing
+## Development
 
 ```sh
-make test        # gofmt, go vet, go build ./..., go test -race ./... (no cluster)
-make testacc     # acceptance tests: TF_ACC=1 NELM_TEST_KUBE_CONTEXT=orbstack, real cluster
+make install     # build the binary and install it for dev_overrides
+make test        # gofmt, go vet, golangci-lint (if installed), go build, go test -race
+make testacc     # acceptance tests against a LOCAL cluster (NELM_TEST_KUBE_CONTEXT)
 ```
 
-`make test` never touches a cluster (acceptance tests self-skip without
-`TF_ACC=1`). `make testacc` runs the acceptance suite against a **local**
-Kubernetes cluster named by `NELM_TEST_KUBE_CONTEXT` (default `orbstack`;
-e.g. `make testacc NELM_TEST_KUBE_CONTEXT=kind-mycluster`); test code
-hard-fails unless that kubeconfig context exists and its `cluster.server`
-resolves to `127.0.0.1`/`localhost`, so acceptance tests can never
-accidentally run against a real (e.g. cloud) cluster. CI runs the same suite
-on every pull request against a [kind](https://kind.sigs.k8s.io/) cluster.
-
-## Releasing
-
-Pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which runs
-[GoReleaser](https://goreleaser.com/) to build cross-platform binaries, a
-GPG-signed `SHA256SUMS`, and the Terraform Registry manifest. The signing key's
-public half must be registered with the Registry publisher, and the repo must
-have `GPG_PRIVATE_KEY` and `PASSPHRASE` secrets set.
+A locally built provider is run through Terraform's `dev_overrides`, which
+skips `terraform init`; [`DEVELOPMENT.md`](DEVELOPMENT.md) covers that setup,
+the acceptance tests' local-cluster guard, CI and the release process, and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers pull requests.
 
 ## Known limitations
 
-See [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) for the current
-list of known edge-case limitations and the roadmap toward v1.0.
+[Known limitations](docs/guides/known-limitations.md) lists the known
+limitations and the differences from `helm_release` that matter in
+production, with their workarounds. Read it, and the migration guide, before
+moving releases off `helm_release`.
 
 ## License
 

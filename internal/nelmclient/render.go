@@ -3,6 +3,7 @@ package nelmclient
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/werf/nelm/pkg/action"
@@ -24,13 +25,17 @@ import (
 // silently dropped). The rendered manifest resolves the ambiguity at the
 // source: a field is chart-managed iff the chart renders it.
 func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Duration) ([]*unstructured.Unstructured, error) {
+	if c.configUnknown {
+		return nil, ErrConfigUnknown
+	}
+
 	opDir, cleanup, err := newOpDir("nelm-render-")
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
 
-	chartRef, err := NormalizeChartRef(spec.Chart, spec.Repository)
+	chartRef, repoURL, err := NormalizeChartRef(spec.Chart, spec.Repository)
 	if err != nil {
 		return nil, fmt.Errorf("normalize chart reference: %w", err)
 	}
@@ -51,22 +56,34 @@ func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Dura
 		defer cancel()
 	}
 
+	repoOpts := chartRepoOptions(repoURL, timeout)
+
+	chartPath, err := fetchChart(ctx, opDir, chartRef, spec.Version, repoOpts, registryConfig, timeout)
+	if err != nil {
+		return nil, err
+	}
+
 	ctx, buf := captureCtx(ctx)
 
+	// OutputFilePath is load-bearing: ChartRender ignores OutputNoPrint (nelm
+	// v1.26.2 only declares it) and, with no OutputFilePath, prints every
+	// rendered manifest — Secret data included — to os.Stdout, which inside a
+	// plugin process is a pipe Terraform core logs at WARN. The printout goes
+	// to a file in the 0700 opDir instead, removed with it by the deferred
+	// cleanup. OutputNoPrint stays set for when nelm starts honoring it.
 	opts := action.ChartRenderOptions{
-		ChartRepoConnectionOptions: common.ChartRepoConnectionOptions{
-			ChartRepoURL: spec.Repository,
-		},
-		KubeConnectionOptions: c.toKubeConnectionOptions(),
-		ValuesOptions:         valuesOpts,
+		ChartRepoConnectionOptions: repoOpts,
+		KubeConnectionOptions:      c.toKubeConnectionOptions(),
+		ValuesOptions:              valuesOpts,
 
-		Chart:                   chartRef,
+		Chart:                   chartPath,
 		ChartVersion:            spec.Version,
+		OutputFilePath:          filepath.Join(opDir, "render.yaml"),
 		OutputNoPrint:           true,
 		RegistryCredentialsPath: registryConfig,
 		ReleaseName:             spec.Name,
 		ReleaseNamespace:        spec.Namespace,
-		ReleaseStorageDriver:    spec.StorageDriver,
+		ReleaseStorageDriver:    renderStorageDriver(spec),
 		Remote:                  true,
 		TempDirPath:             opDir,
 	}
@@ -86,4 +103,17 @@ func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Dura
 	}
 
 	return objs, nil
+}
+
+// renderStorageDriver is the release storage Render reads the release history
+// from (the history decides the deploy type and revision the templates see).
+// A RenderAsFirstInstall render uses nelm's in-memory driver, which is always
+// empty: no history means deploy type "Initial" and revision 1, exactly what
+// Install renders when the release does not exist (yet, or any more).
+func renderStorageDriver(spec ReleaseSpec) string {
+	if spec.RenderAsFirstInstall {
+		return common.ReleaseStorageDriverMemory
+	}
+
+	return spec.StorageDriver
 }

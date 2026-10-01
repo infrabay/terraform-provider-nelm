@@ -152,6 +152,14 @@ func main() {
 	fmt.Printf("  Secret redacted (default HideAll -- V1 behavior, global featgate off): %s\n", string(smokelib.MarshalIndent(secretRedacted.Object)))
 	fmt.Printf("  ConfigMap redacted (path-specific, only data.message hidden): %s\n", string(smokelib.MarshalIndent(configMapRedacted.Object)))
 
+	// The notes are committed: record the binary's name and the chart's
+	// repo-relative path, never absolute paths of the capturing machine.
+	chartRel, err := filepath.Rel(smokelib.RepoRoot(), chart)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: chart path: %v\n", err)
+		os.Exit(1)
+	}
+
 	notes := fmt.Sprintf(`# secrets/redaction fixture evidence notes
 
 Captured by scripts/smoke/secrets against nelm CLI (%s), release %s/%s
@@ -206,7 +214,7 @@ everything else -- name, labels, other data keys if any -- untouched).
 - secret_redacted.json -- resource.RedactSensitiveData(secret, HideAll) output
 - configmap_redacted.json -- resource.RedactSensitiveData(configmap, ["data.message"]) output
 `,
-		smokelib.NelmBin(), namespace, releaseName, chart, fakePassword,
+		filepath.Base(smokelib.NelmBin()), namespace, releaseName, filepath.ToSlash(chartRel), fakePassword,
 		fakePassword, containsCleartext, snippet,
 		secretMeta, secretInfo.IsSensitive, secretInfo.SensitivePaths, secretInfo.FullySensitive(),
 		configMapMeta, configMapInfo.IsSensitive, configMapInfo.SensitivePaths, configMapInfo.FullySensitive(),

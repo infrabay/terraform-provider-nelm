@@ -1,20 +1,57 @@
+---
+page_title: "Provider: Nelm"
+description: |-
+  The Nelm provider manages Helm chart releases on Kubernetes through the Nelm Go library, with a per-object plan diff that shows configuration changes and out-of-band drift.
+---
+
 # Nelm Provider
 
 The `nelm` provider manages Helm-chart-based releases on a Kubernetes cluster
 through the [Nelm](https://github.com/werf/nelm) Go library — not the `helm`
 CLI, and not the werf CLI. It calls Nelm's `action` package directly
-in-process (`action.ReleasePlanInstall` for diffs, `action.ReleaseInstall`
-for apply, `action.ReleaseUninstall` for destroy, `action.ReleaseGet` for
-refresh), so every plan and apply speaks Nelm's own rendering, ordering, and
-resource-tracking logic rather than shelling out.
+in-process (`action.ReleasePlanInstall` and `action.ChartRender` for diffs,
+`action.ReleaseInstall` for apply, `action.ReleaseUninstall` for destroy,
+`action.ReleaseGet` for refresh), so every plan and apply speaks Nelm's
+own rendering, ordering, and resource-tracking logic rather than shelling
+out.
 
 Nelm is a drop-in-compatible successor to Helm 3: release storage uses the
 same Secret/ConfigMap format Helm writes (`sh.helm.release.v1.<name>.v<rev>`
 by default), so this provider can adopt releases that were created with
-plain `helm install` — see the resource docs' Import section.
+plain `helm install` — see the resource docs' Import section. Releases
+managed by `hashicorp/helm`'s `helm_release` are handed over without a
+reinstall by following
+[Migrating from `helm_release`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md);
+**never** just rename `helm_release` to `nelm_release`, which uninstalls the
+release. The resource docs' "Migrating from `helm_release`" section covers
+how field ownership is handed over, and the one default that differs
+(`no_remove_manual_changes`: fields added with `kubectl edit` are removed on
+the next update).
+
+Unlike `helm_release`, every plan renders the chart and shows each object's
+changes and out-of-band drift, and an apply reverts that drift: an
+out-of-band hotfix (`helm upgrade --reuse-values`, `helm rollback`,
+`kubectl set image`) lasts only until the next apply of the root module.
+`Secret` data and `set_sensitive` values are redacted from that diff, but a
+secret passed through `values` or `set` is shown wherever the chart renders
+it outside a `Secret` — see
+[Sensitive values in non-`Secret` resources](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#sensitive-values-in-non-secret-resources).
+Charts whose templates generate random or time-based values are handled, but
+a few template patterns can never converge or abort the apply; check
+[Non-deterministic charts](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#non-deterministic-charts)
+before migrating, and set `diff_mode = "none"` on such a release for
+`helm_release`-style plans.
+[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md)
+lists the other differences from `helm_release` and the provider's known
+limitations, with workarounds; read it before migrating production
+releases.
 
 v1 of this provider ships exactly one resource, `nelm_release`. There is no
-`nelm_release` data source and no chart-repository data source in v1.
+`nelm_release` data source and no chart-repository data source in v1, and
+nothing like the `helm` provider's `helm_template` data source: keep
+`hashicorp/helm` in configurations that render charts with
+`data "helm_template"`. The two providers can be used side by side, and
+migrating `helm_release`s does not require removing the `helm` provider.
 
 ## Example Usage
 
@@ -79,6 +116,10 @@ resource "nelm_release" "app" {
   namespace = "app-ns"
   chart     = "oci://us-central1-docker.pkg.dev/my-project/helm/app"
   version   = "0.2.0"
+
+  # helm_release's OCI form is accepted too and resolves to the same chart:
+  #   repository = "oci://us-central1-docker.pkg.dev/my-project/helm"
+  #   chart      = "app"
 }
 ```
 
@@ -88,19 +129,74 @@ client does not reliably use an external Docker credential helper (e.g.
 obtains a valid token yet the pull still returns `401`. Supplying a static
 username/password here (written to a private, per-operation Docker
 `config.json`) is what the `helm` provider's `registries` block does too, and it
-authenticates reliably. The access token is short-lived (~1h); because it comes
-from a data source it is refreshed on every `plan`/`apply`.
+authenticates reliably.
+
+The access token is short-lived (about an hour, often less from a CI
+runner's metadata server) and is **not refreshed** during a run: it is
+captured when `google_client_config` is read, at the start of the run, and a
+saved plan applied later uses the token captured when the plan was made. An
+apply that outlives the token (a long readiness wait, many releases), or a
+saved plan applied after it expired, fails mid-apply with `401
+Unauthorized`, for the cluster connection and for `registries` alike. A
+plan and apply in one short run, as most CI workflows do, is fine. For long
+applies or saved plans, connect with a kubeconfig whose user runs an exec
+plugin instead, which fetches a fresh token whenever one is needed:
+
+```hcl
+provider "nelm" {
+  kube_config_base64 = base64encode(yamlencode({
+    apiVersion      = "v1"
+    kind            = "Config"
+    current-context = "gke"
+    clusters = [{
+      name = "gke"
+      cluster = {
+        server                     = "https://${data.google_container_cluster.main.private_cluster_config[0].public_endpoint}"
+        certificate-authority-data = data.google_container_cluster.main.master_auth[0].cluster_ca_certificate
+      }
+    }]
+    users = [{
+      name = "gke"
+      user = {
+        exec = {
+          apiVersion         = "client.authentication.k8s.io/v1beta1"
+          command            = "gke-gcloud-auth-plugin"
+          provideClusterInfo = true
+        }
+      }
+    }]
+    contexts = [{ name = "gke", context = { cluster = "gke", user = "gke" } }]
+  }))
+}
+```
+
+`gke-gcloud-auth-plugin` must be on the `PATH` of the machine running
+Terraform. `registries` has no exec equivalent: a registry password from a
+data source is captured the same way, so a long apply can also fail pulling
+a chart once the token has expired. A longer-lived registry credential
+avoids that (for Artifact Registry, a service-account key with
+`username = "_json_key"`), at the cost of a key to manage.
+
+For the `helm` provider's settings and their `nelm` equivalents, see the
+provider-block mapping in the
+[migration guide](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md#provider-configuration).
 
 ## Schema
 
 ### Optional
 
 - `kube_config_paths` (List of String) Paths to kubeconfig files; contents
-  are merged if more than one is given. Defaults to `~/.kube/config` when
-  this and `kube_config_base64` are both empty.
+  are merged if more than one is given. A leading `~` is expanded and every
+  file must exist. When unset, `KUBE_CONFIG_PATHS` or else `KUBE_CONFIG_PATH`
+  is used (see [Choosing the cluster](#choosing-the-cluster)); `$KUBECONFIG`
+  is not read.
 - `kube_config_base64` (String, Sensitive) Base64-encoded kubeconfig
   content. Takes precedence over `kube_config_paths`.
-- `kube_context` (String) Kubeconfig context to use.
+- `kube_context` (String) Kubeconfig context to use; `KUBE_CTX` when unset,
+  otherwise the kubeconfig's current-context. Set on its own (no
+  `kube_config_paths` / `KUBE_CONFIG_PATH(S)`), the context is looked up in
+  `~/.kube/config`. `KUBE_CTX` on its own does not do that: it only selects
+  the context in a kubeconfig named some other way.
 - `kube_qps` (Number) Queries-per-second limit for the Kubernetes client.
   Must be at least 1 if set. Nelm defaults to 30 if unset.
 - `kube_burst` (Number) Burst limit for the Kubernetes client. Must be at
@@ -132,15 +228,6 @@ from a data source it is refreshed on every `plan`/`apply`.
   credential helper that Nelm's OCI client cannot use (see the GKE example
   above).
 
-None of these attributes may depend on values that are only known after
-apply (e.g. an attribute of another resource created in the same run): the
-provider hard-errors on `Configure` if any of them is Unknown. Data sources
-such as `google_client_config` / `google_container_cluster` are read during
-plan, so using their attributes here is fine. This is a documented v1
-limitation — deferred provider configuration is experimental in the
-underlying plugin framework version this provider uses, and this provider
-does not build on it.
-
 Kubernetes authentication can come either from a kubeconfig
 (`kube_config_paths` / `kube_config_base64` / `kube_context` — client
 certificates and exec-based auth plugins such as cloud-provider token helpers
@@ -150,20 +237,102 @@ the inline path: a complete kubeconfig is built from those fields and used on
 its own, so the two mechanisms never mix and the ambient `~/.kube/config` (and
 whatever its current context is) is ignored entirely.
 
-## Local development: `dev_overrides`
+## Choosing the cluster
 
-Local iteration on the provider itself uses Terraform's
-[`dev_overrides`](https://developer.hashicorp.com/terraform/cli/config/config-file#development-overrides-for-provider-developers)
-mechanism to point a `infrabay/nelm` provider address directly at a
-`go build` binary, bypassing the registry, the provider lock file, and
-**`terraform init` entirely** — `dev_overrides` providers are never
-resolved from a registry or written to `.terraform.lock.hcl`, so running
-`init` against them is unnecessary (and actively skipped in this
-project's workflow).
+The provider only ever talks to a cluster the configuration names. It
+resolves the connection in this order:
 
-See [`DEVELOPMENT.md`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/DEVELOPMENT.md)
-for the full setup: building the binary (`make install`), writing a
-`TF_CLI_CONFIG_FILE` pointing `dev_overrides` at `$(go env GOBIN)`, and
-running `terraform plan` / `apply` / `import` / `destroy` directly against
-`examples/basic` with no `.terraform` directory and no lock file present at
-all.
+1. `host` set (non-empty): the inline connection above. Every kubeconfig
+   attribute and environment variable below is ignored.
+2. `kube_config_base64` set: that kubeconfig, with `kube_context` (or
+   `KUBE_CTX`) selecting the context.
+3. Kubeconfig files from `kube_config_paths`, or — only when that attribute
+   is not set — from the `KUBE_CONFIG_PATHS` environment variable (a list
+   separated like `PATH`), or else `KUBE_CONFIG_PATH`. The context is
+   `kube_context`, or `KUBE_CTX` when that attribute is not set, or else the
+   files' current-context. A leading `~` is expanded, and every file must
+   exist: a typo'd path is a `Configure` error, not a silently skipped file.
+4. Only the `kube_context` attribute set: that context in `~/.kube/config`
+   (which must exist). This is the `provider "nelm" { kube_context = "..." }`
+   shape from the example above. The `KUBE_CTX` variable alone is **not**
+   enough (as with the `helm` provider): an exported variable can be
+   ambient, so it only picks the context in a kubeconfig from 2 or 3.
+5. **Nothing set: `Configure` fails with "No Kubernetes connection
+   configured".** The provider never falls back to `~/.kube/config`'s
+   current-context.
+
+The environment variables are the ones the `hashicorp/helm` and
+`hashicorp/kubernetes` providers read, so a pipeline that exported them for
+`helm_release` keeps targeting the same cluster; an attribute set in the
+configuration always wins over its variable. `$KUBECONFIG` is deliberately
+**not** read (the `helm` provider does not read
+it either): tooling and CI auth actions set it ambiently, and it must not turn
+an empty provider block into a working connection. Set
+`kube_config_paths = ["~/.kube/staging.yaml"]` or export
+`KUBE_CONFIG_PATH` instead. An in-cluster service account is not picked up
+implicitly either; inside a pod, pass `host`, `token` and
+`cluster_ca_certificate` (e.g. from the mounted service-account files).
+
+> **Behavior change.** Earlier builds treated an empty provider
+> configuration as `~/.kube/config`'s current-context and ignored
+> `KUBE_CONFIG_PATH(S)` / `KUBE_CTX`. That made a forgotten
+> `providers = { nelm = nelm.<alias> }` mapping on a module call — which
+> makes Terraform instantiate an implicit, empty default `nelm` provider —
+> silently plan and apply against whatever cluster the operator's `kubectl`
+> pointed at (possibly production), and a refresh there drops every release
+> it does not find from state. Such configurations now fail at `Configure`;
+> name the cluster explicitly as above.
+
+### Provider configuration known only at apply
+
+The provider configuration may depend on values that are only known after
+apply, e.g. `host` from a `google_container_cluster` resource created in the
+same run, or a cluster data source that is read during apply because it has a
+`depends_on` (resource- or module-level) on something with pending changes.
+In that case:
+
+- a **new** `nelm_release` plans with a warning ("Provider configuration not
+  known at plan time") and an Unknown diff (`resources`, `status`,
+  `revision`, `metadata`); Terraform configures the provider with the real
+  values at apply, and the release is installed there;
+- a release **already in state** cannot be refreshed or planned without its
+  cluster, so the plan fails with an error explaining this. Apply the
+  cluster change first (`terraform apply -target=...`), or — HashiCorp's own
+  recommendation — keep the cluster and the releases on it in separate root
+  modules.
+
+The provider never contacts any cluster while its configuration is unknown.
+Data sources whose inputs are known and that have no such `depends_on` (e.g.
+`google_client_config`, or `google_container_cluster` looked up by a known
+name) are read during plan and are not affected.
+
+## Cluster permissions
+
+The credentials the provider uses need the access `helm upgrade` needs for
+the release: every kind the chart renders, and the release-storage Secrets
+(or ConfigMaps) in the release namespace. **`terraform plan` needs the same
+write access**: Nelm's plan runs a dry-run server-side apply of every
+existing object, which the API server authorizes like a real `patch`, and
+it can fix up objects' `managedFields` with a real patch (see
+[`managedFields` and `terraform plan`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#managedfields-and-terraform-plan)).
+With read-only plan credentials, plans fail or lose the API server's
+validation. Nelm also gets, creates and updates a lock ConfigMap named
+`werf-synchronization` in every release namespace, whatever the storage
+driver. See
+[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#provider-configuration-and-cluster-access).
+
+## Nelm feature gates
+
+Nelm's feature-gate environment variables (`NELM_FEAT_*`, e.g. the
+`NELM_FEAT_PREVIEW_V2=true` that the Nelm CLI documentation suggests) are
+**ignored** by this provider. It pins every gate when it starts — remote
+charts on, everything else off — so a plan does not depend on the
+environment Terraform happens to run in: `werf.io/sensitive` redaction keeps
+its v1 meaning, manifests are not rewritten, and no validation schemas are
+fetched from the internet at plan time.
+
+## Developing the provider
+
+To build the provider from source and run it through Terraform's
+`dev_overrides` (no `terraform init`), see
+[`DEVELOPMENT.md`](https://github.com/infrabay/terraform-provider-nelm/blob/main/DEVELOPMENT.md).

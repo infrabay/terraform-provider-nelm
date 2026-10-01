@@ -10,8 +10,9 @@ endif
 # running acceptance tests at all; NELM_TEST_KUBE_CONTEXT pins the ONLY
 # context test code is allowed to touch (default: orbstack; CI overrides it
 # to the kind cluster's context). testAccPreCheck (provider_test.go)
-# additionally asserts that context exists and its cluster.server is
-# 127.0.0.1/localhost — never a cloud endpoint — before any test runs.
+# additionally asserts that context exists in ~/.kube/config (the one file
+# the provider, kubectl and helm are all pointed at) and its server host is
+# 127.0.0.1/::1/localhost — never a cloud endpoint — before any test runs.
 NELM_TEST_KUBE_CONTEXT ?= orbstack
 .PHONY: build
 build:
@@ -32,12 +33,12 @@ testacc:
 		go test -race -count=1 -timeout 30m ./internal/provider/...
 
 # e2e: manual, dev_overrides workflow against examples/basic — never run
-# unattended by an agent or CI. See docs/DEVELOPMENT.md for the full script
+# unattended by an agent or CI. See DEVELOPMENT.md for the full script
 # (build -> dev_overrides .tfrc -> plan/apply/import/destroy on orbstack,
 # terraform init intentionally skipped).
 .PHONY: e2e
 e2e: install
-	@echo "e2e is a manual workflow — see docs/DEVELOPMENT.md 'Manual e2e' section."
+	@echo "e2e is a manual workflow — see DEVELOPMENT.md, section 'Dev overrides'."
 	@echo "Summary: export TF_CLI_CONFIG_FILE to a dev_overrides .tfrc pointing"
 	@echo "at $(GOBIN), then from examples/basic run 'terraform plan|apply|destroy'"
 	@echo "(no 'terraform init') against kube_context=\"orbstack\"."

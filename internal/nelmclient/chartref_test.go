@@ -24,7 +24,8 @@ func TestNormalizeChartRef(t *testing.T) {
 		chart      string
 		repository string
 		want       string
-		wantAbs    bool // want is relative to tmpDir; resolve via filepath.Join
+		wantAbs    bool   // want is relative to tmpDir; resolve via filepath.Join
+		wantRepo   string // the ChartRepoURL handed to nelm
 		wantErr    bool
 	}{
 		{
@@ -37,6 +38,7 @@ func TestNormalizeChartRef(t *testing.T) {
 			repository: "https://charts.example.com",
 			want:       "mychart",
 			wantAbs:    false,
+			wantRepo:   "https://charts.example.com",
 		},
 		{
 			name:       "repo/chart with repository set passes through",
@@ -44,6 +46,73 @@ func TestNormalizeChartRef(t *testing.T) {
 			repository: "https://charts.example.com",
 			want:       "myrepo/mychart",
 			wantAbs:    false,
+			wantRepo:   "https://charts.example.com",
+		},
+		{
+			// F16: helm_release's OCI form. Passed to nelm as-is, the
+			// repository is fetched as a classic index.yaml repo and every
+			// plan fails ("not a valid chart repository ... object
+			// required"); it must be folded into one oci:// chart ref.
+			name:       "oci:// repository is folded into the chart reference",
+			chart:      "app",
+			repository: "oci://us-central1-docker.pkg.dev/my-project/helm",
+			want:       "oci://us-central1-docker.pkg.dev/my-project/helm/app",
+		},
+		{
+			name:       "oci:// repository with a trailing slash",
+			chart:      "app",
+			repository: "oci://registry.example.com/charts/",
+			want:       "oci://registry.example.com/charts/app",
+		},
+		{
+			name:       "oci:// repository that is a bare registry host",
+			chart:      "app",
+			repository: "oci://registry.example.com",
+			want:       "oci://registry.example.com/app",
+		},
+		{
+			name:       "oci:// repository with a port and a nested chart path",
+			chart:      "team/app",
+			repository: "oci://localhost:5000/helm-charts",
+			want:       "oci://localhost:5000/helm-charts/team/app",
+		},
+		{
+			name:       "mixed-case OCI:// scheme is folded and canonicalized",
+			chart:      "app",
+			repository: "OCI://registry.example.com/charts",
+			want:       "oci://registry.example.com/charts/app",
+		},
+		{
+			// A same-named local directory must not hijack the oci:// form
+			// either: the repository still makes the chart remote.
+			name:       "bare name that exists on disk is folded, not localized, with an oci:// repository",
+			chart:      "mychart",
+			repository: "oci://registry.example.com/charts",
+			want:       "oci://registry.example.com/charts/mychart",
+		},
+		{
+			name:       "oci:// repository without a registry host is an error",
+			chart:      "app",
+			repository: "oci:///charts",
+			wantErr:    true,
+		},
+		{
+			name:       "full oci:// chart with an oci:// repository is a contradiction error",
+			chart:      "oci://registry.example.com/charts/app",
+			repository: "oci://registry.example.com/charts",
+			wantErr:    true,
+		},
+		{
+			name:       "full oci:// chart with a classic repository is a contradiction error",
+			chart:      "oci://registry.example.com/charts/app",
+			repository: "https://charts.example.com",
+			wantErr:    true,
+		},
+		{
+			name:       "local path with an oci:// repository is a contradiction error",
+			chart:      "./mychart",
+			repository: "oci://registry.example.com/charts",
+			wantErr:    true,
 		},
 		{
 			name:       "local absolute path with repository set is a contradiction error",
@@ -108,10 +177,10 @@ func TestNormalizeChartRef(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NormalizeChartRef(tt.chart, tt.repository)
+			got, gotRepo, err := NormalizeChartRef(tt.chart, tt.repository)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("NormalizeChartRef(%q) = %q, nil; want error", tt.chart, got)
+					t.Fatalf("NormalizeChartRef(%q, %q) = %q, %q, nil; want error", tt.chart, tt.repository, got, gotRepo)
 				}
 				return
 			}
@@ -134,6 +203,22 @@ func TestNormalizeChartRef(t *testing.T) {
 
 			if tt.wantAbs && !filepath.IsAbs(got) {
 				t.Fatalf("NormalizeChartRef(%q) = %q, want an absolute path", tt.chart, got)
+			}
+
+			if gotRepo != tt.wantRepo {
+				t.Fatalf("NormalizeChartRef(%q, %q) repoURL = %q, want %q", tt.chart, tt.repository, gotRepo, tt.wantRepo)
+			}
+
+			// toReleaseSpec normalizes once and every Client method
+			// normalizes the resulting spec again, so the output must be a
+			// fixed point (an oci:// repository folded twice would yield
+			// ".../app/app" or reject its own output).
+			again, againRepo, err := NormalizeChartRef(got, gotRepo)
+			if err != nil {
+				t.Fatalf("NormalizeChartRef(%q, %q) (second pass) unexpected error: %v", got, gotRepo, err)
+			}
+			if again != got || againRepo != gotRepo {
+				t.Fatalf("NormalizeChartRef is not idempotent: (%q, %q) -> (%q, %q)", got, gotRepo, again, againRepo)
 			}
 		})
 	}

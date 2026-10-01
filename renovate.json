@@ -1,10 +1,11 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Grouped Go minor/patch and GitHub Actions updates with pinned action digests; github.com/werf/nelm follows nelm's trdl STABLE channel (not the Go proxy's latest, which is effectively alpha), k8s.io/* move only in lockstep with nelm, and custom-manager go.mod bumps run `go mod tidy` (postUpgradeTasks require a self-hosted Renovate).",
+  "description": "Grouped Go minor/patch and GitHub Actions updates with pinned action digests; github.com/werf/nelm follows nelm's trdl STABLE channel (not the Go proxy's latest, which is effectively alpha), k8s.io/* move only in lockstep with nelm, custom-manager go.mod bumps run `go mod tidy` (postUpgradeTasks require a self-hosted Renovate), and the `# renovate:`-annotated *_VERSION tool pins in the workflows (golangci-lint, govulncheck, tfplugindocs) are bumped too.",
   "extends": [
     "config:recommended",
     ":dependencyDashboard",
-    "helpers:pinGitHubActionDigests"
+    "helpers:pinGitHubActionDigests",
+    "customManagers:githubActionsVersions"
   ],
   "labels": [
     "dependencies"
@@ -67,7 +68,7 @@
       "enabled": false
     },
     {
-      "description": "A stable-channel nelm bump edits go.mod outside the gomod artifact updater, so regenerate go.sum; the PR still needs a human semantic review against docs/KNOWN_LIMITATIONS.md — never automerge",
+      "description": "A stable-channel nelm bump edits go.mod outside the gomod artifact updater, so regenerate go.sum; the PR still needs a human semantic review against docs/guides/known-limitations.md — never automerge",
       "matchDatasources": [
         "custom.nelm-stable"
       ],

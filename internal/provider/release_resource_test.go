@@ -3,8 +3,8 @@ package provider_test
 // release_resource_test.go implements design §6's acceptance scenarios for
 // nelm_release, strictly against the orbstack cluster (see provider_test.go
 // for the harness and the triple safety guard). Every Config below embeds
-// providerBlock() (kube_context = "orbstack" explicit, never
-// current-context) and every test's PreCheck is testAccPreCheck.
+// providerBlock() (kube_config_paths and kube_context = "orbstack" explicit,
+// never current-context) and every test's PreCheck is testAccPreCheck.
 
 import (
 	"fmt"
@@ -109,15 +109,22 @@ resource "nelm_release" "test" {
 // deterministic "<hidden N sensitive bytes, hash ...>" placeholder
 // (planconv/sensitive.go's local V2-style override for Secret kinds) that
 // NormalizeUnstructured produces before anything reaches Terraform state.
+// A set_sensitive value the chart renders into a non-Secret object (the
+// ConfigMap's data.message) is replaced by the same kind of placeholder
+// (planconv.ScrubSecrets, F06), and the post-apply plan the test framework
+// runs stays empty, so the planned and the live side scrub identically.
 func TestAccReleaseResource_secretSensitive(t *testing.T) {
 	namespace := uniqueNamespace("sec")
 	const name = "sec"
 
 	chart := chartPath(t)
 	const sensitiveValue = "s3cr3t-acceptance-test-value-do-not-leak"
+	const configMapValue = "c0nfigmap-acceptance-test-value-do-not-leak"
 	// Key(ref, releaseNS, scoper) = "<apiVersion>/<Kind>/<namespace>/<name>"
-	// (planconv/key.go); the chart's Secret is named "<release>-basic".
+	// (planconv/key.go); the chart's Secret and ConfigMap are named
+	// "<release>-basic".
 	secretResourcesKey := fmt.Sprintf("v1/Secret/%s/%s-basic", namespace, name)
+	configMapResourcesKey := fmt.Sprintf("v1/ConfigMap/%s/%s-basic", namespace, name)
 
 	cfg := fmt.Sprintf(`%s
 resource "nelm_release" "test" {
@@ -130,9 +137,13 @@ resource "nelm_release" "test" {
       name  = "secret.password"
       value = %q
     },
+    {
+      name  = "configMap.message"
+      value = %q
+    },
   ]
 }
-`, providerBlock(), name, namespace, chart, sensitiveValue)
+`, providerBlock(), name, namespace, chart, sensitiveValue, configMapValue)
 
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
@@ -155,9 +166,14 @@ resource "nelm_release" "test" {
 							continue
 						}
 
-						if strings.Contains(v, sensitiveValue) {
+						if strings.Contains(v, sensitiveValue) || strings.Contains(v, configMapValue) {
 							return fmt.Errorf("cleartext secret value leaked into state at %s: %s", k, v)
 						}
+					}
+
+					cm, ok := rs.Primary.Attributes["resources."+configMapResourcesKey]
+					if !ok || !strings.Contains(cm, "sensitive bytes, hash") {
+						return fmt.Errorf("expected a placeholder for the set_sensitive ConfigMap value at %s, got: %q", configMapResourcesKey, cm)
 					}
 
 					gotKey := "resources." + secretResourcesKey
@@ -308,6 +324,54 @@ resource "nelm_release" "test" {
 					PostApplyPostRefresh: []plancheck.PlanCheck{
 						plancheck.ExpectResourceAction(resourceAddr, plancheck.ResourceActionUpdate),
 					},
+				},
+			},
+		},
+	})
+}
+
+// TestAccReleaseResource_waitFalse covers the `wait` attribute (F09,
+// helm_release wait = false parity): a release whose only workload can never
+// become ready (its image is unpullable) must still apply cleanly and report
+// "deployed" with wait = false, because nelm then skips final readiness
+// tracking. With the default wait = true nelm's tracker fails this exact
+// apply on ErrImagePull; the short create timeout bounds a regression to
+// minutes instead of the 10m default.
+func TestAccReleaseResource_waitFalse(t *testing.T) {
+	namespace := uniqueNamespace("nowait")
+	const name = "nowait"
+
+	chart := chartPath(t)
+
+	cfg := fmt.Sprintf(`%s
+resource "nelm_release" "test" {
+  name      = %q
+  namespace = %q
+  chart     = %q
+  wait      = false
+
+  values = [<<-YAML
+    image:
+      repository: registry.invalid/tf-nelm/never-pulls
+    YAML
+  ]
+
+  timeouts {
+    create = "3m"
+  }
+}
+`, providerBlock(), name, namespace, chart)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckReleaseDestroyed(namespace, name),
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("status"), knownvalue.StringExact("deployed")),
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("wait"), knownvalue.Bool(false)),
 				},
 			},
 		},

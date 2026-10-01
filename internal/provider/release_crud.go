@@ -11,8 +11,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
 	"github.com/infrabay/terraform-provider-nelm/internal/planconv"
@@ -25,7 +27,7 @@ import (
 // implemented here (design §2.3-2.4); ModifyPlan's implementation
 // (release_plan.go) is owned by T-resplan (design §2.2).
 type releaseResource struct {
-	client *nelmclient.Client
+	client releaseClient
 }
 
 var (
@@ -115,19 +117,35 @@ func applyReleaseInfo(model *releaseModel, info *nelmclient.ReleaseInfo) diag.Di
 }
 
 // liveResourcesMap builds the "resources" map attribute value from a live
-// cluster read of refs (design §2.4: Read's live path, and Create/Update's
-// degraded-Unknown-plan path). It fetches the live objects via
+// cluster read of refs (design §2.4: Read's live path, a failed install's
+// partial state, and — via liveResources — what Create/Update read back for
+// an Unknown plan value). It fetches the live objects via
 // r.client.LiveObjects, normalizes them through the SAME planconv pipeline +
 // Key as ModifyPlan (CONTRACTS.md seam 2's bold invariant), using r.client
 // itself as the KeyScoper (it implements planconv.KeyScoper via IsNamespaced).
 //
-// desired is the previously stored resources map (prior state's, or a KNOWN
-// plan's) keyed identically; each live object is projected onto its desired
-// counterpart so Kubernetes' server-side defaulting is stripped generically
-// (planconv.NormalizeLiveAgainst). Pass nil when there is no stored desired
-// (e.g. a degraded/Unknown plan) — the live objects are then normalized in
-// full and converge on the next plan.
-func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclient.ResourceRef, releaseNS string, desired map[string]string, timeout time.Duration) (types.Map, diag.Diagnostics) {
+// desired is the projection template keyed identically (projectionTemplate:
+// the stored values, or the release manifests); each live object is
+// projected onto its desired counterpart so Kubernetes' server-side
+// defaulting is stripped generically (planconv.NormalizeLiveAgainst). A live
+// object without one is normalized in full. secrets are the set_sensitive
+// values (releaseModel.sensitiveValues) of the configuration the map is
+// stored with, scrubbed like ModifyPlan scrubs the planned side, and desired
+// must have been built with them.
+func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclient.ResourceRef, releaseNS string, desired map[string]string, secrets []string, timeout time.Duration) (types.Map, diag.Diagnostics) {
+	resourcesMap, diags := r.liveResources(ctx, refs, releaseNS, desired, secrets, timeout)
+	if diags.HasError() {
+		return types.MapNull(types.StringType), diags
+	}
+
+	mapVal, d := types.MapValueFrom(ctx, types.StringType, resourcesMap)
+	diags.Append(d...)
+
+	return mapVal, diags
+}
+
+// liveResources is liveResourcesMap's body, returning the plain map.
+func (r *releaseResource) liveResources(ctx context.Context, refs []nelmclient.ResourceRef, releaseNS string, desired map[string]string, secrets []string, timeout time.Duration) (map[string]string, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	// Bound the live GET phase: LiveObjects' client-go calls honour ctx, so
@@ -142,7 +160,7 @@ func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclien
 	objsByRef, err := r.client.LiveObjects(ctx, refs)
 	if err != nil {
 		diags.AddError("Failed to read live resources", err.Error())
-		return types.MapNull(types.StringType), diags
+		return nil, diags
 	}
 
 	objs := make([]*unstructured.Unstructured, 0, len(objsByRef))
@@ -150,31 +168,185 @@ func (r *releaseResource) liveResourcesMap(ctx context.Context, refs []nelmclien
 		objs = append(objs, obj)
 	}
 
-	resourcesMap, err := planconv.BuildLiveResources(objs, releaseNS, r.client, desired)
+	resourcesMap, err := planconv.BuildLiveResources(objs, releaseNS, r.client, desired, secrets)
 	if err != nil {
 		diags.AddError("Failed to build live resources map", err.Error())
-		return types.MapNull(types.StringType), diags
+		return nil, diags
 	}
 
-	mapVal, d := types.MapValueFrom(ctx, types.StringType, resourcesMap)
-	diags.Append(d...)
-
-	return mapVal, diags
+	return resourcesMap, diags
 }
 
-// desiredResources extracts the stored resources map (prior state's or a KNOWN
+// desiredResources extracts the stored resources map (prior state's or a
 // plan's) as a plain map for projection in liveResourcesMap. A null/unknown
 // map yields nil (no projection template — the live objects are normalized in
-// full).
+// full); a plan's Unknown elements (ModifyPlan's volatile objects) are left
+// out.
 func desiredResources(ctx context.Context, m types.Map) (map[string]string, diag.Diagnostics) {
 	if m.IsNull() || m.IsUnknown() {
 		return nil, nil
 	}
 
 	out := map[string]string{}
-	diags := m.ElementsAs(ctx, &out, false)
+
+	for key, v := range m.Elements() {
+		if v.IsUnknown() {
+			continue
+		}
+
+		var str types.String
+
+		diags := tfsdk.ValueAs(ctx, v, &str)
+		if diags.HasError() {
+			return nil, diags
+		}
+
+		out[key] = str.ValueString()
+	}
+
+	return out, nil
+}
+
+// unknownResourceKeys returns the keys of m's Unknown elements (none for a
+// null or wholly Unknown map).
+func unknownResourceKeys(m types.Map) map[string]bool {
+	out := map[string]bool{}
+
+	if m.IsNull() || m.IsUnknown() {
+		return out
+	}
+
+	for key, v := range m.Elements() {
+		if v.IsUnknown() {
+			out[key] = true
+		}
+	}
+
+	return out
+}
+
+// projectionTemplate is what a live read projects onto: the stored values
+// (prior state's, or the plan's known ones), and for every object without a
+// value — a state seeded by import or a moved block, a plan's Unknown
+// element or wholly Unknown map — the release's stored manifest, what its
+// last install rendered and applied, normalized like a planned value.
+// Projecting a live object onto either strips the server's defaulting the
+// same way, so the result has the chart's shape instead of carrying every
+// live-only field. The manifests are best-effort: if they cannot be keyed,
+// those objects are normalized in full. They are scrubbed of secrets, which
+// must be the ones stored was built with.
+func (r *releaseResource) projectionTemplate(ctx context.Context, stored types.Map, info *nelmclient.ReleaseInfo, releaseNS string, secrets []string) (map[string]string, diag.Diagnostics) {
+	out := map[string]string{}
+
+	if info != nil && len(info.Manifests) > 0 {
+		if manifests, err := planconv.BuildRenderedResources(info.Manifests, releaseNS, r.client, secrets); err == nil {
+			out = manifests
+		}
+	}
+
+	known, diags := desiredResources(ctx, stored)
+	for key, value := range known {
+		if value != "" {
+			out[key] = value
+		}
+	}
 
 	return out, diags
+}
+
+// appliedResources builds the "resources" value a successful Create/Update
+// persists. A KNOWN planned value MUST be reproduced exactly (Terraform's
+// "inconsistent result after apply" check), so the plan's known elements are
+// copied verbatim — recomputing them would also pay a needless LiveObjects
+// round trip on the common fast path. What the plan left Unknown is read
+// from the cluster after the install: the whole map when ModifyPlan degraded
+// the diff (cluster unreachable or kinds not served at plan time,
+// diff_mode = "none"), or the single objects whose render changes on every
+// render (ModifyPlan step 6e) — their applied value is only knowable now.
+// The live objects are projected onto the stored release's manifests, so the
+// persisted values have the chart's shape. A failed live read must not fail
+// the successful install (see installedButUnreadWarnings): an object it
+// could not read keeps its manifest value, or "" when it has none, and the
+// next Read rebuilds it. secrets are the plan's set_sensitive values, which
+// the planned values were scrubbed of.
+func (r *releaseResource) appliedResources(ctx context.Context, planned types.Map, info *nelmclient.ReleaseInfo, releaseNS string, secrets []string, timeout time.Duration) (types.Map, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	wholeUnknown := planned.IsUnknown() || planned.IsNull()
+	unknownKeys := unknownResourceKeys(planned)
+
+	if !wholeUnknown && len(unknownKeys) == 0 {
+		return planned, diags
+	}
+
+	template, tdiags := r.projectionTemplate(ctx, planned, info, releaseNS, secrets)
+	if tdiags.HasError() {
+		diags.Append(installedButUnreadWarnings(tdiags)...)
+	} else {
+		diags.Append(tdiags...)
+	}
+
+	refs := info.Resources
+	if !wholeUnknown {
+		refs = refsWithKeys(info.Resources, releaseNS, r.client, unknownKeys)
+	}
+
+	live, ldiags := r.liveResources(ctx, refs, releaseNS, template, secrets, timeout)
+	if ldiags.HasError() {
+		diags.Append(installedButUnreadWarnings(ldiags)...)
+		live = nil
+	} else {
+		diags.Append(ldiags...)
+	}
+
+	if wholeUnknown {
+		if live == nil {
+			return emptyResourcesMap(), diags
+		}
+
+		mapVal, d := types.MapValueFrom(ctx, types.StringType, live)
+		diags.Append(d...)
+
+		return mapVal, diags
+	}
+
+	elems := make(map[string]attr.Value, len(planned.Elements()))
+	for key, v := range planned.Elements() {
+		if !unknownKeys[key] {
+			elems[key] = v
+			continue
+		}
+
+		value, ok := live[key]
+		if !ok {
+			value = template[key]
+		}
+
+		elems[key] = types.StringValue(value)
+	}
+
+	mapVal, d := types.MapValue(types.StringType, elems)
+	diags.Append(d...)
+
+	return mapVal, diags
+}
+
+// refsWithKeys returns the refs whose resources-map key is in keys.
+func refsWithKeys(refs []nelmclient.ResourceRef, releaseNS string, scoper planconv.KeyScoper, keys map[string]bool) []nelmclient.ResourceRef {
+	var out []nelmclient.ResourceRef
+
+	for _, ref := range refs {
+		key, err := planconv.Key(planconv.Ref{
+			GroupVersionKind: schema.GroupVersionKind{Group: ref.Group, Version: ref.Version, Kind: ref.Kind},
+			Namespace:        ref.Namespace,
+			Name:             ref.Name,
+		}, releaseNS, scoper)
+		if err == nil && keys[key] {
+			out = append(out, ref)
+		}
+	}
+
+	return out
 }
 
 // refreshedRelease fetches the current cluster state for the release
@@ -215,51 +387,131 @@ func (r *releaseResource) refreshedRelease(ctx context.Context, model releaseMod
 }
 
 // planFallbackState derives a persistable state from the plan for the case
-// where Install succeeded (or may have partially succeeded) but the immediate
-// refresh failed, so the release is not lost from Terraform state. The computed
-// cluster attrs (status/revision/metadata) are set to safe concretes — the next
-// Read replaces them with live values. The KNOWN plan resources value is
-// reproduced verbatim (the ModifyPlan consistency rule); an Unknown plan value
-// becomes an empty map.
+// where Install succeeded but the immediate refresh failed, so the release is
+// not lost from Terraform state. Since the apply then succeeds, the result
+// must match the plan wherever the plan is KNOWN (Terraform's "inconsistent
+// result after apply" check): known plan values — resources, and an Update's
+// status/revision/metadata when ModifyPlan expected no reinstall — are
+// reproduced verbatim. Unknown computed cluster attrs are set to safe
+// concretes that the next Read replaces with live values; an Unknown
+// resources value becomes an empty map, and an Unknown element of it "".
 func planFallbackState(plan releaseModel) (releaseModel, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
 	out := plan
 	out.ID = types.StringValue(plan.Namespace.ValueString() + "/" + plan.Name.ValueString())
-	out.Status = types.StringValue("")
-	out.Revision = types.Int64Value(0)
 
-	metaObj, d := types.ObjectValue(metadataAttrTypes, map[string]attr.Value{
-		"app_version":   types.StringValue(""),
-		"chart_name":    types.StringValue(""),
-		"chart_version": types.StringValue(""),
-		"values_json":   types.StringValue("{}"),
-	})
-	diags.Append(d...)
-	out.Metadata = metaObj
+	if plan.Status.IsUnknown() || plan.Status.IsNull() {
+		out.Status = types.StringValue("")
+	}
 
-	if plan.Resources.IsUnknown() || plan.Resources.IsNull() {
-		emptyMap, md := types.MapValue(types.StringType, map[string]attr.Value{})
-		diags.Append(md...)
-		out.Resources = emptyMap
-	} else {
-		out.Resources = plan.Resources
+	if plan.Revision.IsUnknown() || plan.Revision.IsNull() {
+		out.Revision = types.Int64Value(0)
+	}
+
+	if plan.Metadata.IsUnknown() || plan.Metadata.IsNull() {
+		metaObj, d := types.ObjectValue(metadataAttrTypes, map[string]attr.Value{
+			"app_version":   types.StringValue(""),
+			"chart_name":    types.StringValue(""),
+			"chart_version": types.StringValue(""),
+			"values_json":   types.StringValue("{}"),
+		})
+		diags.Append(d...)
+		out.Metadata = metaObj
+	}
+
+	switch {
+	case plan.Resources.IsUnknown() || plan.Resources.IsNull():
+		out.Resources = emptyResourcesMap()
+
+	case len(unknownResourceKeys(plan.Resources)) > 0:
+		// ModifyPlan's volatile objects: "" until the next Read rebuilds them
+		// from the cluster (an empty desired value projects nothing).
+		elems := make(map[string]attr.Value, len(plan.Resources.Elements()))
+		for key, v := range plan.Resources.Elements() {
+			if v.IsUnknown() {
+				v = types.StringValue("")
+			}
+
+			elems[key] = v
+		}
+
+		resMap, d := types.MapValue(types.StringType, elems)
+		diags.Append(d...)
+		out.Resources = resMap
 	}
 
 	return out, diags
+}
+
+// emptyResourcesMap is the known, empty "resources" value persisted when no
+// resources map could be computed; the next Read rebuilds it from live refs.
+func emptyResourcesMap() types.Map {
+	return types.MapValueMust(types.StringType, map[string]attr.Value{})
+}
+
+// failedUpdateState builds the state a FAILED Update persists: the
+// PRIOR state's configuration — so the attempted change is still a diff on
+// the next plan and is retried, instead of being recorded as applied —
+// overlaid with what the cluster reports now (id/status/revision/metadata/
+// resources from refreshed). Persisting the plan's configuration instead
+// silently dropped any failed change that the retry triggers (status !=
+// deployed, a resources-map difference) do not see: e.g. a hook-only change
+// after a successful auto_rollback, or a failure before nelm wrote a revision.
+// Terraform skips its "inconsistent result after apply" check when Update
+// returns an error, so a state that differs from the plan is legal here.
+func failedUpdateState(prior, refreshed releaseModel) releaseModel {
+	out := prior
+	out.ID = refreshed.ID
+	out.Status = refreshed.Status
+	out.Revision = refreshed.Revision
+	out.Metadata = refreshed.Metadata
+	out.Resources = refreshed.Resources
+
+	return out
+}
+
+// installedButUnreadWarnings downgrades the error diagnostics of a failed
+// post-install read to warnings. The install itself succeeded, so the
+// apply must not fail: a failed Create makes Terraform taint the resource and
+// replace — uninstall and reinstall — a healthy release on the next apply.
+func installedButUnreadWarnings(diags diag.Diagnostics) diag.Diagnostics {
+	var out diag.Diagnostics
+
+	for _, d := range diags {
+		if d.Severity() != diag.SeverityError {
+			out.Append(d)
+			continue
+		}
+
+		out.AddWarning(
+			"nelm_release installed, but reading it back failed",
+			"The install succeeded, so the apply is not failed; status, revision, metadata and resources are "+
+				"filled in from the cluster by the next refresh.\n\n"+d.Summary()+": "+d.Detail(),
+		)
+	}
+
+	return out
 }
 
 // createOrUpdate is the shared body of Create and Update (design §2.3): both
 // call client.Install (a fresh install, never artifact replay — nelm
 // install is an idempotent upgrade) and, on success, build the full state
 // from the plan (config attrs verbatim) plus the cluster (computed attrs).
-// resources is copied verbatim from the plan when the plan value is KNOWN
-// (a known plan value MUST be reproduced exactly at apply); otherwise it is
-// computed from a live read. On a partial failure (Install errors but the
-// release exists per client.Get), the full refreshed state is persisted so
-// Terraform does not lose track of a partially-applied release, and an
-// error diagnostic is still added so the apply fails.
-func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel, timeout timeoutKind) (state releaseModel, hasState bool, diags diag.Diagnostics) {
+// resources keeps the plan's KNOWN elements verbatim (a known plan value MUST
+// be reproduced exactly at apply); whatever the plan left Unknown is read
+// from the cluster (appliedResources). On a partial failure (Install errors
+// but the release exists per client.Get), the refreshed state is persisted
+// so Terraform does not lose track of a partially-applied release, and an
+// error diagnostic is still added so the apply fails; on an Update it keeps
+// the prior configuration (failedUpdateState) so the change is retried.
+//
+// prior is the Update's prior state, nil on Create. Before installing, the
+// release's stored history is checked by installGuardDiags: Create never
+// silently adopts an existing release (nor, via otherBackendDiags, one still
+// deployed in the other storage backend), and neither path installs over a
+// pending-* revision another operation still holds.
+func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel, prior *releaseModel, timeout timeoutKind) (state releaseModel, hasState bool, diags diag.Diagnostics) {
 	spec, d := plan.toReleaseSpec(ctx)
 	diags.Append(d...)
 	if diags.HasError() {
@@ -286,7 +538,56 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 		return releaseModel{}, false, diags
 	}
 
-	installErr := r.client.Install(ctx, spec, opTimeout)
+	ns := plan.Namespace.ValueString()
+
+	// Pre-install guards against the release's CURRENT history (read at
+	// apply, not plan, time): no silent adoption on Create, no install over a
+	// pending-* revision another operation holds. A history read failure
+	// fails the apply before anything is changed.
+	history, err := r.client.History(ctx, plan.Name.ValueString(), ns, plan.ReleaseStorageDriver.ValueString(), readTimeout)
+	if err != nil {
+		diags.AddError("Failed to read nelm release history", err.Error())
+		return releaseModel{}, false, diags
+	}
+
+	diags.Append(installGuardDiags(plan, history, prior == nil, pendingTakeoverAge(opTimeout), time.Now())...)
+	if diags.HasError() {
+		return releaseModel{}, false, diags
+	}
+
+	// A Create whose backend holds no deployed revision may still be the
+	// create half of a create_before_destroy release_storage_driver change,
+	// with the release deployed in the other backend.
+	if prior == nil && !history.Deployed {
+		diags.Append(r.otherBackendDiags(ctx, plan, readTimeout)...)
+		if diags.HasError() {
+			return releaseModel{}, false, diags
+		}
+	}
+
+	// Hand any field ownership hashicorp/helm's helm_release left on the
+	// release's objects over to nelm first, or this install cannot prune what
+	// the chart no longer renders (nelmclient.HandOverHelmProviderFieldManagers).
+	// Apply-only by design: ModifyPlan never runs it, so a plan adds no write
+	// of its own. It shares the operation's timeout budget with the install.
+	start := time.Now()
+
+	skipped, err := r.client.HandOverHelmProviderFieldManagers(ctx, spec.Name, spec.Namespace, spec.StorageDriver, opTimeout)
+	if err != nil {
+		diags.AddError("nelm_release: helm_release field-manager hand-over failed", plan.scrubSensitive(err.Error()))
+		return releaseModel{}, false, diags
+	}
+
+	if len(skipped) > 0 {
+		diags.AddWarning(
+			"nelm_release: helm_release field-manager hand-over skipped",
+			"An admission webhook was unavailable, so these objects keep a terraform-provider-helm field manager: "+
+				"fields it set that the chart no longer renders stay live until a later apply of this release "+
+				"completes the hand-over.\n\n"+plan.scrubSensitive(strings.Join(skipped, "\n")),
+		)
+	}
+
+	installErr := r.client.Install(ctx, spec, remainingTimeout(opTimeout, time.Since(start)))
 
 	// Always re-check the cluster after Install, success or failure: on
 	// failure this is the partial-failure-capture read (design §2.3); on
@@ -297,45 +598,58 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 	// what lets a successful install survive a transient refresh failure.
 	refreshed, info, found, rdiags := r.refreshedRelease(ctx, plan, readTimeout)
 	getErrored := rdiags.HasError()
-	diags.Append(rdiags...)
-
-	ns := plan.Namespace.ValueString()
 
 	switch {
+	case installErr == nil && getErrored:
+		// Install SUCCEEDED but the immediate refresh failed (e.g. a transient
+		// API error). The release exists and is healthy: do NOT drop it from
+		// state, and do NOT fail the apply — a failed Create is tainted, and
+		// the next apply would replace (uninstall and reinstall) the release.
+		// Persist a plan-derived state and only warn; the next Read fills in
+		// status/revision/metadata.
+		fallback, fdiags := planFallbackState(plan)
+		diags.Append(fdiags...)
+		diags.Append(installedButUnreadWarnings(rdiags)...)
+		return fallback, true, diags
+
 	case installErr == nil && found:
 		// Happy path — handled after the switch.
 
-	case installErr == nil && getErrored:
-		// Install SUCCEEDED but the immediate refresh failed transiently (e.g.
-		// the API connection reset). The release exists; do NOT drop it from
-		// state. Persist a plan-derived state so Terraform keeps tracking it
-		// (the next Read fills in status/revision/metadata) — the getErrored
-		// diagnostic already in diags still fails this apply.
-		fallback, fdiags := planFallbackState(plan)
-		diags.Append(fdiags...)
-		return fallback, true, diags
-
-	case installErr == nil && !found:
+	case installErr == nil:
 		diags.AddError(
 			"nelm_release install reported success but the release was not found",
 			"This is unexpected; please report it as a provider bug.",
 		)
 		return releaseModel{}, false, diags
 
-	case installErr != nil && found:
+	case found:
 		// Partial failure: Install errored but the release exists (e.g. it
 		// installed some resources before failing, or a prior apply already
-		// created it). Persist the full refreshed state — including a
-		// freshly live-computed resources map, since the plan's (possibly
-		// KNOWN) resources value described the intended post-apply state
-		// that this partial apply did NOT fully reach — so Terraform does
-		// not lose track of the release, but still fail the apply. The plan's
-		// resources (when KNOWN) are the projection template.
-		desired, ddiags := desiredResources(ctx, plan.Resources)
+		// created it). Persist the refreshed state — including a freshly
+		// live-computed resources map, since the plan's (possibly KNOWN)
+		// resources value described the intended post-apply state that this
+		// partial apply did NOT fully reach — so Terraform does not lose track
+		// of the release, but still fail the apply. The plan's known resources
+		// are the projection template, the stored manifests fill in the rest.
+		// A failed Update keeps the PRIOR configuration so the change is
+		// retried (failedUpdateState). Its objects can carry either the
+		// prior's or the plan's set_sensitive values, so both are scrubbed.
+		diags.Append(rdiags...)
+
+		secrets := plan.sensitiveValues()
+		if prior != nil {
+			secrets = append(secrets, prior.sensitiveValues()...)
+		}
+
+		desired, ddiags := r.projectionTemplate(ctx, plan.Resources, info, ns, secrets)
 		diags.Append(ddiags...)
-		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, desired, readTimeout)
+		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, desired, secrets, readTimeout)
 		diags.Append(mdiags...)
 		refreshed.Resources = resMap
+
+		if prior != nil {
+			refreshed = failedUpdateState(*prior, refreshed)
+		}
 
 		diags.AddError(
 			"nelm_release install failed (partial state persisted)",
@@ -346,31 +660,32 @@ func (r *releaseResource) createOrUpdate(ctx context.Context, plan releaseModel,
 	default:
 		// installErr != nil && (getErrored || genuine not-found): the release
 		// is absent or unconfirmable, so don't persist a possibly-nonexistent
-		// release. Any getErrored diagnostic is already in diags.
+		// release (an Update's prior state is kept by the framework).
+		diags.Append(rdiags...)
 		diags.AddError("nelm_release install failed", plan.scrubSensitive(installErr.Error()))
 		return releaseModel{}, false, diags
 	}
 
 	// installErr == nil && found.
+	diags.Append(rdiags...)
 	state = refreshed
 
-	// A KNOWN plan value MUST be reproduced exactly at apply (ModifyPlan
-	// consistency rule) — do NOT recompute it from the live cluster in that
-	// case; recomputing it would also pay a needless LiveObjects round trip
-	// on the common fast path. Only the degraded Unknown-plan path (cluster
-	// was unreachable at plan time) needs a live resources computation here.
-	if !plan.Resources.IsUnknown() && !plan.Resources.IsNull() {
-		state.Resources = plan.Resources
-	} else {
-		// Degraded (Unknown) plan: the cluster was unreachable at plan time,
-		// so there is no stored desired to project against — pass nil and let
-		// the map converge on the next plan.
-		resMap, mdiags := r.liveResourcesMap(ctx, info.Resources, ns, nil, readTimeout)
-		diags.Append(mdiags...)
-		state.Resources = resMap
-	}
+	resMap, mdiags := r.appliedResources(ctx, plan.Resources, info, ns, plan.sensitiveValues(), readTimeout)
+	diags.Append(mdiags...)
+	state.Resources = resMap
 
 	return state, true, diags
+}
+
+// remainingTimeout is what is left of an operation's timeout budget after
+// spent. A zero budget (no timeout) is returned as-is; an exhausted one is
+// floored at 1ns, because nelm reads a zero Timeout as "no timeout".
+func remainingTimeout(budget, spent time.Duration) time.Duration {
+	if budget <= 0 {
+		return budget
+	}
+
+	return max(budget-spent, time.Nanosecond)
 }
 
 type timeoutKind int
@@ -387,7 +702,7 @@ func (r *releaseResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	state, hasState, diags := r.createOrUpdate(ctx, plan, timeoutCreate)
+	state, hasState, diags := r.createOrUpdate(ctx, plan, nil, timeoutCreate)
 	resp.Diagnostics.Append(diags...)
 	if !hasState {
 		// No usable state to persist (hard failure, no release found).
@@ -400,15 +715,18 @@ func (r *releaseResource) Create(ctx context.Context, req resource.CreateRequest
 }
 
 func (r *releaseResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan releaseModel
+	var plan, prior releaseModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &prior)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	state, hasState, diags := r.createOrUpdate(ctx, plan, timeoutUpdate)
+	state, hasState, diags := r.createOrUpdate(ctx, plan, &prior, timeoutUpdate)
 	resp.Diagnostics.Append(diags...)
 	if !hasState {
+		// UpdateResponse.State starts as the prior state: not setting it
+		// keeps the prior state.
 		return
 	}
 
@@ -444,14 +762,25 @@ func (r *releaseResource) Read(ctx context.Context, req resource.ReadRequest, re
 	// next plan (design §2.4). The resources already in state are the
 	// projection template: their shape is the chart's desired shape, so
 	// projecting the live objects onto it strips server-side defaulting while
-	// keeping genuine drift visible.
-	desired, ddiags := desiredResources(ctx, state.Resources)
+	// keeping genuine drift visible. An object state has no value for (the
+	// first Read after an import or a moved block) is projected onto its
+	// stored release manifest instead of being kept in full: a volatile
+	// object (ModifyPlan step 6e) only keeps its value when it has the
+	// chart's shape. The state's set_sensitive values are scrubbed, as
+	// ModifyPlan scrubs the plan's from the planned side (CONTRACTS.md seam
+	// 2); state has none right after an import, until the first apply. So
+	// are the values the release's last revision holds at those names: a
+	// failed update keeps the previous configuration in state, while the
+	// objects it partly applied carry the new values.
+	secrets := append(state.sensitiveValues(), state.storedSensitiveValues(info.Values)...)
+
+	desired, ddiags := r.projectionTemplate(ctx, state.Resources, info, state.Namespace.ValueString(), secrets)
 	resp.Diagnostics.Append(ddiags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
-	resMap, rdiags := r.liveResourcesMap(ctx, info.Resources, state.Namespace.ValueString(), desired, readTimeout)
+	resMap, rdiags := r.liveResourcesMap(ctx, info.Resources, state.Namespace.ValueString(), desired, secrets, readTimeout)
 	resp.Diagnostics.Append(rdiags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -527,10 +856,17 @@ func (r *releaseResource) ImportState(ctx context.Context, req resource.ImportSt
 	// §2.4): the framework does not run schema defaults during import,
 	// only during a "create" plan.
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("auto_rollback"), false)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("wait"), true)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("force_adoption"), false)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("no_remove_manual_changes"), false)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("no_install_crds"), false)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("release_storage_driver"), "secret")...)
+	// adopt_existing is seeded false, not true: it is only read by Create,
+	// which an imported resource never runs (its first apply is an Update),
+	// and false matches a configuration that leaves it at its default, so
+	// importing never plans a change to it.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("adopt_existing"), false)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("diff_mode"), diffModeFull)...)
 
 	// The framework runs Read after ImportState to fill in the remaining
 	// computed attributes (status/revision/metadata/resources).

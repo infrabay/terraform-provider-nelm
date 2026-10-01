@@ -1,25 +1,41 @@
 name: release
 
 # Publishes a Terraform-Registry-ready release when a semantic-version tag is
-# pushed. Prerequisites (repository secrets):
+# pushed: the test workflow runs against the tagged commit first, then
+# GoReleaser builds and signs the release. Secrets:
 #   GPG_PRIVATE_KEY - ASCII-armored private key whose PUBLIC half is registered
 #                     with the Terraform Registry publisher (Settings -> Signing
 #                     Keys). This is what signs the SHA256SUMS.
 #   PASSPHRASE      - passphrase for that GPG key.
+# They are repository secrets while the repository is private. Once it is
+# public, move them into a 'release' environment (deployment tags v*,
+# required reviewers) and uncomment `environment: release` below: on the
+# GitHub Free plan environment protection rules are only available to public
+# repositories.
 on:
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
   goreleaser:
+    needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
+    # environment: release
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # GoReleaser reads the previous tag and the commit history.
+          fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: 'go.mod'
@@ -33,7 +49,8 @@ jobs:
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
         with:
-          version: latest
+          # The newest v2 release; a major goreleaser upgrade needs a commit.
+          version: '~> v2'
           args: release --clean
         env:
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}

@@ -2,7 +2,10 @@ package provider
 
 import (
 	"context"
-	"strings"
+	"encoding/base64"
+	"encoding/json"
+	"slices"
+	"strconv"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -10,23 +13,95 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
+	"github.com/infrabay/terraform-provider-nelm/internal/planconv"
 )
 
-// scrubSensitive replaces any set_sensitive value that appears verbatim in s
-// with a placeholder. Nelm echoes the raw "--set-json"/"--set" argument
-// (name=value) in its parse errors (e.g. `failed parsing --set-json data
-// db.password=not-json`), and Terraform's sensitivity metadata does NOT redact
-// arbitrary provider error strings — so any error derived from a nelm
-// plan/install call MUST be run through this before reaching a diagnostic, or a
-// sensitive value leaks into `terraform plan` output and CI logs.
+// scrubSensitive replaces any set_sensitive value (sensitiveValues) that
+// appears in s with a placeholder. Nelm echoes the raw "--set-json"/"--set"
+// argument (name=value) in its parse errors (e.g. `failed parsing --set-json
+// data db.password=not-json`), and Terraform's sensitivity metadata does NOT
+// redact arbitrary provider error strings — so any error derived from a nelm
+// plan/install call MUST be run through this before reaching a diagnostic, or
+// a sensitive value leaks into `terraform plan` output and CI logs. Values
+// are replaced in one pass (planconv.ScrubString): a value that contains
+// another one is replaced whole, whatever their order in set_sensitive.
 func (m releaseModel) scrubSensitive(s string) string {
+	return planconv.ScrubString(s, m.sensitiveValues(), func(string) string { return "(sensitive value redacted)" })
+}
+
+// sensitiveValues returns the strings a set_sensitive value can surface as in
+// nelm's output — an error, a rendered manifest: each value as written, the
+// strings nelm parses out of it (nelmclient.SetValueStrings: escapes
+// resolved, lists split, JSON decoded), and each of those as a template embeds
+// it with quote, toJson or b64enc. These are the secrets scrubbed from both
+// sides of the resources diff (planconv.ScrubSecrets) and from diagnostics.
+// A string shorter than planconv.MinSecretLength gets no derived forms (they
+// would match all over a manifest); the value as written is still scrubbed
+// from diagnostics.
+func (m releaseModel) sensitiveValues() []string {
+	var out []string
+
 	for _, e := range m.SetSensitive {
-		if v := e.Value.ValueString(); v != "" {
-			s = strings.ReplaceAll(s, v, "(sensitive value redacted)")
+		v := e.Value.ValueString()
+		if v == "" {
+			continue
+		}
+
+		out = append(out, v)
+
+		parsed := nelmclient.SetValueStrings(e.Type.ValueString(), e.Name.ValueString()+"="+v)
+		for _, s := range append([]string{v}, parsed...) {
+			out = append(out, renderedForms(s)...)
 		}
 	}
 
-	return s
+	slices.Sort(out)
+
+	return slices.Compact(out)
+}
+
+// storedSensitiveValues returns, in every form sensitiveValues produces, the
+// strings values — the release's stored values (nelmclient.ReleaseInfo.Values)
+// — holds at the set_sensitive names (nelmclient.StoredSetValueStrings). Read
+// scrubs them along with the state's own: after a failed update that rotated
+// a set_sensitive value, the state keeps the previous configuration (so the
+// change is retried) while the revision Nelm recorded, and the objects it
+// partly applied, carry the new value. An entry whose state value is empty
+// counts too (a rotation from ""): only its name and type select what is
+// read, and an empty stored string has no rendered forms.
+func (m releaseModel) storedSensitiveValues(values map[string]any) []string {
+	var out []string
+
+	for _, e := range m.SetSensitive {
+		arg := e.Name.ValueString() + "=" + e.Value.ValueString()
+
+		for _, s := range nelmclient.StoredSetValueStrings(e.Type.ValueString(), arg, values) {
+			out = append(out, renderedForms(s)...)
+		}
+	}
+
+	slices.Sort(out)
+
+	return slices.Compact(out)
+}
+
+// renderedForms is s as a template can render it: verbatim, and embedded with
+// quote, toJson or b64enc. A string shorter than planconv.MinSecretLength has
+// none (its forms would match all over a manifest).
+func renderedForms(s string) []string {
+	if len(s) < planconv.MinSecretLength {
+		return nil
+	}
+
+	quoted := strconv.Quote(s)
+	jsonQuoted, _ := json.Marshal(s)
+
+	return []string{
+		s,
+		quoted[1 : len(quoted)-1],
+		string(jsonQuoted[1 : len(jsonQuoted)-1]),
+		base64.StdEncoding.EncodeToString([]byte(s)),
+	}
 }
 
 // setModel mirrors the nested object shared by the "set" and "set_sensitive"
@@ -52,9 +127,12 @@ type releaseModel struct {
 	Set                   []setModel     `tfsdk:"set"`
 	SetSensitive          []setModel     `tfsdk:"set_sensitive"`
 	AutoRollback          types.Bool     `tfsdk:"auto_rollback"`
+	Wait                  types.Bool     `tfsdk:"wait"`
 	ForceAdoption         types.Bool     `tfsdk:"force_adoption"`
 	NoRemoveManualChanges types.Bool     `tfsdk:"no_remove_manual_changes"`
 	NoInstallCRDs         types.Bool     `tfsdk:"no_install_crds"`
+	AdoptExisting         types.Bool     `tfsdk:"adopt_existing"`
+	DiffMode              types.String   `tfsdk:"diff_mode"`
 	ReleaseHistoryLimit   types.Int64    `tfsdk:"release_history_limit"`
 	ReleaseStorageDriver  types.String   `tfsdk:"release_storage_driver"`
 	Timeouts              timeouts.Value `tfsdk:"timeouts"`
@@ -77,8 +155,9 @@ type releaseModel struct {
 // and T-rescrud (Create/Update): both build the spec through this one helper so
 // plan-time and apply-time produce byte-identical inputs to nelm (required by
 // the ModifyPlan consistency rule). The chart reference is normalized here
-// (local refs -> absolute; remote refs pass through) so every call path applies
-// the rule identically. Callers MUST first ensure the config attributes this
+// (local refs -> absolute; an oci:// repository is folded into the chart ref;
+// other remote refs pass through) so every call path applies the rule
+// identically. Callers MUST first ensure the config attributes this
 // reads are known (not Unknown) — ModifyPlan degrades to Unknown before calling
 // this (design §2.2 step 2).
 func (m releaseModel) toReleaseSpec(ctx context.Context) (nelmclient.ReleaseSpec, diag.Diagnostics) {
@@ -87,24 +166,28 @@ func (m releaseModel) toReleaseSpec(ctx context.Context) (nelmclient.ReleaseSpec
 	spec := nelmclient.ReleaseSpec{
 		Name:                  m.Name.ValueString(),
 		Namespace:             m.Namespace.ValueString(),
-		Repository:            m.Repository.ValueString(),
 		Version:               m.Version.ValueString(),
 		StorageDriver:         m.ReleaseStorageDriver.ValueString(),
 		ForceAdoption:         m.ForceAdoption.ValueBool(),
 		NoRemoveManualChanges: m.NoRemoveManualChanges.ValueBool(),
 		NoInstallCRDs:         m.NoInstallCRDs.ValueBool(),
 		AutoRollback:          m.AutoRollback.ValueBool(),
+		// Only an explicit wait = false skips final tracking. A null/unknown
+		// wait (never seen at apply, where the schema default fills it in)
+		// keeps nelm's default of waiting rather than ValueBool()'s false.
+		NoFinalTracking: m.Wait.Equal(types.BoolValue(false)),
 	}
 
 	if !m.ReleaseHistoryLimit.IsNull() && !m.ReleaseHistoryLimit.IsUnknown() {
 		spec.HistoryLimit = int(m.ReleaseHistoryLimit.ValueInt64())
 	}
 
-	chart, err := nelmclient.NormalizeChartRef(m.Chart.ValueString(), m.Repository.ValueString())
+	chart, repoURL, err := nelmclient.NormalizeChartRef(m.Chart.ValueString(), m.Repository.ValueString())
 	if err != nil {
 		diags.AddAttributeError(path.Root("chart"), "Invalid chart reference", err.Error())
 	}
 	spec.Chart = chart
+	spec.Repository = repoURL
 
 	if !m.Values.IsNull() && !m.Values.IsUnknown() {
 		var vals []string
