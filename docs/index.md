@@ -15,10 +15,15 @@ in-process (`action.ReleasePlanInstall` and `action.ChartRender` for diffs,
 own rendering, ordering, and resource-tracking logic rather than shelling
 out.
 
-Nelm is a drop-in-compatible successor to Helm 3: release storage uses the
-same Secret/ConfigMap format Helm writes (`sh.helm.release.v1.<name>.v<rev>`
-by default), so this provider can adopt releases that were created with
-plain `helm install` — see the resource docs' Import section. Releases
+This is a community project. It is not affiliated with or endorsed by
+werf/Flant, HashiCorp or the Helm project; Terraform and Helm are trademarks
+of their respective owners.
+
+Nelm is a Helm 4 alternative that keeps Helm chart and release
+compatibility: release storage uses the same Secret/ConfigMap format Helm
+writes (`sh.helm.release.v1.<name>.v<rev>` by default), so this provider can
+adopt releases that were created with plain `helm install` — see the
+resource docs' Import section. Releases
 managed by `hashicorp/helm`'s `helm_release` are handed over without a
 reinstall by following
 [Migrating from `helm_release`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md);

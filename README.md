@@ -3,10 +3,16 @@
 [![test](https://github.com/infrabay/terraform-provider-nelm/actions/workflows/test.yml/badge.svg)](https://github.com/infrabay/terraform-provider-nelm/actions/workflows/test.yml)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](./LICENSE)
 
-A Terraform provider for [Nelm](https://github.com/werf/nelm), a
-drop-in-compatible successor to Helm 3. The provider calls Nelm's Go library
+A Terraform provider for [Nelm](https://github.com/werf/nelm), a Helm 4
+alternative that manages Helm charts and deploys them to Kubernetes (and the
+deployment engine of [werf](https://github.com/werf/werf)), with a focus on
+Helm chart and release compatibility. The provider calls Nelm's Go library
 directly (no `helm` or `werf` CLI shell-out) to install, diff, and uninstall
 chart-based releases on a Kubernetes cluster.
+
+This is a community project. It is not affiliated with or endorsed by
+werf/Flant, HashiCorp or the Helm project; Terraform and Helm are trademarks
+of their respective owners.
 
 Its headline feature: **`terraform plan` shows a real, per-resource,
 per-field diff** — both configuration changes and out-of-band cluster drift —
