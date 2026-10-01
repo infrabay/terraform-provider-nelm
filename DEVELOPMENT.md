@@ -1,24 +1,28 @@
 # Developing terraform-provider-nelm
 
-This provider is developed and tested entirely locally: no Terraform Registry
-publishing, no CI pipeline, no `terraform init`. Local iteration uses
-Terraform's `dev_overrides` mechanism together with a real Nelm Go library
-dependency and (for acceptance tests / manual e2e) a real but disposable
-Kubernetes cluster — **OrbStack, `kube_context = "orbstack"`, never a remote
-context**.
+This page is for contributors. To use the provider, install it from the
+Terraform Registry as the [README](README.md#installation) shows.
+
+Local iteration uses Terraform's `dev_overrides` mechanism with a locally
+built binary (no `terraform init`), the real Nelm Go library, and — for
+acceptance tests and manual end-to-end runs — a real but disposable local
+Kubernetes cluster: **OrbStack (`kube_context = "orbstack"`) or kind, never a
+cloud context**. CI runs the same unit and acceptance tests on every pull
+request (see [Continuous integration](#continuous-integration)), and pushing a
+version tag publishes a Registry release (see [Releasing](#releasing)).
 
 ## Prerequisites
 
 - Go 1.26 or newer (the `go` directive in `go.mod` is `1.26.0`; its
   `toolchain go1.27.1` line is what CI and release builds use, and what a
   local `go` auto-selects).
-- Terraform 1.15.8 (verified; `terraform init` tolerates dev-overridden
-  providers, but we skip `init` anyway — see below).
-- helm CLI (used only to author/lint/render `testdata/charts/basic` and, in
-  Phase B fixtures, to install a plain-helm release for the import test).
-- An OrbStack Kubernetes cluster reachable as kubeconfig context `orbstack`,
-  for anything beyond `go build` / `go test` (unit tests never touch a
-  cluster).
+- Terraform 1.15.8 (the version CI tests with; `terraform init` tolerates
+  dev-overridden providers, but we skip `init` anyway — see below).
+- helm CLI (used to author/lint/render `testdata/charts/basic`, and by the
+  acceptance tests to install a plain-helm release for the import test).
+- A local Kubernetes cluster whose kubeconfig context lives in
+  `~/.kube/config` (OrbStack's `orbstack`, or a kind cluster), for anything
+  beyond `go build` / `go test` (unit tests never touch a cluster).
 
 ## Building and installing locally
 
@@ -34,10 +38,10 @@ config block redirects a specific provider address straight at a local
 binary, bypassing the registry and the provider lock file. Because
 `dev_overrides` providers are never resolved from a registry or written to
 `.terraform.lock.hcl`, **`terraform init` is not just optional but actively
-counter-productive here — skip it.** This has been verified against the
-locally installed Terraform 1.15.8: `plan`/`apply`/`destroy`/`import` all
-work against `examples/basic` with no `.terraform` directory and no lock file
-present at all.
+counter-productive here — skip it.** This has been verified against
+Terraform 1.15.8: `plan`/`apply`/`destroy`/`import` all work against
+`examples/basic` with no `.terraform` directory and no lock file present at
+all.
 
 1. Create a CLI config file (anywhere; not checked in) pointing at your
    `GOBIN`:
@@ -46,7 +50,7 @@ present at all.
    # ~/.terraformrc.nelm-dev (example path)
    provider_installation {
      dev_overrides {
-       "registry.terraform.io/infrabay/nelm" = "/Users/you/go/bin"
+       "registry.terraform.io/infrabay/nelm" = "/path/to/go/bin"
      }
      direct {}
    }
@@ -109,17 +113,32 @@ provider and the `kubectl`/`helm` fixture helpers all read that one file
 them disagree about which cluster a context names; the context must therefore
 live in `~/.kube/config` (where OrbStack and kind write it by default).
 
-CI (`.github/workflows/test.yml`, job `acceptance`) runs the same suite on
-every pull request against a [kind](https://kind.sigs.k8s.io/) cluster
-(`kind-nelm-acc` context) with terraform 1.15.8 and the real helm CLI for the
-out-of-band import fixture.
+## Continuous integration
+
+`.github/workflows/test.yml` runs on every pull request and every push to
+`main`:
+
+- `build`: gofmt, `go vet`, `go build`, and the unit tests with `-race`;
+- `lint`: golangci-lint;
+- `acceptance`: the acceptance suite against a
+  [kind](https://kind.sigs.k8s.io/) cluster (`kind-nelm-acc` context), with
+  Terraform 1.15.8 and the real helm CLI for the out-of-band import fixture.
+
+## Releasing
+
+Pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`:
+[GoReleaser](https://goreleaser.com/) (`.goreleaser.yml`) builds the binaries,
+one zip per platform, the Registry manifest and a GPG-signed `SHA256SUMS`, and
+publishes them as a GitHub release. The `GPG_PRIVATE_KEY` and `PASSPHRASE`
+secrets must be set, and the signing key's public half must be registered
+with the Terraform Registry publisher.
 
 ## Nelm source reference
 
-A read-only checkout of the pinned Nelm version lives outside this repo (see
-the orchestrator's plan notes) for looking up exact `pkg/action` option
-struct fields when implementing `internal/nelmclient`. **Never** add a
+Keep a read-only checkout of the pinned Nelm version (`github.com/werf/nelm`
+in `go.mod`) outside this repository for looking up exact `pkg/action` option
+struct fields when working on `internal/nelmclient`. **Never** add a
 `replace github.com/werf/nelm => ../nelm` directive to a *committed*
 `go.mod` — it's fine as a temporary, uncommitted local edit while iterating,
-but the module must always resolve the pinned stable-channel `github.com/werf/nelm` version from the
-public proxy in version control.
+but the module must always resolve the pinned stable-channel
+`github.com/werf/nelm` version from the public proxy in version control.

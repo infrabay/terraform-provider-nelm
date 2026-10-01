@@ -80,7 +80,7 @@ func testKubeconfigPath() string {
 }
 
 // testAccPreCheck is the triple local-cluster safety guard (design §6,
-// GNUmakefile testacc target, docs/DEVELOPMENT.md): it MUST hard-fail
+// GNUmakefile testacc target, DEVELOPMENT.md): it MUST hard-fail
 // (t.Fatal, not t.Skip) unless ALL of the following hold, so acceptance
 // tests can never silently no-op against -- or worse, actually run against
 // -- a real cluster:

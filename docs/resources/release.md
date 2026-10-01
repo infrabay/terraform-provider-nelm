@@ -10,9 +10,9 @@ resource "nelm_release" "basic" {
   name      = "basic-example"
   namespace = "tf-nelm-basic-example"
 
-  # ${path.module} makes this absolute regardless of the working directory
-  # Terraform is invoked from.
-  chart = "${path.module}/../../testdata/charts/basic"
+  # A local chart directory. ${path.module} makes it absolute regardless of
+  # the working directory Terraform is invoked from.
+  chart = "${path.module}/charts/basic"
 
   values = [
     <<-YAML
@@ -36,9 +36,10 @@ output "release_resources" {
 }
 ```
 
-See `examples/basic/main.tf` in this repository for the exact, verified
-version of this configuration (run via `dev_overrides`, `terraform init`
-intentionally skipped — see `docs/DEVELOPMENT.md`).
+A runnable version of this configuration is
+[`examples/basic/main.tf`](https://github.com/infrabay/terraform-provider-nelm/blob/main/examples/basic/main.tf)
+in the provider's repository; its chart is
+[`testdata/charts/basic`](https://github.com/infrabay/terraform-provider-nelm/tree/main/testdata/charts/basic).
 
 ## Schema
 

@@ -253,20 +253,8 @@ environment Terraform happens to run in: `werf.io/sensitive` redaction keeps
 its v1 meaning, manifests are not rewritten, and no validation schemas are
 fetched from the internet at plan time.
 
-## Local development: `dev_overrides`
+## Developing the provider
 
-Local iteration on the provider itself uses Terraform's
-[`dev_overrides`](https://developer.hashicorp.com/terraform/cli/config/config-file#development-overrides-for-provider-developers)
-mechanism to point a `infrabay/nelm` provider address directly at a
-`go build` binary, bypassing the registry, the provider lock file, and
-**`terraform init` entirely** — `dev_overrides` providers are never
-resolved from a registry or written to `.terraform.lock.hcl`, so running
-`init` against them is unnecessary (and actively skipped in this
-project's workflow).
-
-See [`DEVELOPMENT.md`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/DEVELOPMENT.md)
-for the full setup: building the binary (`make install`), writing a
-`TF_CLI_CONFIG_FILE` pointing `dev_overrides` at `$(go env GOBIN)`, and
-running `terraform plan` / `apply` / `import` / `destroy` directly against
-`examples/basic` with no `.terraform` directory and no lock file present at
-all.
+To build the provider from source and run it through Terraform's
+`dev_overrides` (no `terraform init`), see
+[`DEVELOPMENT.md`](https://github.com/infrabay/terraform-provider-nelm/blob/main/DEVELOPMENT.md).
