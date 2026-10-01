@@ -305,7 +305,7 @@ func TestFetchChart_StalledOCIRegistryIsBounded(t *testing.T) {
 
 	start := time.Now()
 
-	_, err = fetchChart(context.Background(), opDir, ref, "1.0.0", chartRepoOptions(ReleaseSpec{}, time.Minute), registryConfig, time.Second)
+	_, err = fetchChart(context.Background(), opDir, ref, "1.0.0", chartRepoOptions("", time.Minute), registryConfig, time.Second)
 
 	elapsed := time.Since(start)
 
@@ -334,7 +334,7 @@ func TestFetchChart_HelmPanicIsAnError(t *testing.T) {
 		t.Fatalf("writeRegistryConfig: %v", err)
 	}
 
-	repo := chartRepoOptions(ReleaseSpec{}, time.Minute)
+	repo := chartRepoOptions("", time.Minute)
 	repo.ChartRepoInsecure = true
 
 	_, err = fetchChart(context.Background(), opDir, "oci://127.0.0.1:1/charts/app", "1.0.0", repo, registryConfig, 10*time.Second)
@@ -353,7 +353,7 @@ func TestChartRepoOptions_RequestTimeout(t *testing.T) {
 	}
 
 	for op, want := range cases {
-		if got := chartRepoOptions(ReleaseSpec{}, op).ChartRepoRequestTimeout; got != want {
+		if got := chartRepoOptions("", op).ChartRepoRequestTimeout; got != want {
 			t.Errorf("chartRepoOptions(timeout=%s).ChartRepoRequestTimeout = %s, want %s", op, got, want)
 		}
 	}

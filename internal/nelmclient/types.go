@@ -16,6 +16,9 @@ type ReleaseSpec struct {
 	Namespace string
 	Chart     string
 
+	// Repository is the classic (index.yaml) chart repository URL passed as
+	// ChartRepoURL. An oci:// repository never reaches nelm as such:
+	// NormalizeChartRef folds it into Chart (helm_release's OCI form).
 	Repository string
 	Version    string
 
@@ -47,6 +50,12 @@ type ReleaseSpec struct {
 	// "Initial", revision 1), whatever is live. Only Render reads it: Plan
 	// and Install always run against the real history.
 	RenderAsFirstInstall bool
+
+	// NoFinalTracking is the resource's `wait = false` (Install only; Plan
+	// never tracks). Named after nelm's TrackingOptions field rather than
+	// "Wait" so the zero value keeps nelm's default of waiting: a spec built
+	// without it can never silently skip readiness tracking.
+	NoFinalTracking bool
 }
 
 // PlanResult is the result of Client.Plan: the resource changes read back

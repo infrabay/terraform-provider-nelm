@@ -820,6 +820,7 @@ func (r *releaseResource) ImportState(ctx context.Context, req resource.ImportSt
 	// §2.4): the framework does not run schema defaults during import,
 	// only during a "create" plan.
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("auto_rollback"), false)...)
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("wait"), true)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("force_adoption"), false)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("no_remove_manual_changes"), false)...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("no_install_crds"), false)...)

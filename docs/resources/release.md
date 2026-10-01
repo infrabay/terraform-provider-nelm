@@ -58,7 +58,11 @@ intentionally skipped — see `docs/DEVELOPMENT.md`).
   `ReleaseInstall` always creates the namespace if missing; there is no
   `create_namespace` toggle (see Caveats below).
 - `repository` (String) Chart repository URL used to resolve a bare chart
-  name. Private-repo authentication is out of scope for v1.
+  name. An `oci://` URL is `helm_release`'s OCI form: it is joined with
+  `chart` into one `oci://` reference (`repository = "oci://host/path"` +
+  `chart = "app"` → `oci://host/path/app`) and authenticated through the
+  provider's `registries` block. Credentials for classic HTTP repositories
+  are out of scope for v1. See "Chart references" below.
 - `version` (String) Chart version constraint. If omitted, the latest
   version is used; the resolved version surfaces in
   `metadata.chart_version`. Unlike some Helm-based providers, this
@@ -80,7 +84,17 @@ intentionally skipped — see `docs/DEVELOPMENT.md`).
   See nested schema below.
 - `auto_rollback` (Boolean) Automatically roll back to the previous
   deployed release on install failure. Only works if a previous release
-  successfully deployed. Defaults to `false`.
+  successfully deployed. Defaults to `false`. Narrower than `helm_release`'s
+  `atomic`: there is no rollback when the `timeouts` budget expires, and a
+  failed first install is not uninstalled — see "`auto_rollback` vs
+  `helm_release`'s `atomic`" below.
+- `wait` (Boolean) Wait for the release's resources to become ready
+  (Nelm's readiness tracking) before the apply succeeds. Defaults to
+  `true`. `false` is the closest equivalent of `helm_release`'s
+  `wait = false` but not identical: tracking that a later deploy step
+  depends on still runs. Resources that are not tracked cannot fail the
+  apply, so `auto_rollback` never triggers for them. See "Readiness
+  tracking and `wait`" below.
 - `force_adoption` (Boolean) Allow adopting live resources that belong to
   a different Helm release or were created out-of-band. Not required to
   import plain-helm-installed releases (see Caveats below). Defaults to
@@ -173,11 +187,13 @@ meaningless or actively misleading:
   install-or-upgrade, so there is no install/upgrade split to select
   between. Its safety role is covered by `adopt_existing`: Create refuses
   an existing release unless that is set.
-- `wait` / readiness-tracking knobs — Nelm tracks resource readiness
-  natively; only the overall operation timeout (`timeouts` block) is
-  exposed.
-- `atomic` — renamed `auto_rollback` (same semantics, matching Nelm's own
-  naming).
+- `wait_for_jobs` / other readiness-tracking knobs — with `wait = true`
+  Nelm always tracks non-hook Jobs to completion; per-resource tuning is
+  done with `werf.io/*` annotations in the chart (see "Readiness tracking
+  and `wait`" below). `timeout` is the `timeouts` block: `timeout = 300`
+  becomes a `timeouts` block with `create = "5m"` and `update = "5m"`.
+- `atomic` — use `auto_rollback`, which only covers part of `atomic` (see
+  "`auto_rollback` vs `helm_release`'s `atomic`" below).
 - `devel`, `verify`, `keyring`, `postrender`, `description`,
   `dependency_update`, write-only `set` variants — all out of scope for
   v1.
@@ -709,6 +725,117 @@ and the guard reuses their values, at apply time the destroy has removed
 them and the chart generates new ones, so the apply aborts after the
 uninstall (see [Known limitations](../KNOWN_LIMITATIONS.md)).
 
+### Readiness tracking and `wait`
+
+With `wait = true` (the default) an apply succeeds only once Nelm's
+readiness tracking (kubedog) reports every created or updated resource
+ready. The wait has no deadline of its own: only the `timeouts`
+`create`/`update` value ends it, and then the whole operation is aborted
+(see `auto_rollback` below). This is **stricter than `helm_release`'s
+`wait = true`**, which only checks Pods, Deployments, StatefulSets,
+DaemonSets, ReplicaSets, PVCs, Services and CRDs and treats every other
+kind as ready at once:
+
+- **Non-hook Jobs** are awaited to completion, with no tracked failure
+  allowed (Helm waits for Jobs only with `wait_for_jobs`).
+- **Custom resources with a built-in status rule** are awaited: External
+  Secrets `ExternalSecret`, cert-manager `Certificate`, Argo CD
+  `Application`/`ApplicationSet`, Flux `HelmRelease`/`Kustomization`,
+  Prometheus Operator `Prometheus`/`Alertmanager`/`ThanosRuler`, Kyverno
+  `Policy`/`ClusterPolicy`, `SealedSecret`, Longhorn `Volume`/`Backup` and
+  Zalando `postgresql`. An `ExternalSecret` reporting `Ready=False` or a
+  `Degraded` Argo `Application` fails the apply within seconds. An operator
+  chart such as kube-prometheus-stack now waits for its `Prometheus` and
+  `Alertmanager` to become available, so raise its `timeouts`.
+- **Any other resource** whose `status.phase`, `status.state`,
+  `status.status` or `status.health` (or a `current*` variant) holds a
+  recognized pending or failed word (`Pending`, `Progressing`, `Failed`,
+  `Error`, …) is awaited too. A custom resource without such a field,
+  including one that only reports a `Ready` condition, counts as ready at
+  once.
+- These generic resources fail after **4 minutes without any status
+  change or event**, independent of `timeouts`. Deployments, StatefulSets,
+  DaemonSets, Jobs and Pods have dedicated trackers without that cap.
+- **`OnDelete` StatefulSets** are awaited until every replica runs the new
+  revision; see below.
+
+`wait = false` sets Nelm's `NoFinalTracking`, which drops only the
+tracking that **no later step of the deploy plan depends on**. Compared
+with `helm_release`'s `wait = false`, which waits for hooks and nothing
+else:
+
+- Still awaited: `pre-install`/`pre-upgrade` hooks, every resource in an
+  earlier `werf.io/weight` group than the last one, targets of a
+  `werf.io/deploy-dependency-*` annotation with `state=ready`, and —
+  unlike Helm — **all main resources of a chart that has a
+  `post-install`/`post-upgrade` hook**, because the hook is applied only
+  after them.
+- Not awaited, unlike Helm: a `post-install`/`post-upgrade` hook without a
+  `hook-succeeded` delete policy. With that policy its deletion is a later
+  step, so the hook is awaited.
+- A resource that is not tracked cannot fail the apply: a crashlooping
+  Deployment is reported `deployed`, and `auto_rollback` has nothing to
+  react to. Errors that are not readiness failures (the API server
+  rejecting a manifest, a tracked hook failing) still fail the apply.
+
+Per-resource overrides are annotations on the rendered manifest, set
+through the chart's templates or values:
+
+- `werf.io/track-termination-mode: NonBlocking` — never wait for this
+  resource (whatever `wait` says).
+- `werf.io/fail-mode: IgnoreAndContinueDeployProcess` — a failure of this
+  resource does not fail the release. It does **not** end a wait for a
+  resource that never becomes ready; only `NonBlocking` does.
+- `werf.io/no-activity-timeout` (e.g. `"15m"`) — raise the 4-minute
+  no-activity cap of the generic tracker.
+- `werf.io/failures-allowed-per-replica` (e.g. `"3"`) — tolerate more
+  failed probes/restarts per replica of a Deployment, StatefulSet or
+  DaemonSet (default 1). Jobs always allow 0.
+
+#### `OnDelete` StatefulSets
+
+Helm treats a StatefulSet with `updateStrategy.type: OnDelete` as ready
+without checking it. Nelm waits until every replica runs the new
+revision, and the controller never replaces `OnDelete` pods by itself. So
+any pod-template change (image, resources, labels, …) blocks the apply
+("user should delete old pods manually now!") until `timeouts` expires.
+The release is left `failed` or `pending-upgrade`, and every retry waits
+again until someone deletes the old pods. Before moving such a release
+from `helm_release`, annotate the StatefulSet with
+`werf.io/track-termination-mode: NonBlocking` (for example through the
+chart's StatefulSet annotation or merge-patch values): Nelm then skips it,
+exactly like Helm. `wait = false` also avoids the wait when no later
+deploy step depends on the StatefulSet, but it drops tracking for the whole
+release. `werf.io/fail-mode` does not help.
+
+### `auto_rollback` vs `helm_release`'s `atomic`
+
+`auto_rollback = true` rolls a failed upgrade back to the last `deployed`
+revision, like `atomic`, but only for a failure Nelm detects **while the
+operation is still inside its `timeouts` budget**: a resource failing
+readiness tracking (`CrashLoopBackOff`, `ImagePullBackOff`, probe failures
+beyond the allowed count, an `ExternalSecret` with `Ready=False`, …), a
+failing hook, or the API server rejecting a manifest. Two differences
+matter when migrating `atomic = true`:
+
+- **No rollback when `timeouts.create`/`update` expires.** Pods stuck
+  `Pending` (unschedulable, or waiting for a node pool to scale up), an
+  init container waiting on a dependency, a slow but progressing rollout
+  and a long-running Job are not failures to the tracker. They end only
+  when the budget runs out; Nelm then aborts the whole operation and its
+  rollback runs on the already-expired context, so nothing is rolled back.
+  The release is left `failed` (or `pending-upgrade`) with the new
+  revision's resources live, and the next apply retries the upgrade. Helm
+  rolls back after a timeout too, with a fresh timeout for the rollback.
+  Even for an early failure the rollback gets only what is left of the
+  same budget, so size `timeouts` well above the expected rollout time.
+- **A failed first install is not uninstalled.** With no previous
+  `deployed` revision there is nothing to roll back to: the failed release
+  and its resources stay in the cluster, and the Terraform resource is
+  tainted, so the next apply replaces it (uninstall, then a fresh
+  install). `atomic` uninstalls a failed first install and leaves nothing
+  in state.
+
 ### Namespace lifecycle
 
 The provider does not offer a `create_namespace` flag because there is
@@ -754,7 +881,25 @@ given, later ones win over earlier ones, key by key:
 Setting `repository` makes the chart reference unambiguously **remote**: it
 is then never resolved against the local filesystem (a same-named local
 directory cannot hijack it), and combining `repository` with a local path
-(`/abs`, `./rel`) is rejected as contradictory.
+(`/abs`, `./rel`) or with a full `oci://` chart is rejected as
+contradictory.
+
+`helm_release`'s OCI form works unchanged: `repository = "oci://host/path"`
+with `chart = "app"` is joined into the single reference
+`oci://host/path/app` before it reaches Nelm, exactly as the `helm`
+provider does (Nelm on its own would fetch an `oci://` repository as a
+classic `index.yaml` repository and fail). Both spellings install the same
+chart, and state keeps `chart` and `repository` exactly as written:
+
+```hcl
+# Equivalent to chart = "oci://us-central1-docker.pkg.dev/my-project/helm/app"
+resource "nelm_release" "app" {
+  name       = "app"
+  repository = "oci://us-central1-docker.pkg.dev/my-project/helm"
+  chart      = "app"
+  version    = "0.2.0"
+}
+```
 
 Each plan and apply step downloads a remote chart afresh into its own
 private temporary directory, removed when the step ends. No chart archive

@@ -26,11 +26,13 @@ import (
 // hangs the fetch forever.
 const maxChartRepoRequestTimeout = 2 * time.Minute
 
-// chartRepoOptions maps spec onto the chart-repository connection options
-// shared by Plan, Install and Render (both fetchChart and the nelm action
-// get the same ones). timeout is the operation's timeout: one request may
-// take at most that long, and never more than maxChartRepoRequestTimeout.
-func chartRepoOptions(spec ReleaseSpec, timeout time.Duration) common.ChartRepoConnectionOptions {
+// chartRepoOptions builds the chart-repository connection options shared by
+// Plan, Install and Render (both fetchChart and the nelm action get the same
+// ones). repoURL is NormalizeChartRef's repository URL, never the raw
+// spec.Repository: an oci:// repository is folded into the chart reference.
+// timeout is the operation's timeout: one request may take at most that
+// long, and never more than maxChartRepoRequestTimeout.
+func chartRepoOptions(repoURL string, timeout time.Duration) common.ChartRepoConnectionOptions {
 	requestTimeout := maxChartRepoRequestTimeout
 	if timeout > 0 && timeout < requestTimeout {
 		requestTimeout = timeout
@@ -38,7 +40,7 @@ func chartRepoOptions(spec ReleaseSpec, timeout time.Duration) common.ChartRepoC
 
 	return common.ChartRepoConnectionOptions{
 		ChartRepoRequestTimeout: requestTimeout,
-		ChartRepoURL:            spec.Repository,
+		ChartRepoURL:            repoURL,
 	}
 }
 

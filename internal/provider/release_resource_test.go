@@ -330,6 +330,54 @@ resource "nelm_release" "test" {
 	})
 }
 
+// TestAccReleaseResource_waitFalse covers the `wait` attribute (F09,
+// helm_release wait = false parity): a release whose only workload can never
+// become ready (its image is unpullable) must still apply cleanly and report
+// "deployed" with wait = false, because nelm then skips final readiness
+// tracking. With the default wait = true nelm's tracker fails this exact
+// apply on ErrImagePull; the short create timeout bounds a regression to
+// minutes instead of the 10m default.
+func TestAccReleaseResource_waitFalse(t *testing.T) {
+	namespace := uniqueNamespace("nowait")
+	const name = "nowait"
+
+	chart := chartPath(t)
+
+	cfg := fmt.Sprintf(`%s
+resource "nelm_release" "test" {
+  name      = %q
+  namespace = %q
+  chart     = %q
+  wait      = false
+
+  values = [<<-YAML
+    image:
+      repository: registry.invalid/tf-nelm/never-pulls
+    YAML
+  ]
+
+  timeouts {
+    create = "3m"
+  }
+}
+`, providerBlock(), name, namespace, chart)
+
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		CheckDestroy:             testAccCheckReleaseDestroyed(namespace, name),
+		Steps: []resource.TestStep{
+			{
+				Config: cfg,
+				ConfigStateChecks: []statecheck.StateCheck{
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("status"), knownvalue.StringExact("deployed")),
+					statecheck.ExpectKnownValue(resourceAddr, tfjsonpath.New("wait"), knownvalue.Bool(false)),
+				},
+			},
+		},
+	})
+}
+
 // TestAccReleaseResource_invalidStorageDriver covers design §6 scenario (7):
 // release_storage_driver's OneOf validator must reject "memory" (explicitly
 // out of v1 -- verified fact: an unrecognized driver string panics inside

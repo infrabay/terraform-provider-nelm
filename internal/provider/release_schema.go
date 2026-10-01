@@ -106,8 +106,11 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 			},
 			"repository": schema.StringAttribute{
 				Optional: true,
-				Description: "Chart repository URL used to resolve a bare chart name. Private-repo " +
-					"authentication is out of scope for v1.",
+				Description: "Chart repository URL used to resolve a bare chart name. An oci:// URL " +
+					"is helm_release's OCI form: it is joined with chart into one oci:// reference " +
+					`(repository = "oci://host/path" + chart = "app" -> "oci://host/path/app"), ` +
+					"authenticated through the provider's registries block. Credentials for classic " +
+					"HTTP repositories are out of scope for v1.",
 			},
 			"version": schema.StringAttribute{
 				Optional: true,
@@ -161,7 +164,21 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 				Default:  booldefault.StaticBool(false),
 				Description: "Automatically roll back to the previous deployed release on install " +
 					"failure (ReleaseInstallOptions.AutoRollback). Only works if a previous release " +
-					"successfully deployed.",
+					"successfully deployed. Unlike helm_release's atomic, there is no rollback when " +
+					"the timeouts create/update budget expires, and a failed first install is not " +
+					"uninstalled (see docs).",
+			},
+			"wait": schema.BoolAttribute{
+				Optional: true,
+				Computed: true,
+				Default:  booldefault.StaticBool(true),
+				Description: "Wait for the release's resources to become ready (Nelm's readiness " +
+					"tracking) before the apply succeeds. false sets Nelm's NoFinalTracking: tracking " +
+					"that a later deploy step depends on still runs (pre-install/pre-upgrade hooks, " +
+					"earlier weight groups, deploy-dependency targets, and every resource ahead of a " +
+					"post-install/post-upgrade hook), the rest is applied without waiting. Resources " +
+					"that are not tracked cannot fail the apply, so auto_rollback never triggers for " +
+					"them.",
 			},
 			"force_adoption": schema.BoolAttribute{
 				Optional: true,
