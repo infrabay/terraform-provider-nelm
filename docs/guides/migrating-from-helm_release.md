@@ -100,8 +100,9 @@ addresses: `from = module.app.helm_release.this`,
 and covers every instance of the resource (all `count`/`for_each` instances,
 in all instances of the module), so every instance needs its own `import`
 block (or one `import` block with `for_each`) in the same change. When a
-shared module switches from `helm_release` to `nelm_release`, migrate every
-caller of that module in the same apply.
+shared module switches from `helm_release` to `nelm_release`, every root
+module that uses it needs these blocks in the apply that picks up the new
+module version (the `moved` alternative below avoids that).
 
 ## Alternative: a `moved` block (Terraform 1.8+)
 
@@ -215,22 +216,21 @@ environment variables the `helm` provider reads (`KUBE_CONFIG_PATH`,
 
 The first apply after the import is an in-place update (after a `moved`
 block, only if the configuration differs), and it runs `nelm install` for
-real. Expect a new release revision, and expect **hooks to
-run**: a hook without a `helm.sh/hook-delete-policy` (or with
-`before-hook-creation`) is re-created, so `pre-upgrade`/`post-upgrade` Jobs
-— admission-webhook certificate patch Jobs, database migrations — run again,
-exactly as they would on a `helm upgrade`. Plan the migration window
-accordingly.
+real. Expect a new release revision, and expect **hooks to run**: a hook
+without a `helm.sh/hook-delete-policy` (or with `before-hook-creation`) is
+re-created, so `pre-upgrade`/`post-upgrade` Jobs — admission-webhook
+certificate patch Jobs, database migrations — run again, exactly as they
+would on a `helm upgrade`. Plan the migration window accordingly.
 
 ## History limit
 
 `helm_release`'s `max_history` defaults to `0`, which Helm treats as
-**unlimited** history. In `nelm_release`, an unset or `0`
-`release_history_limit` means Nelm's default of **10**: the first revision
-Nelm writes prunes all older revisions beyond that, and pruned revisions
-cannot be recovered. Set `release_history_limit` explicitly before the first
-apply — to the old `max_history`, or to a large number if you relied on
-unlimited history.
+**unlimited** history. In `nelm_release`, an unset `release_history_limit`
+means Nelm's default of **10** (see the attribute's documentation for what
+`0` means): the first revision Nelm writes prunes all older revisions beyond
+the limit, and pruned revisions cannot be recovered. Set
+`release_history_limit` explicitly before the first apply — to the old
+`max_history`, or to a large number if you relied on unlimited history.
 
 ## Release storage driver
 
@@ -244,13 +244,13 @@ for their status.
 
 Objects that `helm_release` created carry a field manager named after the
 `helm` provider binary (`terraform-provider-helm_v<version>_x5`), which Nelm
-does not recognise as Helm's own. Until that is handled by the provider, a
-field that the chart stops rendering after the migration can stay set on the
-live object without ever showing up in a plan. Keep the first `nelm_release`
-apply rendering exactly what `helm_release` last applied (see
-[Values](#values-carry-them-over-verbatim)), and make removals afterwards.
-See [`managedFields` and `terraform plan`](../resources/release.md#managedfields-and-terraform-plan)
-for the current behavior.
+itself does not recognise as Helm's own. Unless that manager is handed over,
+a field that the chart stops rendering after the migration can stay set on
+the live object without ever showing up in a plan. Keep the first
+`nelm_release` apply rendering exactly what `helm_release` last applied (see
+[Values](#values-carry-them-over-verbatim)), make removals afterwards, and
+check [`managedFields` and `terraform plan`](../resources/release.md#managedfields-and-terraform-plan)
+for how your provider version handles it.
 
 ## If something goes wrong
 
