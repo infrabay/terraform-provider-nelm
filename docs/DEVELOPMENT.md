@@ -9,8 +9,9 @@ context**.
 
 ## Prerequisites
 
-- Go (matching the `go` directive in `go.mod`, currently `1.25.8`; toolchain
-  1.26.x works fine).
+- Go 1.26 or newer (the `go` directive in `go.mod` is `1.26.0`; its
+  `toolchain go1.27.1` line is what CI and release builds use, and what a
+  local `go` auto-selects).
 - Terraform 1.15.8 (verified; `terraform init` tolerates dev-overridden
   providers, but we skip `init` anyway — see below).
 - helm CLI (used only to author/lint/render `testdata/charts/basic` and, in

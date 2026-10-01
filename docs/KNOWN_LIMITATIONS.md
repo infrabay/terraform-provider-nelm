@@ -66,6 +66,19 @@ chart-managed fields from live ones.
   real configuration supplies a chart, making the first post-import plan a
   metadata-only update. Inherent to Helm/nelm storage.
 
+- **`werf.io/resource-policy` skip policies are invisible in the diff.**
+  Since nelm 1.26, a resource annotated with a `skip-create`, `skip-update`
+  or `skip-recreate` policy gets no planned change, so `resources` keeps its
+  prior/live entry and a chart change to it is not shown. A `keep` /
+  `skip-delete` resource removed from the chart is left in the cluster (as
+  with `helm.sh/resource-policy: keep`); its key stays in state until the
+  next refresh drops it. An invalid policy value now fails the plan.
+
+- **`werf.io/deploy-dependency-*: state=ready` targets are always
+  readiness-tracked** (nelm 1.26.2+), even when unchanged, so a release whose
+  dependency target is unhealthy fails its apply even if nothing about that
+  target changed. Charts without werf.io annotations are unaffected.
+
 ## Values precedence
 
 - **Ordering across `set` types is not preserved.** nelm merges the underlying
