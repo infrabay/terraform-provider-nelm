@@ -1,9 +1,16 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Extends config:recommended; adds this repo's specifics: github.com/werf/nelm follows nelm's trdl STABLE channel (not the Go proxy's latest, which is effectively alpha), k8s.io/* move only in lockstep with nelm, and custom-manager go.mod bumps run `go mod tidy`.",
+  "description": "Grouped Go minor/patch and GitHub Actions updates with pinned action digests; github.com/werf/nelm follows nelm's trdl STABLE channel (not the Go proxy's latest, which is effectively alpha), k8s.io/* move only in lockstep with nelm, and custom-manager go.mod bumps run `go mod tidy` (postUpgradeTasks require a self-hosted Renovate).",
   "extends": [
-    "config:recommended"
+    "config:recommended",
+    ":dependencyDashboard",
+    "helpers:pinGitHubActionDigests"
   ],
+  "labels": [
+    "dependencies"
+  ],
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 3,
   "customDatasources": {
     "nelm-stable": {
       "defaultRegistryUrlTemplate": "https://raw.githubusercontent.com/werf/nelm/main/trdl_channels.yaml",
@@ -29,6 +36,24 @@
     }
   ],
   "packageRules": [
+    {
+      "description": "Routine Go minor/patch bumps arrive as one grouped PR",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "groupName": "go minor/patch"
+    },
+    {
+      "description": "GitHub Actions updates grouped; digests pinned by the preset above",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "groupName": "github actions"
+    },
     {
       "description": "gomod manager must NOT touch nelm (the proxy's latest is the alpha channel; the custom manager above owns it) nor the k8s.io modules (transitively pinned by nelm, lockstep-only)",
       "matchManagers": [
