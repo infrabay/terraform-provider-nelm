@@ -344,6 +344,14 @@ CLI — this provider persists `resources` durably into `terraform.tfstate`
 and prints it in plan output. A `Secret`'s contents are treated as
 sensitive by definition; the opt-out is deliberately ignored.
 
+An object of any other kind annotated `werf.io/sensitive: "true"` (and no
+`werf.io/sensitive-paths`) enters `resources` reduced to its identity —
+`apiVersion`, `kind`, `metadata.name` and `metadata.namespace` — so none of
+its fields show up in plan output or state. This is Nelm's v1 behavior, and
+it holds even where `NELM_FEAT_FIELD_SENSITIVE` / `NELM_FEAT_PREVIEW_V2`
+are exported: the provider ignores Nelm's feature-gate environment
+variables (see the provider docs).
+
 ### Sensitive values in non-`Secret` resources
 
 Redaction is driven by the *resource kind* (a `Secret`, or an object

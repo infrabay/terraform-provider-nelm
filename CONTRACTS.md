@@ -67,8 +67,11 @@ the old shape.
 ## Global-state rules
 
 - `nelmclient.Init` (`bootstrap.go`) is the **only** caller of
-  `log.SetupLogging` and any `featgate.*.Enable()` in this codebase. It runs
-  its setup exactly once per process (`sync.Once`), never per-CRUD-call.
+  `log.SetupLogging` and any `featgate.*.Enable()` / `Disable()` in this
+  codebase. It runs its setup exactly once per process (`sync.Once`), never
+  per-CRUD-call, and pins EVERY nelm feature gate (remote-charts on, all
+  others off) so ambient `NELM_FEAT_*` variables cannot change behavior.
+  `planconv`'s redaction must not depend on gate state either.
 - No `SecretKey` / `WERF_SECRET_KEY` anywhere in this codebase (werf secret
   values are out of scope for v1; this also avoids the `os.Setenv` race that
   encrypted plan artifacts would otherwise require).

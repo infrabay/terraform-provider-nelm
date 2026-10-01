@@ -150,6 +150,16 @@ the inline path: a complete kubeconfig is built from those fields and used on
 its own, so the two mechanisms never mix and the ambient `~/.kube/config` (and
 whatever its current context is) is ignored entirely.
 
+## Nelm feature gates
+
+Nelm's feature-gate environment variables (`NELM_FEAT_*`, e.g. the
+`NELM_FEAT_PREVIEW_V2=true` that the Nelm CLI documentation suggests) are
+**ignored** by this provider. It pins every gate when it starts — remote
+charts on, everything else off — so a plan does not depend on the
+environment Terraform happens to run in: `werf.io/sensitive` redaction keeps
+its v1 meaning, manifests are not rewritten, and no validation schemas are
+fetched from the internet at plan time.
+
 ## Local development: `dev_overrides`
 
 Local iteration on the provider itself uses Terraform's
