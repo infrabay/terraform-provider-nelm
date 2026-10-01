@@ -121,7 +121,9 @@ live in `~/.kube/config` (where OrbStack and kind write it by default).
 `main`, and for every release tag (`release.yml` calls it):
 
 - `build`: gofmt, `go vet`, `go build`, the unit tests with `-race`, and a
-  check that no tracked file contains a workstation path (`/Users/...`);
+  check that no tracked file contains a workstation path (a home directory
+  under `/Users/...` or `/home/...`, or a session scratch path under
+  `/private/tmp/...`);
 - `lint`: golangci-lint, pinned to the version `./gates.sh` is run with;
 - `govulncheck`: lists the vulnerabilities the code can reach and fails on
   those with a fixed version (the ones reachable through Nelm's dependencies
