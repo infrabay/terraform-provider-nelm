@@ -67,7 +67,7 @@
       "enabled": false
     },
     {
-      "description": "A stable-channel nelm bump edits go.mod outside the gomod artifact updater, so regenerate go.sum; the PR still needs a human semantic review against docs/KNOWN_LIMITATIONS.md — never automerge",
+      "description": "A stable-channel nelm bump edits go.mod outside the gomod artifact updater, so regenerate go.sum; the PR still needs a human semantic review against docs/guides/known-limitations.md — never automerge",
       "matchDatasources": [
         "custom.nelm-stable"
       ],

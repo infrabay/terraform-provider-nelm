@@ -153,9 +153,9 @@ func TestInstallTrackingOptions(t *testing.T) {
 }
 
 // TestWaitFalseTrackingSemantics pins what `wait = false` actually skips, as
-// documented in docs/resources/release.md and docs/KNOWN_LIMITATIONS.md, by
-// feeding installTrackingOptions' NoFinalTracking into nelm's own (offline)
-// plan builder. NoFinalTracking only squashes readiness tracking that no
+// documented in docs/resources/release.md and
+// docs/guides/known-limitations.md, by feeding installTrackingOptions'
+// NoFinalTracking into nelm's own (offline) plan builder. NoFinalTracking only squashes readiness tracking that no
 // later resource operation depends on, so it is NOT helm's wait = false:
 // resources ahead of a post-install hook or a later weight group are still
 // awaited, and a post-install hook without a hook-succeeded delete policy is

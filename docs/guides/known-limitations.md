@@ -1,3 +1,10 @@
+---
+page_title: "Known limitations"
+subcategory: ""
+description: |-
+  Known limitations of nelm_release, and the differences from helm_release that matter when migrating, with their workarounds.
+---
+
 # Known limitations
 
 This is a young (v0.x) provider. The items below are known, mostly narrow,
@@ -102,7 +109,7 @@ chart-managed fields from live ones.
   they are rendered verbatim (or quoted, JSON-escaped or base64-encoded
   whole), only from strings and keys, and only when at least 4 bytes long; a
   hashed, partial or otherwise transformed rendering is not recognized. See
-  [Sensitive values in non-`Secret` resources](resources/release.md#sensitive-values-in-non-secret-resources).
+  [Sensitive values in non-`Secret` resources](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#sensitive-values-in-non-secret-resources).
 
 - **State can hold a `set_sensitive` value in cleartext right after an
   import, or after a failed apply that changed one.** Read only knows the

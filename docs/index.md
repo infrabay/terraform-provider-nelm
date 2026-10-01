@@ -1,3 +1,9 @@
+---
+page_title: "Provider: Nelm"
+description: |-
+  The Nelm provider manages Helm chart releases on Kubernetes through the Nelm Go library, with a per-object plan diff that shows configuration changes and out-of-band drift.
+---
+
 # Nelm Provider
 
 The `nelm` provider manages Helm-chart-based releases on a Kubernetes cluster
@@ -14,7 +20,7 @@ by default), so this provider can adopt releases that were created with
 plain `helm install` — see the resource docs' Import section. Releases
 managed by `hashicorp/helm`'s `helm_release` are handed over without a
 reinstall by following
-[Migrating from `helm_release`](guides/migrating-from-helm_release.md);
+[Migrating from `helm_release`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md);
 **never** just rename `helm_release` to `nelm_release`, which uninstalls the
 release. The resource docs' "Migrating from `helm_release`" section covers
 how field ownership is handed over, and the one default that differs
@@ -25,12 +31,16 @@ Unlike `helm_release`, every plan renders the chart and shows each object's
 changes and out-of-band drift. `Secret` data and `set_sensitive` values are
 redacted from that diff, but a secret passed through `values` or `set` is
 shown wherever the chart renders it outside a `Secret` — see
-[Sensitive values in non-`Secret` resources](resources/release.md#sensitive-values-in-non-secret-resources).
+[Sensitive values in non-`Secret` resources](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#sensitive-values-in-non-secret-resources).
 Charts whose templates generate random or time-based values are handled, but
 a few template patterns can never converge or abort the apply; check
-[Non-deterministic charts](resources/release.md#non-deterministic-charts)
+[Non-deterministic charts](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#non-deterministic-charts)
 before migrating, and set `diff_mode = "none"` on such a release for
 `helm_release`-style plans.
+[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md)
+lists the other differences from `helm_release` and the provider's known
+limitations, with workarounds; read it before migrating production
+releases.
 
 v1 of this provider ships exactly one resource, `nelm_release`. There is no
 `nelm_release` data source and no chart-repository data source in v1.
@@ -116,7 +126,7 @@ from a data source it is refreshed on every `plan`/`apply`.
 
 For the `helm` provider's settings and their `nelm` equivalents, see the
 provider-block mapping in the
-[migration guide](guides/migrating-from-helm_release.md#provider-configuration).
+[migration guide](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md#provider-configuration).
 
 ## Schema
 

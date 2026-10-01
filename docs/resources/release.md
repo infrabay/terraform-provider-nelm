@@ -1,3 +1,10 @@
+---
+page_title: "nelm_release Resource - nelm"
+subcategory: ""
+description: |-
+  Manages a Helm chart release with the Nelm Go library; the plan shows each rendered object's changes and out-of-band drift.
+---
+
 # nelm_release (Resource)
 
 Manages a Helm/Nelm release via the Nelm Go library
@@ -323,7 +330,7 @@ correctly:
   release while the provider configuration itself is not yet known (e.g.
   `host` comes from a cluster created in the same run); a release already
   in state fails to plan in that case instead. See the provider docs'
-  [Provider configuration known only at apply](../index.md#provider-configuration-known-only-at-apply).
+  [Provider configuration known only at apply](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/index.md#provider-configuration-known-only-at-apply).
 
 ## Caveats and Notes
 
@@ -339,7 +346,7 @@ format is accepted.
 A release managed by `hashicorp/helm`'s `helm_release` can also be handed
 over with `moved { from = helm_release.x  to = nelm_release.x }`
 (Terraform 1.8+), which carries the `helm_release` inputs over as well; see
-the [migration guide](../guides/migrating-from-helm_release.md).
+the [migration guide](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md).
 
 Import adopts an existing release with **zero conversion**, whether it
 was created by `helm install`/`helm upgrade` (Helm 3 **or** Helm 4), by
@@ -379,7 +386,7 @@ upgrade hooks run as on any `helm upgrade`.
 **Recommendation:** write the configuration for an imported release from
 the inputs that installed it — when migrating from `helm_release`, copy its
 `chart`, `version`, `values`, `set` and `set_sensitive` verbatim (see the
-[migration guide](../guides/migrating-from-helm_release.md)). If those are
+[migration guide](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md)). If those are
 lost, `helm get values <name> -n <namespace>` returns the user-supplied
 values. Do not seed them from `helm get values -a` or
 `metadata.values_json`: those are the coalesced values, chart defaults
@@ -401,7 +408,7 @@ it catches:
 
 - a release installed elsewhere (by the `helm` CLI, by `helm_release`, by
   another Terraform configuration) that should have been imported — see the
-  [migration guide](../guides/migrating-from-helm_release.md);
+  [migration guide](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md);
 - two `nelm_release` resources, in one or several root modules, for the
   same release;
 - a `create_before_destroy` replacement (below).
@@ -616,7 +623,7 @@ A release created or upgraded by hashicorp/helm's `helm_release` is a plain
 Helm 3 release and is adopted like one (see Import above: a
 `removed { lifecycle { destroy = false } }` block plus an `import` block),
 or handed over with a `moved` block;
-[Migrating from `helm_release`](../guides/migrating-from-helm_release.md)
+[Migrating from `helm_release`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md)
 walks through both. Two field-ownership differences matter:
 
 - **Field managers are handed over at apply.** `helm_release` writes objects
@@ -727,7 +734,7 @@ state rather than plan output):
   refreshes until the next successful apply scrub only the previous value.
 
 The placeholders carry a truncated SHA-256 of the value; see
-[Known limitations](../KNOWN_LIMITATIONS.md) for what that means for
+[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md) for what that means for
 low-entropy secrets. Put sensitive data in Kubernetes `Secret`s where you
 control the chart (such data is stored in cleartext in the cluster
 otherwise too), and treat `terraform.tfstate` as sensitive with an
@@ -802,7 +809,7 @@ cluster state with `lookup` — including a `lookup`-guarded generated
 password — is still affected: at plan time the old release's objects exist
 and the guard reuses their values, at apply time the destroy has removed
 them and the chart generates new ones, so the apply aborts after the
-uninstall (see [Known limitations](../KNOWN_LIMITATIONS.md)).
+uninstall (see [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md)).
 
 ### Readiness tracking and `wait`
 

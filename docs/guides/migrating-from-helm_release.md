@@ -23,7 +23,7 @@ reinstalled.
 > every Deployment, Service (and its LoadBalancer IP), and PVC without a
 > `keep` resource policy. `nelm_release` refuses to create over an existing
 > release (see
-> [`adopt_existing`](../resources/release.md#creating-a-resource-for-an-existing-release)),
+> [`adopt_existing`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#creating-a-resource-for-an-existing-release)),
 > but that does not stop the `helm_release` destroy. Always use the recipe
 > below, and check that the plan destroys nothing.
 
@@ -184,7 +184,7 @@ passed through `values` or `set` — even from a `sensitive = true` variable —
 is printed wherever the chart renders it outside a `Secret` (a container
 `env` value, a `ConfigMap`). Pass such a value through `set_sensitive`
 instead; the chart renders the same objects either way. See
-[Sensitive values in non-`Secret` resources](../resources/release.md#sensitive-values-in-non-secret-resources).
+[Sensitive values in non-`Secret` resources](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#sensitive-values-in-non-secret-resources).
 
 ## Attribute mapping
 
@@ -197,12 +197,12 @@ instead; the chart renders the same objects either way. See
 | `set_list`, `set_wo` | — | Express them in `values` (or `set` with `type = "json"`). |
 | `max_history` | `release_history_limit` | Not the same default — see [History limit](#history-limit). |
 | `timeout` (seconds) | `timeouts { create, update, delete }` | Go durations, e.g. `"600s"` or `"10m"`. |
-| `atomic` | `auto_rollback` | Covers only part of `atomic`: no rollback when `timeouts` expires, and a failed first install is not uninstalled — see [`auto_rollback` vs `helm_release`'s `atomic`](../resources/release.md#auto_rollback-vs-helm_releases-atomic). |
+| `atomic` | `auto_rollback` | Covers only part of `atomic`: no rollback when `timeouts` expires, and a failed first install is not uninstalled — see [`auto_rollback` vs `helm_release`'s `atomic`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#auto_rollback-vs-helm_releases-atomic). |
 | `skip_crds` | `no_install_crds` | |
 | `take_ownership` | `force_adoption` | |
 | `upgrade_install` | `adopt_existing` | Create-only opt-in; prefer `import`. |
 | `create_namespace` | — | Nelm always creates a missing namespace. |
-| `wait` | `wait` | Same default (`true`), but Nelm's readiness tracking is stricter, and `wait = false` still waits for what later deploy steps depend on — see [Readiness tracking and `wait`](../resources/release.md#readiness-tracking-and-wait). Size `timeouts` accordingly. |
+| `wait` | `wait` | Same default (`true`), but Nelm's readiness tracking is stricter, and `wait = false` still waits for what later deploy steps depend on — see [Readiness tracking and `wait`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#readiness-tracking-and-wait). Size `timeouts` accordingly. |
 | `wait_for_jobs` | — | With `wait = true` Nelm always waits for non-hook Jobs to complete. |
 | `force_update`, `recreate_pods`, `reset_values`, `reuse_values`, `cleanup_on_fail`, `replace`, `disable_webhooks`, `disable_crd_hooks`, `disable_openapi_validation`, `render_subchart_notes`, `dependency_update`, `devel`, `verify`, `keyring`, `lint`, `description`, `pass_credentials`, `postrender`, `repository_username`/`repository_password`/`repository_*_file` | — | Not supported. |
 | `id` (`<name>`) | `id` (`<namespace>/<name>`) | Rewire references that use the id. |
@@ -246,7 +246,7 @@ provider "nelm" {
 Configure the provider explicitly like this rather than relying on
 environment variables the `helm` provider reads. `KUBE_CONFIG_PATH(S)` and
 `KUBE_CTX` are honoured as described in the provider docs'
-[Choosing the cluster](../index.md#choosing-the-cluster), but `KUBE_CTX`
+[Choosing the cluster](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/index.md#choosing-the-cluster), but `KUBE_CTX`
 alone names no cluster, and `HELM_DRIVER` is not read at all (set
 `release_storage_driver` on each `nelm_release`).
 
@@ -277,7 +277,7 @@ the limit, and pruned revisions cannot be recovered. Set
 `terraform import` and the `moved` block assume the default `secret`
 storage driver. Releases that were installed with `HELM_DRIVER=configmap`
 (or the `helm` provider's `helm_driver = "configmap"`) are not found that
-way; see the resource docs and [Known limitations](../KNOWN_LIMITATIONS.md)
+way; see the resource docs and [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md)
 for their status.
 
 ## Field managers
@@ -288,7 +288,7 @@ itself does not recognise as Helm's own. Right before each install (never
 during a plan), the provider renames that manager to `helm`, the Helm 3
 CLI's, so Nelm takes the fields over and prunes what the chart no longer
 renders; see
-[Migrating from `helm_release`](../resources/release.md#migrating-from-helm_release)
+[Migrating from `helm_release`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#migrating-from-helm_release)
 in the resource docs. An object whose hand-over hits an unavailable admission
 webhook is skipped with a warning and handed over by a later apply. Keep the
 first `nelm_release` apply rendering exactly what `helm_release` last applied
@@ -298,7 +298,7 @@ afterwards anyway: the handover apply then changes nothing but ownership.
 One default differs: with `no_remove_manual_changes = false`, fields added
 with `kubectl edit` are removed by the next update, which `helm_release`
 kept. Decide before the first plan; see
-[Fields added out of band](../resources/release.md#fields-added-out-of-band).
+[Fields added out of band](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#fields-added-out-of-band).
 
 ## If something goes wrong
 
@@ -311,9 +311,9 @@ kept. Decide before the first plan; see
   apply fails with `Provider produced inconsistent final plan`.** The chart
   renders something different on every plan in a way the provider cannot
   absorb (a `.Release.Revision` annotation, a coarse timestamp); see
-  [Non-deterministic charts](../resources/release.md#non-deterministic-charts).
+  [Non-deterministic charts](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#non-deterministic-charts).
   Set `diff_mode = "none"` on that release, or make the chart deterministic.
 - **The apply fails with `... is locked by another operation`.** The release
   has a `pending-*` revision: a `helm` command (or another apply) is still
   running against it, or one was interrupted. See
-  [Pending releases](../resources/release.md#pending-releases-helms-release-lock).
+  [Pending releases](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#pending-releases-helms-release-lock).

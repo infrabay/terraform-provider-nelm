@@ -82,6 +82,7 @@ pre-1.0, so read the release notes before moving to a new minor version.
   Registry example
 - [`nelm_release`](docs/resources/release.md)
 - [Migrating from `helm_release`](docs/guides/migrating-from-helm_release.md)
+- [Known limitations](docs/guides/known-limitations.md)
 
 The same pages are rendered on the Terraform Registry.
 
@@ -100,8 +101,10 @@ the acceptance tests' local-cluster guard, CI and the release process, and
 
 ## Known limitations
 
-See [`docs/KNOWN_LIMITATIONS.md`](docs/KNOWN_LIMITATIONS.md) for the current
-list of known edge-case limitations and the roadmap toward v1.0.
+[Known limitations](docs/guides/known-limitations.md) lists the known
+limitations and the differences from `helm_release` that matter in
+production, with their workarounds. Read it, and the migration guide, before
+moving releases off `helm_release`.
 
 ## License
 
