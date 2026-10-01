@@ -25,10 +25,12 @@ computed from Nelm's own plan engine, not just "this release will change".
   `repo/name` remote charts.
 - **Secret redaction** — Secret data (and `werf.io/sensitive`-annotated fields)
   are redacted to deterministic placeholders before entering state.
-- **Flexible connection** — a kubeconfig (`kube_config_paths` / `kube_context`)
-  or an inline `host` / `token` / `cluster_ca_certificate` (mirrors the
+- **Flexible connection** — a kubeconfig (`kube_config_paths` / `kube_context`,
+  or the `helm` provider's `KUBE_CONFIG_PATH(S)` / `KUBE_CTX` variables) or an
+  inline `host` / `token` / `cluster_ca_certificate` (mirrors the
   `kubernetes`/`helm` providers), plus a `registries` block for private OCI
-  charts.
+  charts. A configuration that names no cluster is an error — never an
+  implicit `~/.kube/config` current-context.
 
 ## Using the provider
 

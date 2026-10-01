@@ -11,6 +11,15 @@ from the server's dry-run merge — after review demonstrated that no heuristic
 over (dry-run result, live object, stored state) can reliably separate
 chart-managed fields from live ones.
 
+## Provider configuration
+
+- **`$KUBECONFIG` and an in-cluster service account are never used
+  implicitly.** The kubeconfig comes from `kube_config_paths` /
+  `KUBE_CONFIG_PATH(S)` (or `~/.kube/config` for an explicit
+  `kube_context` / `KUBE_CTX`); a configuration that names no cluster is an
+  error by design. Inside a pod, pass `host` / `token` /
+  `cluster_ca_certificate` explicitly.
+
 ## Diff surface (`resources`)
 
 - **List projection is positional, not merge-key aware.** The live→desired
