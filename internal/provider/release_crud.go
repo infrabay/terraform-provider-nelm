@@ -768,8 +768,11 @@ func (r *releaseResource) Read(ctx context.Context, req resource.ReadRequest, re
 	// object (ModifyPlan step 6e) only keeps its value when it has the
 	// chart's shape. The state's set_sensitive values are scrubbed, as
 	// ModifyPlan scrubs the plan's from the planned side (CONTRACTS.md seam
-	// 2); state has none right after an import, until the first apply.
-	secrets := state.sensitiveValues()
+	// 2); state has none right after an import, until the first apply. So
+	// are the values the release's last revision holds at those names: a
+	// failed update keeps the previous configuration in state, while the
+	// objects it partly applied carry the new values.
+	secrets := append(state.sensitiveValues(), state.storedSensitiveValues(info.Values)...)
 
 	desired, ddiags := r.projectionTemplate(ctx, state.Resources, info, state.Namespace.ValueString(), secrets)
 	resp.Diagnostics.Append(ddiags...)

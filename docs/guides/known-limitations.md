@@ -212,11 +212,11 @@ before moving production releases.
   [Sensitive values in non-`Secret` resources](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#sensitive-values-in-non-secret-resources).
 
 - **State can hold a `set_sensitive` value in cleartext right after an
-  import, or after a failed apply that changed one.** Read only knows the
-  `set_sensitive` values stored in state: none after `terraform import`
-  until the first apply, and the previous ones after a failed apply until
-  the next successful one. Self-healing; a `moved` block from `helm_release`
-  carries the values over and is not affected.
+  import.** Read only knows the `set_sensitive` names and values stored in
+  state (and, under those names, the values of the release's last
+  revision): none after `terraform import` until the first apply.
+  Self-healing; a `moved` block from `helm_release` carries the values over
+  and is not affected.
 
 ## Plan size
 

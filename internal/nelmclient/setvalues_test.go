@@ -41,3 +41,54 @@ func TestSetValueStrings(t *testing.T) {
 		})
 	}
 }
+
+// TestStoredSetValueStrings: the strings a release's stored values hold at
+// the positions a set argument assigns — what a revision installed with
+// another value for those names (a failed rotation) rendered — and nothing
+// from anywhere else in the values.
+func TestStoredSetValueStrings(t *testing.T) {
+	stored := map[string]interface{}{
+		"db":    map[string]interface{}{"password": "rotated-pass", "user": "app"},
+		"hosts": []interface{}{"one-new", "two-new"},
+		"creds": map[string]interface{}{
+			"user": "app", "password": "p@ss-new", "port": float64(6432), "tls": true,
+		},
+		"pin":     float64(654321),
+		"enabled": true,
+		"nested":  map[string]interface{}{"a": map[string]interface{}{"deep": "secret-value"}},
+	}
+
+	cases := []struct {
+		name    string
+		setType string
+		arg     string
+		want    []string
+	}{
+		{"path", "", "db.password=hunter2", []string{"rotated-pass"}},
+		{"list", "", "hosts={one,two}", []string{"one-new", "two-new"}},
+		{"json object", "json", `creds={"password":"p@ss","port":5432,"tls":false}`, []string{"p@ss-new", "6432"}},
+		{"number", "", "pin=123456", []string{"654321"}},
+		{"boolean left out", "string", "enabled=false", nil},
+		{"absent path", "", "db.token=abcdef", nil},
+		{"structure differs", "", "nested.a=flat", nil},
+		{"deeper path", "", "nested.a.deep=old", []string{"secret-value"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := StoredSetValueStrings(tc.setType, tc.arg, stored)
+			slices.Sort(got)
+
+			want := slices.Clone(tc.want)
+			slices.Sort(want)
+
+			if !slices.Equal(got, want) {
+				t.Errorf("StoredSetValueStrings(%q, %q) = %q, want %q", tc.setType, tc.arg, got, want)
+			}
+		})
+	}
+
+	if got := StoredSetValueStrings("", "db.password=x", nil); got != nil {
+		t.Errorf("StoredSetValueStrings with no stored values = %q, want none", got)
+	}
+}

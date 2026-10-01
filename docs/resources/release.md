@@ -784,17 +784,17 @@ values (it hashes the `set_sensitive` *names*), so a secret it never printed
 can show up in this provider's plans after a migration: move such values to
 `set_sensitive` first.
 
-Two windows in which state can still hold a `set_sensitive` value in
-cleartext (a plan does not print an unchanged map element, so they reach
-state rather than plan output):
-
-- **After `terraform import`.** Imported state has no `set_sensitive`
-  values until the first apply, so the refreshes up to then cannot scrub
-  them. A `moved` block from `helm_release` carries them over and is not
-  affected.
-- **After a failed apply that changed a `set_sensitive` value.** The state
-  keeps the previous configuration so that the change is retried, and the
-  refreshes until the next successful apply scrub only the previous value.
+A refresh scrubs the `set_sensitive` values stored in state and the values
+the release's last revision was installed with under the same names, so a
+failed apply that changed a `set_sensitive` value — the state keeps the
+previous configuration so that the change is retried, while the revision
+Nelm recorded and the objects it updated carry the new value — is covered
+too. One window remains in which state can hold a `set_sensitive` value in
+cleartext (a plan does not print an unchanged map element, so it reaches
+state rather than plan output): **after `terraform import`**. Imported
+state has no `set_sensitive` values until the first apply, so the
+refreshes up to then cannot scrub them. A `moved` block from `helm_release`
+carries them over and is not affected.
 
 The placeholders carry a truncated SHA-256 of the value; see
 [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md) for what that means for

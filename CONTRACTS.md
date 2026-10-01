@@ -44,10 +44,12 @@ unit tests can substitute an offline fake; `Configure` always stores a
   admission webhook was unavailable (surfaced as a warning).
 - `LiveObjects(ctx, refs)` and `IsNamespaced(gvk)` (the `planconv.KeyScoper`)
 
-plus one package function, `SetValueStrings(setType, arg)`: the strings
+plus two package functions: `SetValueStrings(setType, arg)`, the strings
 Nelm's own `--set*` parsing (helm strvals) makes of a `set`/`set_sensitive`
 argument — what a chart can render, and so what `releaseModel.sensitiveValues`
-scrubs (seam 2).
+scrubs (seam 2) — and `StoredSetValueStrings(setType, arg, values)`, the
+strings a release's stored values (`ReleaseInfo.Values`) hold at the
+positions that argument assigns (`releaseModel.storedSensitiveValues`).
 
 While the provider configuration is not fully known at plan time, Configure
 hands resources the `nelmclient.NewUnknownConfigClient()` placeholder instead
@@ -103,7 +105,11 @@ placeholders, values shorter than `MinSecretLength` skipped). ModifyPlan and
 Create/Update pass the plan's, Read the state's — the same values whenever
 the state was written by an apply of that configuration. A failed Update's
 live read passes the plan's and the prior state's together, since its
-objects can hold either.
+objects can hold either; Read adds the values the release's last revision
+stores at the state's `set_sensitive` names (`storedSensitiveValues`), which
+after a failed rotation are the new ones that state, keeping the prior
+configuration, does not list (after a successful apply they are the
+state's own, so both sides still scrub the same strings).
 
 Both `internal/provider/release_plan.go` (ModifyPlan — the **planned** side,
 built from `*plan.ResourceChange`) and `internal/provider/release_crud.go`

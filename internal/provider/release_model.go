@@ -51,25 +51,58 @@ func (m releaseModel) sensitiveValues() []string {
 
 		parsed := nelmclient.SetValueStrings(e.Type.ValueString(), e.Name.ValueString()+"="+v)
 		for _, s := range append([]string{v}, parsed...) {
-			if len(s) < planconv.MinSecretLength {
-				continue
-			}
-
-			quoted := strconv.Quote(s)
-			jsonQuoted, _ := json.Marshal(s)
-
-			out = append(out,
-				s,
-				quoted[1:len(quoted)-1],
-				string(jsonQuoted[1:len(jsonQuoted)-1]),
-				base64.StdEncoding.EncodeToString([]byte(s)),
-			)
+			out = append(out, renderedForms(s)...)
 		}
 	}
 
 	slices.Sort(out)
 
 	return slices.Compact(out)
+}
+
+// storedSensitiveValues returns, in every form sensitiveValues produces, the
+// strings values — the release's stored values (nelmclient.ReleaseInfo.Values)
+// — holds at the set_sensitive names (nelmclient.StoredSetValueStrings). Read
+// scrubs them along with the state's own: after a failed update that rotated
+// a set_sensitive value, the state keeps the previous configuration (so the
+// change is retried) while the revision Nelm recorded, and the objects it
+// partly applied, carry the new value.
+func (m releaseModel) storedSensitiveValues(values map[string]any) []string {
+	var out []string
+
+	for _, e := range m.SetSensitive {
+		v := e.Value.ValueString()
+		if v == "" {
+			continue
+		}
+
+		for _, s := range nelmclient.StoredSetValueStrings(e.Type.ValueString(), e.Name.ValueString()+"="+v, values) {
+			out = append(out, renderedForms(s)...)
+		}
+	}
+
+	slices.Sort(out)
+
+	return slices.Compact(out)
+}
+
+// renderedForms is s as a template can render it: verbatim, and embedded with
+// quote, toJson or b64enc. A string shorter than planconv.MinSecretLength has
+// none (its forms would match all over a manifest).
+func renderedForms(s string) []string {
+	if len(s) < planconv.MinSecretLength {
+		return nil
+	}
+
+	quoted := strconv.Quote(s)
+	jsonQuoted, _ := json.Marshal(s)
+
+	return []string{
+		s,
+		quoted[1 : len(quoted)-1],
+		string(jsonQuoted[1 : len(jsonQuoted)-1]),
+		base64.StdEncoding.EncodeToString([]byte(s)),
+	}
 }
 
 // setModel mirrors the nested object shared by the "set" and "set_sensitive"
