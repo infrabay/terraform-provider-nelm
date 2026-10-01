@@ -112,7 +112,7 @@ func TestNormalizeUnstructuredDeterministic(t *testing.T) {
 					// the same Marshal call.
 					obj := loadUnstructured(t, normalizeFixture(kind+".live.raw.json"))
 
-					got, err := NormalizeUnstructured(obj)
+					got, err := NormalizeUnstructured(obj, nil)
 					if err != nil {
 						t.Fatalf("iteration %d: NormalizeUnstructured: %v", i, err)
 					}
@@ -166,11 +166,11 @@ func TestNormalizeUnstructuredDeterministic(t *testing.T) {
 			"apiVersion": "v1",
 		}}
 
-		gotA, err := NormalizeUnstructured(objA)
+		gotA, err := NormalizeUnstructured(objA, nil)
 		if err != nil {
 			t.Fatalf("NormalizeUnstructured(objA): %v", err)
 		}
-		gotB, err := NormalizeUnstructured(objB)
+		gotB, err := NormalizeUnstructured(objB, nil)
 		if err != nil {
 			t.Fatalf("NormalizeUnstructured(objB): %v", err)
 		}

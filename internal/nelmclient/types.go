@@ -5,6 +5,7 @@ package nelmclient
 
 import (
 	"github.com/werf/nelm/pkg/plan"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 // ReleaseSpec is the provider-agnostic description of a desired nelm_release
@@ -79,6 +80,13 @@ type ReleaseInfo struct {
 	// Resources are the resource identities recorded in the stored release
 	// (used by Read to know what to live-GET; see design §2.4).
 	Resources []ResourceRef
+
+	// Manifests are the stored release's resource manifests (hooks
+	// excluded): the objects its last install rendered and applied. Like
+	// Render's output they carry cleartext Secret data — normalize them
+	// through internal/planconv before anything reaches state or a
+	// diagnostic.
+	Manifests []*unstructured.Unstructured
 }
 
 // ResourceRef identifies a single Kubernetes resource by group/version/kind

@@ -34,6 +34,14 @@ const (
 // empty string is an alias for "auto" (nelm ValuesSet semantics).
 var setValueTypes = []string{"", "auto", "string", "literal", "json"}
 
+// diff_mode values: "full" computes the planned "resources" from the chart
+// render and nelm's plan; "none" never renders at plan time (helm_release
+// parity for charts whose render can never converge).
+const (
+	diffModeFull = "full"
+	diffModeNone = "none"
+)
+
 // releaseResourceSchema is the FROZEN Phase A schema contract for
 // nelm_release (design §1.2). Every Phase B task (T-planconv, T-resplan,
 // T-rescrud) codes against this file; changing it after Phase A requires
@@ -190,6 +198,23 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 					"killed first install, is always installed over. It does not override the pending-* lock, " +
 					"and it cannot take over a release stored in the other storage backend. Only Create reads it.",
 			},
+			"diff_mode": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				Default:  stringdefault.StaticString(diffModeFull),
+				Description: `How the plan computes "resources": "full" (the default) renders the chart and runs ` +
+					`Nelm's plan against the cluster, so the plan shows each object's changes and out-of-band ` +
+					`drift; objects whose render changes on every render (random or time-based template ` +
+					`functions) are planned as known after apply. "none" renders nothing at plan time, like ` +
+					`helm_release: "resources" is known after apply whenever the release is (re)installed and ` +
+					`otherwise keeps its refreshed value, so no object diff, no drift detection, and chart or ` +
+					`values errors only surface at apply. Use "none" for charts that can never converge under ` +
+					`"full", e.g. templates that depend on .Release.Revision. Changing it is an in-place update ` +
+					`that runs Nelm's install.`,
+				Validators: []validator.String{
+					stringvalidator.OneOf(diffModeFull, diffModeNone),
+				},
+			},
 			"release_history_limit": schema.Int64Attribute{
 				Optional: true,
 				Description: "Maximum number of release revisions kept in storage. Null or 0 uses " +
@@ -264,9 +289,14 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 				Description: `The diff surface: map of "<apiVersion>/<Kind>/<namespace>/<name>" to ` +
 					`canonical, redacted JSON of the resource. Set explicitly on every ModifyPlan ` +
 					`invocation, including no-change plans, so cluster drift is always visible ` +
-					`(MarkComputedNilsAsUnknown is skipped on no-change plans). Secret data is ` +
-					`redacted, but a sensitive value rendered into a non-Secret resource appears here ` +
-					`in cleartext — see "Sensitive values in non-Secret resources" in the docs.`,
+					`(MarkComputedNilsAsUnknown is skipped on no-change plans). An object whose render ` +
+					`changes on every render (random or time-based template functions) is known after ` +
+					`apply whenever the release is reinstalled, and otherwise keeps its value; with ` +
+					`diff_mode = "none" the whole map is known after apply whenever the release is ` +
+					`reinstalled. Secret data is redacted, and so is every set_sensitive value ` +
+					`rendered into any other object; a sensitive value passed through values or ` +
+					`set appears here in cleartext — see "Sensitive values in non-Secret ` +
+					`resources" in the docs.`,
 			},
 		},
 		Blocks: map[string]schema.Block{

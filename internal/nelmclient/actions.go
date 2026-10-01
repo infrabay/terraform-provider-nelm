@@ -346,6 +346,8 @@ func (c *Client) Get(ctx context.Context, name, namespace, storageDriver string,
 	}
 
 	for _, res := range result.Resources {
+		info.Manifests = append(info.Manifests, &unstructured.Unstructured{Object: res})
+
 		ref := resourceRefFromObject(res)
 
 		if ref.Namespace == "" {

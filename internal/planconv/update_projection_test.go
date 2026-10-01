@@ -47,7 +47,7 @@ func deployment(image string, replicas int64, extraAnno map[string]interface{}) 
 // apply with "inconsistent final plan".
 func TestNormalizeUpdateAfter_DropsLiveCarriedFields(t *testing.T) {
 	// Prior desired: chart renders no replicas (HPA owns it), image v1.
-	prior, err := NormalizeUnstructured(deployment("web:v1", -1, nil))
+	prior, err := NormalizeUnstructured(deployment("web:v1", -1, nil), nil)
 	if err != nil {
 		t.Fatalf("normalize prior: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestNormalizeUpdateAfter_DropsLiveCarriedFields(t *testing.T) {
 	// replicas and the controller annotation.
 	after := deployment("web:v2", 3, map[string]interface{}{"kubectl.kubernetes.io/restartedAt": "2026-01-01"})
 
-	got, err := NormalizeUpdateAfter(after, before, prior)
+	got, err := NormalizeUpdateAfter(after, before, prior, nil)
 	if err != nil {
 		t.Fatalf("NormalizeUpdateAfter: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestNormalizeUpdateAfter_DropsLiveCarriedFields(t *testing.T) {
 	before5 := deployment("web:v1", 5, map[string]interface{}{"kubectl.kubernetes.io/restartedAt": "2026-01-02"})
 	after5 := deployment("web:v2", 5, map[string]interface{}{"kubectl.kubernetes.io/restartedAt": "2026-01-02"})
 
-	got5, err := NormalizeUpdateAfter(after5, before5, prior)
+	got5, err := NormalizeUpdateAfter(after5, before5, prior, nil)
 	if err != nil {
 		t.Fatalf("NormalizeUpdateAfter (apply-phase): %v", err)
 	}
@@ -92,7 +92,7 @@ func TestNormalizeUpdateAfter_DropsLiveCarriedFields(t *testing.T) {
 // survive projection — it is the diff, and it must enter the stored desired
 // shape or it would be invisible forever.
 func TestNormalizeUpdateAfter_KeepsChartNewFields(t *testing.T) {
-	prior, err := NormalizeUnstructured(deployment("web:v1", -1, nil))
+	prior, err := NormalizeUnstructured(deployment("web:v1", -1, nil), nil)
 	if err != nil {
 		t.Fatalf("normalize prior: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestNormalizeUpdateAfter_KeepsChartNewFields(t *testing.T) {
 	// Chart newly renders a strategy this update.
 	_ = unstructured.SetNestedField(after.Object, "Recreate", "spec", "strategy", "type")
 
-	got, err := NormalizeUpdateAfter(after, before, prior)
+	got, err := NormalizeUpdateAfter(after, before, prior, nil)
 	if err != nil {
 		t.Fatalf("NormalizeUpdateAfter: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestNormalizeUpdateAfter_KeepsChartNewFields(t *testing.T) {
 // prior desired keeps After's (possibly changed) value — that is the visible
 // diff for chart-managed fields.
 func TestNormalizeUpdateAfter_ChartManagedChangeSurvives(t *testing.T) {
-	prior, err := NormalizeUnstructured(deployment("web:v1", 2, nil))
+	prior, err := NormalizeUnstructured(deployment("web:v1", 2, nil), nil)
 	if err != nil {
 		t.Fatalf("normalize prior: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestNormalizeUpdateAfter_ChartManagedChangeSurvives(t *testing.T) {
 	before := deployment("web:v1", 2, nil)
 	after := deployment("web:v1", 4, nil) // chart changed its own replicas 2 -> 4
 
-	got, err := NormalizeUpdateAfter(after, before, prior)
+	got, err := NormalizeUpdateAfter(after, before, prior, nil)
 	if err != nil {
 		t.Fatalf("NormalizeUpdateAfter: %v", err)
 	}
@@ -143,12 +143,12 @@ func TestNormalizeUpdateAfter_ChartManagedChangeSurvives(t *testing.T) {
 func TestNormalizeUpdateAfter_NoPriorFallsBack(t *testing.T) {
 	after := deployment("web:v2", 3, nil)
 
-	got, err := NormalizeUpdateAfter(after, deployment("web:v1", 3, nil), "")
+	got, err := NormalizeUpdateAfter(after, deployment("web:v1", 3, nil), "", nil)
 	if err != nil {
 		t.Fatalf("NormalizeUpdateAfter: %v", err)
 	}
 
-	want, err := NormalizeUnstructured(after)
+	want, err := NormalizeUnstructured(after, nil)
 	if err != nil {
 		t.Fatalf("NormalizeUnstructured: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestNormalize_LastAppliedConfigurationStripped(t *testing.T) {
 		"data": map[string]interface{}{"password": cleartext},
 	}}
 
-	got, err := NormalizeUnstructured(obj)
+	got, err := NormalizeUnstructured(obj, nil)
 	if err != nil {
 		t.Fatalf("NormalizeUnstructured: %v", err)
 	}

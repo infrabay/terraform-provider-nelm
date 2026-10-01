@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-volatile
+  labels:
+    {{- include "volatile.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "volatile.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "volatile.labels" . | nindent 8 }}
+      annotations:
+        # Helm's documented "roll the pods on every upgrade" pattern.
+        rollme: {{ randAlphaNum 5 | quote }}
+        # A deploy timestamp that rolls the pods on every upgrade.
+        deploy-date: {{ now | quote }}
+        {{- if .Values.revisionAnnotation }}
+        revision: {{ .Release.Revision | quote }}
+        {{- end }}
+    spec:
+      containers:
+        - name: volatile
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+          env:
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-volatile
+                  key: password

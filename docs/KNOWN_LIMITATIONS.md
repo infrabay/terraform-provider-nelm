@@ -22,11 +22,33 @@ chart-managed fields from live ones.
   Appended injections are handled correctly. A merge-key-aware projection is
   planned for v1.0.
 
-- **A resources map seeded from a full live read** (the first `Read` after
-  `terraform import`, or an apply whose plan ran with the cluster unreachable)
-  contains live-only fields until each resource's next chart-driven update
-  replaces its entry with the rendered desired shape. Until then those fields
-  produce state-refresh churn (no spurious plan diffs).
+- **Objects whose render changes on every render** (random or time-based
+  template functions: `rollme` annotations, `genCA` certificates, generated
+  passwords, deploy timestamps) are detected by rendering the chart twice per
+  plan — a second chart render on every plan. Such an object is
+  `(known after apply)` whenever the release is reinstalled, so the plan
+  does not show which of its fields change, and out-of-band changes to its
+  random fields are not drift. Two kinds of templates escape the check: a
+  `.Release.Revision`-dependent one renders the next revision against the
+  live one on every plan (a perpetual update and rollout), and one whose
+  output changes only once a second or slower (`now | unixEpoch`,
+  `now | date ...`) can render identically twice within one plan and
+  differently at apply, which aborts the apply with "Provider produced
+  inconsistent final plan". Use `diff_mode = "none"` for those (no object
+  diff and no drift detection for that release, like `helm_release`), or
+  make the chart deterministic. See "Non-deterministic charts" in the
+  resource docs.
+
+- **Kinds the cluster does not serve at plan time.** When a chart renders
+  objects of a kind that is not served yet and whose
+  CustomResourceDefinition the chart itself does not contain — typically a
+  CRD installed by another release earlier in the same apply (cert-manager
+  and a chart of ClusterIssuers) — the whole `resources` map, with
+  `status`/`revision`/`metadata`, is known after apply, with a warning.
+  Templates gated on `.Capabilities.APIVersions.Has`, or on a `lookup` of
+  objects another release creates in the same apply, give no such signal:
+  they can still render differently at apply and abort it. Apply the
+  providing release first (`-target`) or apply twice.
 
 - **A chart-rendered field the API server refuses to persist (dropped via
   `omitempty`/pruning) shows as permanent drift.** The desired side always
@@ -39,11 +61,32 @@ chart-managed fields from live ones.
   clears. Cosmetic, self-healing.
 
 - **Secret redaction placeholders embed a truncated unsalted SHA-256 and the
-  value's byte length.** Deterministic placeholders are what make Secret
-  drift visible without cleartext, but they also let someone with plan
-  output/state verify a GUESS of a low-entropy secret offline. Use
+  value's byte length.** This holds for `Secret` data and for scrubbed
+  `set_sensitive` values alike. Deterministic placeholders are what make
+  Secret drift visible without cleartext, but they also let someone with
+  plan output/state verify a GUESS of a low-entropy secret offline. Use
   high-entropy secrets (which are immune); a salted scheme is being
   considered for v1.0.
+
+- **Only `set_sensitive` values are scrubbed from non-`Secret` objects.** A
+  secret that reaches a chart through `values` or `set` — even from a
+  `sensitive = true` variable — appears in cleartext in `resources` (plan
+  output and state) wherever the chart renders it outside a `Secret`:
+  Terraform never tells a provider which inputs are sensitive.
+  `hashicorp/helm`'s `helm_release` prints no rendered manifest by default,
+  so this is new exposure for such configurations; pass these values through
+  `set_sensitive`. `set_sensitive` values themselves are scrubbed only where
+  they are rendered verbatim (or quoted, JSON-escaped or base64-encoded
+  whole), only from strings and keys, and only when at least 4 bytes long; a
+  hashed, partial or otherwise transformed rendering is not recognized. See
+  [Sensitive values in non-`Secret` resources](resources/release.md#sensitive-values-in-non-secret-resources).
+
+- **State can hold a `set_sensitive` value in cleartext right after an
+  import, or after a failed apply that changed one.** Read only knows the
+  `set_sensitive` values stored in state: none after `terraform import`
+  until the first apply, and the previous ones after a failed apply until
+  the next successful one. Self-healing; a `moved` block from `helm_release`
+  carries the values over and is not affected.
 
 ## Release lifecycle
 
@@ -86,11 +129,11 @@ chart-managed fields from live ones.
 - **Replacing a release whose chart `lookup`s live objects can abort.** A
   replacement's create is planned while the old release still exists and
   re-planned after its destroy removed it; a template whose output depends
-  on `lookup` (or on random functions) renders differently in the two, and
-  Terraform aborts with "Provider produced inconsistent final plan" after
-  the uninstall ran; the next apply installs the release. To replace such a
-  release without the failed apply, do it in two steps:
-  `terraform destroy -target=...`, then `terraform apply`.
+  on `lookup` (a `lookup`-guarded generated password included) renders
+  differently in the two, and Terraform aborts with "Provider produced
+  inconsistent final plan" after the uninstall ran; the next apply installs
+  the release. To replace such a release without the failed apply, do it in
+  two steps: `terraform destroy -target=...`, then `terraform apply`.
 
 - **A replacement's conflicts with live objects are only warnings at plan
   time.** The create half of a replacement (a `name`/`namespace`/
@@ -149,11 +192,13 @@ chart-managed fields from live ones.
   provider does guarantee that `set_sensitive` wins over `set` on a name
   conflict. Avoid same-name-different-type entries in a single list.
 
-- **Sensitive-value scrubbing is whole-value.** Errors that echo a
-  *transformed fragment* of a `set_sensitive` value (e.g. helm's strvals
-  splitting on an unescaped comma inside the value) may leak that fragment
-  into a diagnostic. Escape commas in sensitive `set` values, or prefer
-  `values` + a Kubernetes `Secret`.
+- **Diagnostics scrub `set_sensitive` values as Nelm parses them, not every
+  fragment.** Errors and warnings are scrubbed of each value as written, the
+  strings Nelm parses out of it and their quoted and base64 forms. A value
+  Nelm *fails* to parse can still leak the fragment its error names (e.g.
+  `key "word" has no value` for an unescaped comma in `pass,word`). Escape
+  commas in sensitive values (`value = "pass\\,word"` in HCL), or use
+  `type = "literal"`.
 
 ## Timeouts / nelm internals
 

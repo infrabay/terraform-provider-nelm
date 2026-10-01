@@ -26,7 +26,8 @@ computed from Nelm's own plan engine, not just "this release will change".
 - **Chart sources** — local directories and `.tgz`, plus `oci://` and
   `repo/name` remote charts.
 - **Secret redaction** — Secret data (and `werf.io/sensitive`-annotated fields)
-  are redacted to deterministic placeholders before entering state.
+  are redacted to deterministic placeholders before entering state, and so
+  are `set_sensitive` values wherever a chart renders them.
 - **Flexible connection** — a kubeconfig (`kube_config_paths` / `kube_context`)
   or an inline `host` / `token` / `cluster_ca_certificate` (mirrors the
   `kubernetes`/`helm` providers), plus a `registries` block for private OCI

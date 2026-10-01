@@ -64,3 +64,119 @@ func TestToReleaseSpec_SetSensitiveWinsOnKeyConflict(t *testing.T) {
 		t.Errorf("non-conflicting set entry image.tag=v1 was wrongly dropped: %v", spec.Set)
 	}
 }
+
+// sensitiveModel is a releaseModel with the given set_sensitive entries
+// (name/value/type triples).
+func sensitiveModel(entries ...[3]string) releaseModel {
+	m := baseTestReleaseModel()
+
+	for _, e := range entries {
+		m.SetSensitive = append(m.SetSensitive, setModel{
+			Name:  types.StringValue(e[0]),
+			Value: types.StringValue(e[1]),
+			Type:  types.StringValue(e[2]),
+		})
+	}
+
+	return m
+}
+
+// TestScrubSensitive is the F45 regression test: scrubSensitive replaced the
+// set_sensitive values one after another in list order, so a shorter value
+// listed before a longer one that contains it broke the longer one's match,
+// and the rest of it reached the diagnostic in cleartext.
+func TestScrubSensitive(t *testing.T) {
+	const redacted = "(sensitive value redacted)"
+
+	cases := []struct {
+		name    string
+		entries [][3]string
+		in      string
+		want    string
+	}{
+		{
+			name:    "contained value listed first",
+			entries: [][3]string{{"db.password", "S3cret", ""}, {"db.dsn", "S3cret-replica-Kx9", ""}},
+			in:      "failed parsing --set-json data db.dsn=S3cret-replica-Kx9: invalid character",
+			want:    "failed parsing --set-json data db.dsn=" + redacted + ": invalid character",
+		},
+		{
+			name:    "contained value listed last",
+			entries: [][3]string{{"db.dsn", "S3cret-replica-Kx9", ""}, {"db.password", "S3cret", ""}},
+			in:      "db.dsn=S3cret-replica-Kx9 db.password=S3cret",
+			want:    "db.dsn=" + redacted + " db.password=" + redacted,
+		},
+		{
+			name:    "duplicated value",
+			entries: [][3]string{{"a", "hunter2", ""}, {"b", "hunter2", ""}},
+			in:      "a=hunter2,b=hunter2",
+			want:    "a=" + redacted + ",b=" + redacted,
+		},
+		{
+			name:    "empty value",
+			entries: [][3]string{{"a", "", ""}},
+			in:      "nothing to hide",
+			want:    "nothing to hide",
+		},
+		{
+			name:    "short value is still scrubbed from diagnostics",
+			entries: [][3]string{{"pin", "42x", ""}},
+			in:      "pin=42x",
+			want:    "pin=" + redacted,
+		},
+		{
+			name:    "quoted echo of a JSON value",
+			entries: [][3]string{{"creds", `{"password":"p@ss\\w0rd"}`, "json"}},
+			in:      `parse JSON set "creds={\"password\":\"p@ss\\\\w0rd\"}": unexpected end`,
+			want:    `parse JSON set "creds=` + redacted + `": unexpected end`,
+		},
+		{
+			name:    "value as nelm parsed it",
+			entries: [][3]string{{"auth.token", `tok\,en-123`, "string"}},
+			in:      `Invalid value: "tok,en-123"`,
+			want:    `Invalid value: "` + redacted + `"`,
+		},
+		{
+			name:    "base64 echo",
+			entries: [][3]string{{"auth.token", "token-123", ""}},
+			in:      "data.token: dG9rZW4tMTIz",
+			want:    "data.token: " + redacted,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sensitiveModel(tc.entries...).scrubSensitive(tc.in); got != tc.want {
+				t.Errorf("scrubSensitive(%q) =\n%q\nwant\n%q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSensitiveValues(t *testing.T) {
+	m := sensitiveModel(
+		[3]string{"short", "abc", ""},
+		[3]string{"creds", `{"user":"app-user","password":"p\"ss","port":5432,"tls":true}`, "json"},
+	)
+
+	got := m.sensitiveValues()
+
+	for _, want := range []string{
+		"abc", // as written: still scrubbed from diagnostics
+		`{"user":"app-user","password":"p\"ss","port":5432,"tls":true}`,
+		"app-user", `p"ss`, "5432", // parsed out of the JSON
+		`p\"ss`,        // quote / toJson
+		"cCJzcw==",     // b64enc
+		"YXBwLXVzZXI=", // b64enc
+	} {
+		if !slices.Contains(got, want) {
+			t.Errorf("sensitiveValues() = %q, missing %q", got, want)
+		}
+	}
+
+	for _, unwanted := range []string{"YWJj", "true"} {
+		if slices.Contains(got, unwanted) {
+			t.Errorf("sensitiveValues() = %q, must not contain %q", got, unwanted)
+		}
+	}
+}

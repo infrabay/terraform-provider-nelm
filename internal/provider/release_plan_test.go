@@ -45,6 +45,7 @@ func baseTestReleaseModel() releaseModel {
 		NoRemoveManualChanges: types.BoolValue(false),
 		NoInstallCRDs:         types.BoolValue(false),
 		AdoptExisting:         types.BoolValue(false),
+		DiffMode:              types.StringValue("full"),
 		ReleaseHistoryLimit:   types.Int64Null(),
 		ReleaseStorageDriver:  types.StringValue("secret"),
 		Timeouts:              timeouts.Value{Object: types.ObjectNull(timeoutsAttrTypes)},
@@ -126,6 +127,7 @@ func TestModifyPlan_UnknownInputs_DegradeToUnknown(t *testing.T) {
 		{"name unknown", func(m *releaseModel) { m.Name = types.StringUnknown() }},
 		{"namespace unknown", func(m *releaseModel) { m.Namespace = types.StringUnknown() }},
 		{"release_storage_driver unknown", func(m *releaseModel) { m.ReleaseStorageDriver = types.StringUnknown() }},
+		{"diff_mode unknown", func(m *releaseModel) { m.DiffMode = types.StringUnknown() }},
 		{"force_adoption unknown", func(m *releaseModel) { m.ForceAdoption = types.BoolUnknown() }},
 		{"no_remove_manual_changes unknown", func(m *releaseModel) { m.NoRemoveManualChanges = types.BoolUnknown() }},
 		{"no_install_crds unknown", func(m *releaseModel) { m.NoInstallCRDs = types.BoolUnknown() }},
@@ -459,6 +461,14 @@ func TestReleaseWillReinstall(t *testing.T) {
 			// Terraform call Update, whose Install can bump the revision.
 			name:       "adopt_existing change with no resource change",
 			mutatePlan: func(m *releaseModel) { m.AdoptExisting = types.BoolValue(true) },
+			planned:    sameMap, prior: sameMap,
+			want: true,
+		},
+		{
+			// diff_mode only matters to ModifyPlan, but an edit to it makes
+			// Terraform call Update, whose Install can bump the revision.
+			name:       "diff_mode change with no resource change",
+			mutatePlan: func(m *releaseModel) { m.DiffMode = types.StringValue("none") },
 			planned:    sameMap, prior: sameMap,
 			want: true,
 		},

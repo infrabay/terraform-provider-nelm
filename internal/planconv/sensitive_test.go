@@ -30,7 +30,7 @@ func TestNormalize_SecretRedactedDespiteSensitiveFalse(t *testing.T) {
 		"data": map[string]interface{}{"password": secretVal},
 	}}
 
-	got, err := NormalizeUnstructured(obj)
+	got, err := NormalizeUnstructured(obj, nil)
 	if err != nil {
 		t.Fatalf("NormalizeUnstructured: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestNormalize_SecretCustomSensitivePathsUnioned(t *testing.T) {
 		"data": map[string]interface{}{"password": dataVal},
 	}}
 
-	got, err := NormalizeUnstructured(obj)
+	got, err := NormalizeUnstructured(obj, nil)
 	if err != nil {
 		t.Fatalf("NormalizeUnstructured: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestNormalize_MalformedSensitiveAnnotationsDoNotPanic(t *testing.T) {
 			}}
 
 			// Must not panic.
-			_, err := NormalizeUnstructured(obj)
+			_, err := NormalizeUnstructured(obj, nil)
 			if err == nil {
 				t.Fatalf("expected an error for a malformed sensitivity annotation, got nil")
 			}
