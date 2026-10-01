@@ -130,11 +130,14 @@ func otherStorageDriver(driver string) string {
 // A read the credentials may not make (RBAC that covers only the configured
 // backend) reports false: it is just as forbidden at the apply-time re-plan,
 // so the known map the plan phase plans on that answer is planned again.
-// Any other failed read is returned, and ModifyPlan plans the map Unknown:
-// a transient failure (a connection reset) says nothing about what the
-// re-plan's read will find, and if that read finds records there the re-plan
-// degrades to Unknown, which aborts the apply ("was known, but now unknown")
-// unless the plan phase was Unknown already; Unknown to known is allowed.
+// Any other failed read is returned, and ModifyPlan fails with it, at the
+// plan phase and at the apply-time re-plan alike, as otherBackendDiags fails
+// Create. A transient failure (a connection reset) says nothing about what
+// the other phase's read finds, so no planned map is safe on it: a known map
+// aborts the apply ("was known, but now unknown") when the re-plan's read
+// finds records there, and an Unknown one at the re-plan aborts it the same
+// way when the plan phase's read found none. A failed plan commits nothing,
+// and a failed re-plan fails the apply with this error instead.
 func (r *releaseResource) releaseInOtherBackend(ctx context.Context, plan releaseModel, timeout time.Duration) (bool, error) {
 	other := otherStorageDriver(plan.ReleaseStorageDriver.ValueString())
 

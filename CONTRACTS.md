@@ -32,8 +32,9 @@ unit tests can substitute an offline fake; `Configure` always stores a
   configured storage backend and, on Create, the other one) and the
   pending-* lock check; ModifyPlan also reads the other backend's on a
   create plan nelm plans as `DeployTypeInitial` (a release still live there
-  makes the create's `resources` Unknown, step 6c', and so does a read that
-  fails other than forbidden)
+  makes the create's `resources` Unknown, step 6c'; a read that fails other
+  than forbidden is an error at the plan phase and the apply-time re-plan
+  alike, as on Create, and a forbidden one finds no release)
 - `HandOverHelmProviderFieldManagers(ctx, name, namespace, storageDriver string, timeout) ([]string, error)`
   — Create/Update call it right before `Install`, after the History guards
   (a refused Create writes nothing), sharing the operation's timeout budget,

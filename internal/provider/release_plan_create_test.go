@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -259,22 +260,16 @@ func TestModifyPlan_ReplaceOfLiveRelease(t *testing.T) {
 // TestModifyPlan_FreshCreateChecksOtherBackend: a create whose release exists
 // in neither backend plans the known render after checking the other backend,
 // and so does one whose credentials may not read it (the apply-time re-plan
-// is forbidden the same read). Any other failed read plans the map Unknown:
-// the re-plan's read may succeed and find records there, and a known map
-// planned here would then abort the apply ("was known, but now unknown").
+// is forbidden the same read). Any other failed read fails the plan, as it
+// fails Create (TestCreate_OtherBackendReadFailureChangesNothing).
 func TestModifyPlan_FreshCreateChecksOtherBackend(t *testing.T) {
 	tests := map[string]struct {
-		err         error
-		wantUnknown bool
-		wantWarning string
+		err       error
+		wantError bool
 	}{
 		"no release":     {},
 		"read forbidden": {err: apierrors.NewForbidden(k8sschema.GroupResource{Resource: "configmaps"}, "", errors.New("rbac"))},
-		"read failed": {
-			err:         errors.New("connection reset"),
-			wantUnknown: true,
-			wantWarning: "could not check the other storage backend",
-		},
+		"read failed":    {err: errors.New("connection reset"), wantError: true},
 	}
 
 	for name, tt := range tests {
@@ -282,18 +277,19 @@ func TestModifyPlan_FreshCreateChecksOtherBackend(t *testing.T) {
 			client := &fakeReleaseClient{renderObjs: renderedObjects(), historyErrs: map[string]error{"configmap": tt.err}}
 
 			resp := runModifyPlan(t, client, baseTestReleaseModel(), nil)
-			if resp.Diagnostics.HasError() {
-				t.Fatalf("unexpected errors: %v", resp.Diagnostics)
-			}
 
-			assertOneDiag(t, resp.Diagnostics, diag.SeverityWarning, tt.wantWarning)
-
-			if tt.wantUnknown {
-				if got := plannedResourcesValue(t, resp.Plan); !got.IsUnknown() {
-					t.Errorf("planned resources = %v, want Unknown (computed at apply)", got)
+			if tt.wantError {
+				assertOtherBackendReadError(t, resp.Diagnostics)
+			} else {
+				if resp.Diagnostics.HasError() {
+					t.Fatalf("unexpected errors: %v", resp.Diagnostics)
 				}
-			} else if got := plannedResources(t, resp.Plan); len(got) != len(renderedObjects()) {
-				t.Errorf("planned resources = %v, want the %d rendered objects", got, len(renderedObjects()))
+
+				assertOneDiag(t, resp.Diagnostics, diag.SeverityWarning, "")
+
+				if got := plannedResources(t, resp.Plan); len(got) != len(renderedObjects()) {
+					t.Errorf("planned resources = %v, want the %d rendered objects", got, len(renderedObjects()))
+				}
 			}
 
 			if !slices.Equal(client.historyDrivers, []string{"configmap"}) {
@@ -303,32 +299,57 @@ func TestModifyPlan_FreshCreateChecksOtherBackend(t *testing.T) {
 	}
 }
 
-// TestModifyPlan_FreshCreateOtherBackendReadFailureIsConsistent: the read of
-// the other backend fails transiently at the plan phase and succeeds at the
-// apply-time re-plan, which finds the records of a failed install there and
-// degrades. The plan phase must not have planned a known map.
-func TestModifyPlan_FreshCreateOtherBackendReadFailureIsConsistent(t *testing.T) {
-	planClient := &fakeReleaseClient{
-		renderObjs:  renderedObjects(),
-		historyErrs: map[string]error{"configmap": errors.New("connection reset")},
-	}
+// TestModifyPlan_FreshCreateOtherBackendReadFailureFailsEitherPhase: a
+// transient failure reading the other backend fails whichever of the two
+// ModifyPlan phases it hits, so they never plan a create's map on different
+// answers. Planning on it instead aborts the apply either way ("was known,
+// but now unknown"): a known map at the plan phase when the re-plan's read
+// then finds records there, an Unknown one at the re-plan when the plan
+// phase's read found none.
+func TestModifyPlan_FreshCreateOtherBackendReadFailureFailsEitherPhase(t *testing.T) {
+	readFails := map[string]error{"configmap": errors.New("connection reset")}
 
-	planPhase := runModifyPlan(t, planClient, baseTestReleaseModel(), nil)
-	if planPhase.Diagnostics.HasError() {
-		t.Fatalf("plan phase: unexpected errors: %v", planPhase.Diagnostics)
-	}
+	// The plan phase's read fails while the other backend holds a failed
+	// install's records, which the re-plan's read would find and degrade on:
+	// the plan fails, so nothing is committed to apply.
+	t.Run("plan phase", func(t *testing.T) {
+		planPhase := runModifyPlan(t, &fakeReleaseClient{renderObjs: renderedObjects(), historyErrs: readFails}, baseTestReleaseModel(), nil)
 
-	applyClient := &fakeReleaseClient{
-		renderObjs:      renderedObjects(),
-		historyByDriver: map[string]*nelmclient.ReleaseHistory{"configmap": {Revision: 1, Status: "failed"}},
-	}
+		assertOtherBackendReadError(t, planPhase.Diagnostics)
+	})
 
-	applyPhase := runModifyPlan(t, applyClient, baseTestReleaseModel(), nil)
-	if applyPhase.Diagnostics.HasError() {
-		t.Fatalf("apply phase: unexpected errors: %v", applyPhase.Diagnostics)
-	}
+	// The plan phase reads no records there and plans the known render; the
+	// re-plan's read fails. The re-plan fails the apply with the read error,
+	// which Terraform reports as such, never reaching the known-to-Unknown
+	// check an Unknown map here would fail.
+	t.Run("apply-time re-plan", func(t *testing.T) {
+		planPhase := runModifyPlan(t, &fakeReleaseClient{renderObjs: renderedObjects()}, baseTestReleaseModel(), nil)
+		if planPhase.Diagnostics.HasError() {
+			t.Fatalf("plan phase: unexpected errors: %v", planPhase.Diagnostics)
+		}
 
-	assertCompatible(t, plannedResourcesValue(t, planPhase.Plan), plannedResourcesValue(t, applyPhase.Plan))
+		if got := plannedResourcesValue(t, planPhase.Plan); got.IsUnknown() {
+			t.Fatal("plan phase: resources Unknown, want the known first-install render")
+		}
+
+		applyPhase := runModifyPlan(t, &fakeReleaseClient{renderObjs: renderedObjects(), historyErrs: readFails}, baseTestReleaseModel(), nil)
+
+		assertOtherBackendReadError(t, applyPhase.Diagnostics)
+	})
+}
+
+// assertOtherBackendReadError asserts diags holds exactly one error, the
+// failed read of the other (configmap) storage backend's records, and no
+// warning: the read failure is not planned around.
+func assertOtherBackendReadError(t *testing.T, diags diag.Diagnostics) {
+	t.Helper()
+
+	assertOneDiag(t, diags, diag.SeverityError, "Failed to read nelm release history")
+	assertOneDiag(t, diags, diag.SeverityWarning, "")
+
+	if got := diags.Errors()[0].Detail(); !strings.Contains(got, "configmap storage backend: connection reset") {
+		t.Errorf("error detail = %q, want it to name the configmap storage backend and the read error", got)
+	}
 }
 
 // TestModifyPlan_CreateRendersAsFirstInstall: only a create's render ignores

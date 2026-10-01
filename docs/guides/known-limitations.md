@@ -331,8 +331,12 @@ before moving production releases.
   `revision` and `metadata` are therefore known after apply, with a
   warning, and computed by the apply after the destroy. An `adopt_existing`
   create is planned the same way. A `release_storage_driver` change is
-  recognized by reading the old backend's release records; if that read
-  fails, the create is planned as a fresh install, and a chart with
+  recognized by reading the old backend's release records. A read that
+  fails for a reason other than RBAC fails the plan (`Failed to read nelm
+  release history`), and fails the apply when it is the apply's re-plan
+  after the uninstall that cannot read (the next apply installs the
+  release). If the provider's credentials may not read that backend at
+  all, the create is planned as a fresh install, and a chart with
   `lookup`-dependent templates can abort that apply after the uninstall
   ("Provider produced inconsistent final plan"; the next apply installs
   the release).

@@ -307,9 +307,13 @@ correctly:
   and `metadata`) is known after apply instead, with a warning: a template
   that reads live objects with `lookup` renders differently once the
   replacement's destroy has removed them, and the apply's re-plan computes
-  the map after that destroy. The same goes for a create whose plan cannot
-  read the other storage backend for a reason other than RBAC (a transient
-  API error): it cannot tell whether a release is live there.
+  the map after that destroy. A create plan that cannot read the other
+  storage backend for a reason other than RBAC (a transient API error)
+  cannot tell whether a release is live there: it fails with `Failed to
+  read nelm release history`, as Create does, at plan time and in the
+  apply's re-plan alike (a re-plan after a replacement's destroy fails that
+  apply, and the next apply installs the release). A read the provider's
+  credentials may not make counts as no release there.
 - The chart is rendered twice per plan; an object the two renders disagree
   on (random or time-based template functions) is handled as described in
   [Non-deterministic charts](#non-deterministic-charts).
