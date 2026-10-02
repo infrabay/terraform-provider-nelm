@@ -87,8 +87,9 @@ func releaseResourceSchema(ctx context.Context) schema.Schema {
 				Optional: true,
 				Computed: true,
 				Description: `Kubernetes namespace for the release. Defaults to "default". ` +
-					`Nelm's ReleaseInstall always creates the namespace if missing; there is no ` +
-					`create_namespace toggle (see docs).`,
+					`The provider always lets Nelm create the namespace if it is missing, like ` +
+					`helm_release with create_namespace = true; there is no create_namespace ` +
+					`attribute to turn that off yet (see docs).`,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},

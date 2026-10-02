@@ -255,7 +255,7 @@ instead; the chart renders the same objects either way. See
 | `skip_crds` | `no_install_crds` | |
 | `take_ownership` | `force_adoption` | |
 | `upgrade_install` | `adopt_existing` | Create-only opt-in; prefer `import`. |
-| `create_namespace` | — | Nelm always creates a missing namespace. |
+| `create_namespace` | — | The provider always lets Nelm create a missing namespace, like `create_namespace = true`; there is no attribute to turn that off yet. Where the `helm_release` left it `false` (the default), keep managing the namespace separately; a missing namespace is then created instead of failing the apply. See [Namespace lifecycle](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#namespace-lifecycle). |
 | `wait` | `wait` | Same default (`true`), but Nelm's readiness tracking is stricter, and `wait = false` still waits for what later deploy steps depend on — see [Readiness tracking and `wait`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#readiness-tracking-and-wait). Size `timeouts` accordingly. |
 | `wait_for_jobs` | — | With `wait = true` Nelm always waits for non-hook Jobs to complete. |
 | `force_update`, `recreate_pods`, `reset_values`, `reuse_values`, `cleanup_on_fail`, `replace`, `disable_webhooks`, `disable_crd_hooks`, `disable_openapi_validation`, `render_subchart_notes`, `dependency_update`, `devel`, `verify`, `keyring`, `lint`, `description`, `pass_credentials`, `postrender`, `repository_username`/`repository_password`/`repository_*_file` | — | Not supported. |

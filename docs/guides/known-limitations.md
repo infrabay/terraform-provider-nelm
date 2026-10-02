@@ -64,14 +64,27 @@ before moving production releases.
   the same writer identity.
 
 - **Nelm keeps a lock ConfigMap in every release namespace.** Every apply
-  and destroy gets or creates an unlabelled ConfigMap named
-  `werf-synchronization` in the release namespace and keeps per-release
-  lease locks in its annotations (`lockgate.io/<hash>`); every Nelm or werf
-  release in that namespace shares it. The provider therefore needs `get`,
-  `create` and `update` on ConfigMaps in each release namespace even with
-  `release_storage_driver = "secret"`, and an admission policy that requires
-  labels on ConfigMaps must exempt it, or every apply fails with
-  `unable to prepare kubernetes cm/werf-synchronization`.
+  and destroy gets an unlabelled ConfigMap named `werf-synchronization` in
+  the release namespace, creating it with a server-side apply if it is
+  missing, and keeps per-release lease locks in its annotations
+  (`lockgate.io/<hash>`); every Nelm or werf release in that namespace
+  shares it. Since Nelm 1.27, every install (each create and update of a
+  release) also starts with a dry-run server-side apply of that ConfigMap,
+  which Nelm uses to tell whether the release namespace exists (see
+  [Namespace lifecycle](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#namespace-lifecycle)).
+  The provider therefore needs `get`, `create`, `update` and `patch` on
+  ConfigMaps in each release namespace, even with
+  `release_storage_driver = "secret"`. Without `patch` there, the dry run
+  is refused and Nelm server-side-applies the release's `Namespace` object
+  instead, which needs `patch` on Namespaces, a permission a namespaced
+  `Role` cannot grant. With neither, every create and update fails with
+  `create release namespace: can't apply ConfigMap for locking, and can't apply release namespace`.
+  An admission policy that requires labels on ConfigMaps must exempt this
+  one, or applies fail with
+  `create release namespace: dry-run apply release synchronization configmap`,
+  `can't apply ConfigMap for locking` or
+  `unable to prepare kubernetes cm/werf-synchronization`, depending on how
+  the policy rejects it.
   `terraform destroy` leaves it in place (and creates it if it is missing);
   Helm and `helm_release` ignore it. Delete it by hand only when no `nelm_release`
   (and no Nelm or werf CLI user) is left in the namespace. Upstream in Nelm.
@@ -139,8 +152,12 @@ before moving production releases.
   A failed or pending release is not affected: it always re-plans as an
   update until it is deployed (though the apply refuses to run over a
   pending revision until it is stale, see
-  [Release lifecycle](#release-lifecycle)). A fix depends on surfacing
-  Nelm's own "release up to date" signal.
+  [Release lifecycle](#release-lifecycle)). Nelm's own plan detects most
+  such changes ("no resource changes planned, but still must install
+  release", and since Nelm 1.27 it also says why), but the provider does
+  not act on that signal yet. Acting on it would cover the hooks,
+  `NOTES.txt` and values cases above, but not an out-of-band change of
+  only the chart version: Nelm's check does not compare chart versions.
 
 ## Diff surface (`resources`)
 
@@ -520,7 +537,13 @@ and
   previous revision's manifest, so a `helm_release` revision that recorded a
   resource under an API version the cluster no longer serves fails that first
   apply, exactly as it fails a `helm_release` upgrade; clean up the stored
-  manifest first (e.g. `helm mapkubeapis`).
+  manifest first (e.g. `helm mapkubeapis`). A previous manifest that the API
+  server now rejects for another reason (as invalid, e.g. a changed
+  immutable field, or with a field the object's schema does not accept) no
+  longer fails the apply since nelm 1.27.1: nelm skips that object's
+  managed-fields reconstruction with a warning the provider does not
+  surface, so fields the chart stopped rendering since that revision may
+  stay live, and no diff shows them.
 
 ## Values precedence
 

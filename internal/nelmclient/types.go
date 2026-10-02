@@ -70,8 +70,8 @@ type PlanResult struct {
 
 // ReleaseInfo is the provider-agnostic view of a deployed release, derived
 // from action.ReleaseGet(OutputNoPrint:true, PrintValues:true). DeployedAt is
-// intentionally NOT included: it is always zero as of nelm v1.26.2
-// (verified fact) and must not be mapped.
+// intentionally NOT included: it is always zero in nelm v1.26.2 through
+// v1.27.2 (verified fact) and must not be mapped.
 type ReleaseInfo struct {
 	Name      string
 	Namespace string
