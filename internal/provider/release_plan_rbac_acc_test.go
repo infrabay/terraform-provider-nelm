@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-testing/config"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
@@ -184,7 +185,7 @@ func setupPlannerIdentity(t *testing.T, namespace, clusterName string) inlineCon
 	// The fixture must model the issue: it can read everything the plan
 	// reads and dry-run the namespaced objects, but not patch the
 	// cluster-scoped RBAC objects.
-	for _, check := range []struct {
+	checks := []struct {
 		args []string
 		want bool
 	}{
@@ -194,15 +195,46 @@ func setupPlannerIdentity(t *testing.T, namespace, clusterName string) inlineCon
 		{[]string{"list", "clusterrolebindings.rbac.authorization.k8s.io"}, true},
 		{[]string{"patch", "clusterroles.rbac.authorization.k8s.io"}, false},
 		{[]string{"patch", "clusterrolebindings.rbac.authorization.k8s.io"}, false},
-	} {
-		args := append([]string{"auth", "can-i"}, check.args...)
-		args = append(args, "--as="+user)
+	}
 
-		// can-i exits 0 for "yes" and 1 for "no".
-		out, err := kubectl(args...)
-		if got := err == nil; got != check.want {
-			t.Fatalf("planner fixture: kubectl %s = %v, want %v\n%s", strings.Join(args, " "), got, check.want, out)
+	// The API server's RBAC authorizer reads from an informer cache, so the
+	// bindings created above can take a moment to apply: poll until every
+	// answer matches.
+	deadline := time.Now().Add(10 * time.Second)
+
+	for {
+		mismatch := ""
+
+		for _, check := range checks {
+			args := append([]string{"auth", "can-i"}, check.args...)
+			args = append(args, "--as="+user)
+
+			// The exit status alone cannot tell "no" from a failed kubectl
+			// call, so require the answer itself on the last output line.
+			out, _ := kubectl(args...)
+			lines := strings.Split(strings.TrimSpace(out), "\n")
+			answer := strings.TrimSpace(lines[len(lines)-1])
+
+			if answer != "yes" && answer != "no" {
+				t.Fatalf("planner fixture: kubectl %s answered %q, want yes or no\n%s", strings.Join(args, " "), answer, out)
+			}
+
+			if got := answer == "yes"; got != check.want {
+				mismatch = fmt.Sprintf("planner fixture: kubectl %s = %v, want %v", strings.Join(args, " "), got, check.want)
+
+				break
+			}
 		}
+
+		if mismatch == "" {
+			break
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatal(mismatch)
+		}
+
+		time.Sleep(250 * time.Millisecond)
 	}
 
 	host, err := localContextServer(testKubeconfigPath(), testKubeContext())
