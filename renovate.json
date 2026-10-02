@@ -1,17 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Grouped Go minor/patch and GitHub Actions updates with pinned action digests; github.com/werf/nelm follows nelm's trdl STABLE channel (not the Go proxy's latest, which is effectively alpha), k8s.io/* move only in lockstep with nelm, custom-manager go.mod bumps run `go mod tidy` (postUpgradeTasks require a self-hosted Renovate), and the `# renovate:`-annotated *_VERSION tool pins in the workflows (golangci-lint, govulncheck, tfplugindocs) are bumped too.",
+  "description": "Extends the org preset local>infrabay/renovate (grouped Go minor/patch and GitHub Actions updates, pinned action digests, and the `# renovate:`-annotated *_VERSION tool pins in the workflows: golangci-lint, govulncheck, tfplugindocs). This file adds the nelm rules: github.com/werf/nelm follows nelm's trdl STABLE channel (not the Go proxy's latest, which is effectively alpha), k8s.io/* move only in lockstep with nelm, and custom-manager go.mod bumps run `go mod tidy` with a Go installed on demand (postUpgradeTasks need the self-hosted Renovate in infrabay/renovate, which allows exactly that command).",
   "extends": [
-    "config:recommended",
-    ":dependencyDashboard",
-    "helpers:pinGitHubActionDigests",
-    "customManagers:githubActionsVersions"
+    "local>infrabay/renovate"
   ],
-  "labels": [
-    "dependencies"
-  ],
-  "prConcurrentLimit": 5,
-  "prHourlyLimit": 3,
   "customDatasources": {
     "nelm-stable": {
       "defaultRegistryUrlTemplate": "https://raw.githubusercontent.com/werf/nelm/main/trdl_channels.yaml",
@@ -37,24 +29,6 @@
     }
   ],
   "packageRules": [
-    {
-      "description": "Routine Go minor/patch bumps arrive as one grouped PR",
-      "matchManagers": [
-        "gomod"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "groupName": "go minor/patch"
-    },
-    {
-      "description": "GitHub Actions updates grouped; digests pinned by the preset above",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "groupName": "github actions"
-    },
     {
       "description": "gomod manager must NOT touch nelm (the proxy's latest is the alpha channel; the custom manager above owns it) nor the k8s.io modules (transitively pinned by nelm, lockstep-only)",
       "matchManagers": [
@@ -85,7 +59,10 @@
           "go.mod",
           "go.sum"
         ],
-        "executionMode": "branch"
+        "executionMode": "branch",
+        "installTools": {
+          "golang": {}
+        }
       }
     }
   ],
