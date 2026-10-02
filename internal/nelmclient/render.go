@@ -66,11 +66,12 @@ func (c *Client) Render(ctx context.Context, spec ReleaseSpec, timeout time.Dura
 	ctx, buf := captureCtx(ctx)
 
 	// OutputFilePath is load-bearing: ChartRender ignores OutputNoPrint (nelm
-	// v1.26.2 only declares it) and, with no OutputFilePath, prints every
-	// rendered manifest — Secret data included — to os.Stdout, which inside a
-	// plugin process is a pipe Terraform core logs at WARN. The printout goes
-	// to a file in the 0700 opDir instead, removed with it by the deferred
-	// cleanup. OutputNoPrint stays set for when nelm starts honoring it.
+	// v1.26.2 through v1.27.2 only declare it) and, with no OutputFilePath,
+	// prints every rendered manifest — Secret data included — to os.Stdout,
+	// which inside a plugin process is a pipe Terraform core logs at WARN.
+	// The printout goes to a file in the 0700 opDir instead, removed with it
+	// by the deferred cleanup. OutputNoPrint stays set for when nelm starts
+	// honoring it.
 	opts := action.ChartRenderOptions{
 		ChartRepoConnectionOptions: repoOpts,
 		KubeConnectionOptions:      c.toKubeConnectionOptions(),
