@@ -15,7 +15,6 @@ import (
 	"github.com/werf/logboek"
 	"github.com/werf/nelm/pkg/action"
 	"github.com/werf/nelm/pkg/common"
-	"github.com/werf/nelm/pkg/plan"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -192,9 +191,10 @@ func installTrackingOptions(spec ReleaseSpec) common.TrackingOptions {
 
 // Plan runs Nelm's release-install planning machinery
 // (action.ReleasePlanInstall) against a per-op temp dir and plan-artifact
-// path, reads the artifact back (plan.ReadPlanArtifact), deletes the
-// artifact and its directory before returning, and surfaces the resulting
-// []*plan.ResourceChange as a PlanResult.
+// path, reads the artifact's deploy type and []*plan.ResourceChange back
+// (readPlanArtifact, planartifact.go — not nelm's plan.ReadPlanArtifact, see
+// there), deletes the artifact and its directory before returning, and
+// surfaces the changes as a PlanResult.
 func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Duration) (*PlanResult, error) {
 	if c.configUnknown {
 		return nil, ErrConfigUnknown
@@ -253,15 +253,12 @@ func (c *Client) Plan(ctx context.Context, spec ReleaseSpec, timeout time.Durati
 
 	// No nelm output here: planning already succeeded, so the log cannot
 	// explain a failure to read the artifact back.
-	artifact, err := plan.ReadPlanArtifact(ctx, artifactPath, "", "")
+	res, err := readPlanArtifact(artifactPath)
 	if err != nil {
 		return nil, fmt.Errorf("read plan artifact: %w", err)
 	}
 
-	return &PlanResult{
-		Changes:    artifact.Data.Changes,
-		DeployType: string(artifact.DeployType),
-	}, nil
+	return res, nil
 }
 
 // Install runs action.ReleaseInstall for the given spec WITHOUT a

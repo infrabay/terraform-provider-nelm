@@ -9,7 +9,8 @@ provider's architecture; DEVELOPMENT.md covers building and testing.
 
 `internal/nelmclient` is the **single point of contact** with the Nelm
 (`github.com/werf/nelm`) Go library. Nothing outside this package may import
-`github.com/werf/nelm/pkg/action`.
+`github.com/werf/nelm/pkg/action` or read a Nelm plan artifact (the
+`scripts/smoke` fixture capture aside).
 
 `internal/provider` consumes `*nelmclient.Client` only through its exported
 methods, declared as the `releaseClient` interface in
@@ -69,6 +70,22 @@ may import `github.com/werf/nelm/pkg/plan` (and `pkg/resource/spec`) to
 hand-build `PlanResult.Changes` fixtures for the fake `releaseClient`
 (release_plan_create_test.go); the provider code itself only passes them
 through.
+
+`Plan` reads the plan artifact `action.ReleasePlanInstall` writes with its
+own reader (`readPlanArtifact`, `planartifact.go`), never
+`plan.ReadPlanArtifact`. Nelm cannot read back an artifact in which the
+dry-run apply of any object failed: it writes that error into
+`installableResourceInfos[].dryApplyErr`, an `error` it marshals as a JSON
+object and cannot unmarshal (issue #8). The error is already in the
+object's "blind apply" change (`Reason`), so the reader decodes only
+`deployType` and `data.changes` and skips the rest of the artifact
+undecoded, unknown fields included. It follows Nelm's format (gzip, scheme
+`apiVersion` `v1`, the data as the JSON string `dataRaw`) and refuses an
+artifact it cannot read correctly (another scheme, an encrypted artifact,
+no `deployType` or `changes` field) instead of planning no changes.
+`TestPlanArtifactFormat` pins the field names and types it relies on
+against Nelm's `plan.PlanArtifact` / `plan.PlanArtifactData` and must pass
+on every Nelm upgrade.
 
 ## Seam 2 — `internal/planconv` consumed by both sides of the diff
 
@@ -155,7 +172,8 @@ it invalidates any fixtures/goldens already captured against the old shape.
   created. No `Client` method may run after it.
 - No `SecretKey` / `WERF_SECRET_KEY` anywhere in this codebase (werf secret
   values are out of scope for v1; this also avoids the `os.Setenv` race that
-  encrypted plan artifacts would otherwise require).
+  encrypted plan artifacts would otherwise require). `readPlanArtifact`
+  refuses an encrypted artifact.
 - Every Nelm action call passes its own per-operation `TempDirPath` (a fresh
   0700 subdirectory under `nelmclient.TempRoot()`) and `OutputNoPrint: true`
   discipline. `OutputNoPrint` alone is NOT enough for `action.ChartRender`:

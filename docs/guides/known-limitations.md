@@ -57,11 +57,17 @@ before moving production releases.
   plan. The credentials `terraform plan` uses therefore need `get`, `list`
   and `patch` on every kind the chart renders, and read access to the
   release's storage Secrets (or ConfigMaps), like the apply's. With a
-  read-only plan identity the plan fails on such a patch (`cannot patch`),
-  or warns `blind apply` for each object it may not dry-run and plans it
-  without the API server's validation. `helm_release` (without its
-  `manifest` experiment) plans with read access only. Plan and apply with
-  the same writer identity.
+  read-only plan identity the plan fails on such a patch (`cannot patch`).
+  An object that needs no such patch but whose dry run is refused is
+  planned as a "blind apply" instead: the plan succeeds with a
+  `nelm_release: blind apply for <key>` warning carrying the API server's
+  error, and the object's planned value is still the chart's render (an
+  unchanged object plans no change), only without the API server's
+  validation. Provider versions before 0.1.1 failed such a plan with
+  `read plan artifact: decode artifact data json: ... dryApplyErr of type error`
+  ([#8](https://github.com/infrabay/terraform-provider-nelm/issues/8)).
+  `helm_release` (without its `manifest` experiment) plans with read access
+  only. Plan and apply with the same writer identity.
 
 - **Nelm keeps a lock ConfigMap in every release namespace.** Every apply
   and destroy gets an unlabelled ConfigMap named `werf-synchronization` in
