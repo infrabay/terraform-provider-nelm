@@ -63,9 +63,11 @@ in the provider's repository; its chart is
 ### Optional
 
 - `namespace` (String) Kubernetes namespace for the release. Defaults to
-  `"default"`. Changing this attribute forces resource replacement. Nelm's
-  `ReleaseInstall` always creates the namespace if missing; there is no
-  `create_namespace` toggle (see Caveats below).
+  `"default"`. Changing this attribute forces resource replacement. The
+  provider always lets Nelm create the namespace if it is missing, like
+  `helm_release` with `create_namespace = true`; there is no
+  `create_namespace` attribute to turn that off yet (see "Namespace
+  lifecycle" below).
 - `repository` (String) Chart repository URL used to resolve a bare chart
   name. An `oci://` URL is `helm_release`'s OCI form: it is joined with
   `chart` into one `oci://` reference (`repository = "oci://host/path"` +
@@ -207,15 +209,18 @@ operation once the timeout expires instead of hanging it. Each HTTP request
 to a classic chart repository is additionally capped at 2 minutes (Helm's
 default).
 
-### Dropped by design (not attributes of this resource)
+### Not offered (not attributes of this resource)
 
-These exist on comparable Helm-based providers but are intentionally not
-exposed here, because the underlying Nelm behavior makes them either
-meaningless or actively misleading:
+These exist on comparable Helm-based providers but are not exposed here,
+mostly because the underlying Nelm behavior makes them either meaningless
+or actively misleading:
 
-- `create_namespace` — Nelm's `ReleaseInstall` always auto-creates the
-  target namespace if it is missing; a toggle to disable that would not
-  do anything, so it is not offered.
+- `create_namespace` — the provider always lets Nelm create the release
+  namespace if it is missing, which is what `helm_release` does with
+  `create_namespace = true` (its default is `false`). Nelm 1.27 and later
+  have an option to skip that step; this provider does not expose it yet.
+  To manage namespaces yourself in the meantime, see "Namespace lifecycle"
+  below.
 - `upgrade_install` — Nelm install is natively idempotent
   install-or-upgrade, so there is no install/upgrade split to select
   between. Its safety role is covered by `adopt_existing`: Create refuses
@@ -994,17 +999,56 @@ matter when migrating `atomic = true`:
 
 ### Namespace lifecycle
 
-The provider does not offer a `create_namespace` flag because there is
-nothing to toggle: Nelm's install path always creates the target
-namespace if it doesn't already exist. Symmetrically, `terraform destroy`
-does **not** delete the namespace — only the release's managed resources
-and release-storage records are removed. Nelm's lock ConfigMap
-`werf-synchronization`, which every apply and destroy creates in the
-release namespace if it is missing, stays as well (see
-[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#provider-configuration-and-cluster-access)).
-If a namespace should be removed too, manage it with a separate
-`kubernetes_namespace`-style resource (from another provider) or delete it
-manually.
+The provider always lets Nelm create the release namespace if it is
+missing, which is what `helm_release` does with `create_namespace = true`
+(its default is `false`). Nelm 1.27 and later have an option to skip that
+step; this provider does not expose it yet, so there is no
+`create_namespace` attribute. Before every install (each create and update
+of the release; plans and destroys do not run it), Nelm checks the
+namespace like this:
+
+1. It runs a dry-run server-side apply of its lock ConfigMap
+   `werf-synchronization` in the release namespace. If that succeeds, the
+   namespace exists, and Nelm leaves it alone.
+2. If the dry run is refused as `Forbidden` or `NotFound` (the namespace
+   is missing, or the credentials may not `patch` ConfigMaps there, or
+   `create` them while the ConfigMap does not exist yet), Nelm
+   server-side-applies the `Namespace` object itself, with only its name:
+   first as a dry run, then for real, as field manager `helm`. This creates
+   the namespace if it is missing, and also runs when it already exists. It
+   needs `patch` on Namespaces, and `create` for a missing one.
+3. If the `Namespace` dry run is refused as `Forbidden` or `NotFound` too,
+   the apply fails with
+   `create release namespace: can't apply ConfigMap for locking, and can't apply release namespace (in case ConfigMap apply error caused by non-existent namespace)`,
+   followed by both errors.
+4. Any other error from the ConfigMap dry run, for example from an
+   admission policy that rejects the unlabelled ConfigMap as `Invalid`,
+   fails the apply with
+   `create release namespace: dry-run apply release synchronization configmap`.
+
+Credentials limited to the release namespace (a `Role`, with no access to
+`Namespace` objects) therefore need `get`, `create`, `update` and `patch`
+on ConfigMaps there; without `patch`, every create and update fails at
+step 3. See
+[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#provider-configuration-and-cluster-access).
+
+`terraform destroy` does **not** delete the namespace, whether Nelm created
+it or not — only the release's managed resources and release-storage
+records are removed. Nelm's lock ConfigMap `werf-synchronization`, which
+every apply and destroy creates in the release namespace if it is missing,
+stays as well.
+
+To manage a namespace yourself (its labels and annotations, or deleting it
+on destroy), declare it with a separate resource, such as
+`kubernetes_namespace_v1` from the `hashicorp/kubernetes` provider, and
+pass its name to the release, e.g.
+`namespace = kubernetes_namespace_v1.app.metadata[0].name`. The reference
+makes Terraform create the namespace before the release and destroy the
+release before the namespace. With the ConfigMap permissions above, Nelm's
+check then stops at step 1 and does not touch the `Namespace` object.
+Until this provider exposes Nelm's option, an install into a namespace
+that does not exist still creates it instead of failing. To remove a
+namespace Nelm created, delete it manually once no release is left in it.
 
 ### Values precedence
 

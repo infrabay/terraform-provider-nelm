@@ -321,9 +321,17 @@ existing object, which the API server authorizes like a real `patch`, and
 it can fix up objects' `managedFields` with a real patch (see
 [`managedFields` and `terraform plan`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#managedfields-and-terraform-plan)).
 With read-only plan credentials, plans fail or lose the API server's
-validation. Nelm also gets, creates and updates a lock ConfigMap named
-`werf-synchronization` in every release namespace, whatever the storage
-driver. See
+validation. Nelm also keeps a lock ConfigMap named `werf-synchronization` in
+every release namespace, whatever the storage driver, so applies and
+destroys need `get`, `create`, `update` and `patch` on ConfigMaps there.
+Before every install (each create and update of a release), Nelm runs a
+dry-run server-side apply of that ConfigMap to tell whether the namespace
+exists. If that is refused (`Forbidden` or `NotFound`), Nelm
+server-side-applies the release's `Namespace` object instead, which needs
+`patch` on Namespaces (and `create` for a missing one); without either
+permission, every create and update fails. See
+[Namespace lifecycle](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#namespace-lifecycle)
+and
 [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#provider-configuration-and-cluster-access).
 
 ## Nelm feature gates
