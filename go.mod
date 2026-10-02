@@ -17,7 +17,7 @@ require (
 	github.com/samber/lo v1.53.0
 	github.com/wI2L/jsondiff v0.7.1
 	github.com/werf/logboek v0.7.1
-	github.com/werf/nelm v1.26.2
+	github.com/werf/nelm v1.27.2
 	k8s.io/apimachinery v0.29.3
 	k8s.io/client-go v0.29.3
 )
