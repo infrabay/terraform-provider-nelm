@@ -58,11 +58,12 @@ type ReleaseSpec struct {
 	NoFinalTracking bool
 }
 
-// PlanResult is the result of Client.Plan: the resource changes read back
-// from a Nelm plan artifact (action.ReleasePlanInstall + plan.ReadPlanArtifact),
-// after the artifact file itself has already been deleted. *plan.ResourceChange
-// passes through opaquely from Nelm (CONTRACTS.md seam 1) — internal/planconv
-// consumes it directly, never re-deriving its own change-classification logic.
+// PlanResult is the result of Client.Plan: the deploy type and resource
+// changes of the Nelm plan artifact action.ReleasePlanInstall wrote (read by
+// readPlanArtifact, planartifact.go), after the artifact file itself has
+// already been deleted. *plan.ResourceChange passes through opaquely from
+// Nelm (CONTRACTS.md seam 1) — internal/planconv consumes it directly, never
+// re-deriving its own change-classification logic.
 type PlanResult struct {
 	Changes    []*plan.ResourceChange
 	DeployType string

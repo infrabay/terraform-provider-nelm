@@ -42,10 +42,13 @@ func Decode(artifact *plan.PlanArtifact) *DecodedArtifact {
 	}
 }
 
-// ReadArtifact reads+gunzips+JSON-decodes a plan artifact exactly the way
-// production code will (plan.ReadPlanArtifact with no secretKey/secretWorkDir
-// — CONTRACTS.md: no SecretKey/WERF_SECRET_KEY anywhere in this codebase,
-// werf secret values are out of scope for v1).
+// ReadArtifact reads+gunzips+JSON-decodes a whole plan artifact with nelm's
+// own plan.ReadPlanArtifact (no secretKey/secretWorkDir — CONTRACTS.md: no
+// SecretKey/WERF_SECRET_KEY anywhere in this codebase, werf secret values are
+// out of scope for v1). Production decodes only deployType and data.changes
+// (internal/nelmclient readPlanArtifact): nelm's reader fails on an artifact
+// in which any object's dry-run apply failed (issue #8), so a capture whose
+// plan hits one fails here.
 func ReadArtifact(ctx context.Context, path string) (*plan.PlanArtifact, error) {
 	artifact, err := plan.ReadPlanArtifact(ctx, path, "", "")
 	if err != nil {
