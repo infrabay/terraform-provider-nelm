@@ -328,8 +328,9 @@ Before every install (each create and update of a release), Nelm runs a
 dry-run server-side apply of that ConfigMap to tell whether the namespace
 exists. If that is refused (`Forbidden` or `NotFound`), Nelm
 server-side-applies the release's `Namespace` object instead, which needs
-`patch` on Namespaces (and `create` for a missing one); without either
-permission, every create and update fails. See
+`patch` on Namespaces (and `create` for a missing one). With neither
+`patch` on that ConfigMap nor `patch` on the Namespace, every create and
+update fails. See
 [Namespace lifecycle](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#namespace-lifecycle)
 and
 [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#provider-configuration-and-cluster-access).

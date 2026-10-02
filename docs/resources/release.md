@@ -1025,6 +1025,9 @@ namespace like this:
    admission policy that rejects the unlabelled ConfigMap as `Invalid`,
    fails the apply with
    `create release namespace: dry-run apply release synchronization configmap`.
+5. Any other error from the `Namespace` dry run or from the real apply
+   fails the apply with `create release namespace: dry-run apply release namespace`
+   or `create release namespace: create release namespace`.
 
 Credentials limited to the release namespace (a `Role`, with no access to
 `Namespace` objects) therefore need `get`, `create`, `update` and `patch`
