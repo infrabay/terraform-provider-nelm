@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -113,7 +114,15 @@ func localContextCA(kubeconfigPath, kubeCtx string) (string, error) {
 	}
 
 	if cluster.CertificateAuthority != "" {
-		pem, err := os.ReadFile(cluster.CertificateAuthority)
+		// clientcmd.LoadFromFile keeps file references as written; a relative
+		// one is relative to the kubeconfig file, not to the test's working
+		// directory.
+		caPath := cluster.CertificateAuthority
+		if !filepath.IsAbs(caPath) {
+			caPath = filepath.Join(filepath.Dir(kubeconfigPath), caPath)
+		}
+
+		pem, err := os.ReadFile(caPath)
 		if err != nil {
 			return "", fmt.Errorf("read CA file of kubeconfig context %q: %w", kubeCtx, err)
 		}
@@ -347,4 +356,54 @@ func TestAccReleaseResource_planWithoutClusterRBACPatch(t *testing.T) {
 			},
 		},
 	})
+}
+
+// TestLocalContextCA covers the fixture's CA lookup offline: embedded
+// certificate-authority-data, and certificate-authority file references both
+// absolute and relative to the kubeconfig file (not the working directory).
+func TestLocalContextCA(t *testing.T) {
+	const pem = "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n"
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ca.crt"), []byte(pem), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, clusterCA := range map[string]string{
+		"embedded": "certificate-authority-data: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tClptRnJaUT09Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K",
+		"absolute": "certificate-authority: " + filepath.Join(dir, "ca.crt"),
+		"relative": "certificate-authority: ca.crt",
+	} {
+		t.Run(name, func(t *testing.T) {
+			kubeconfig := filepath.Join(dir, name+".yaml")
+			body := fmt.Sprintf(`apiVersion: v1
+kind: Config
+clusters:
+- name: local
+  cluster:
+    server: https://127.0.0.1:6443
+    %s
+contexts:
+- name: test
+  context:
+    cluster: local
+    user: u
+users:
+- name: u
+  user: {}
+`, clusterCA)
+			if err := os.WriteFile(kubeconfig, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := localContextCA(kubeconfig, "test")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if got != pem {
+				t.Fatalf("localContextCA = %q, want %q", got, pem)
+			}
+		})
+	}
 }

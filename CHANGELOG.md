@@ -13,10 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `read plan artifact: decode artifact data json: json: cannot unmarshal object into Go struct field PlanArtifactData.installableResourceInfos.<n>.dryApplyErr of type error`
   when Nelm's dry-run server-side apply of one of the release's objects
   returns an error, for example an RBAC `forbidden` for a plan identity that
-  may read but not patch `clusterroles`. The plan now succeeds, and each such
-  object is planned as a blind apply with a
-  `nelm_release: blind apply for <key>` warning that carries the error, as
-  described in
+  may read but not patch `clusterroles`. The plan artifact is now read
+  regardless, and each object that Nelm plans as a blind apply (a non-hook
+  resource whose dry run was refused) is reported with a
+  `nelm_release: blind apply for <key>` warning that carries the error.
+  Dry-run errors that Nelm itself treats as fatal, such as an immutable-field
+  change that would need a recreate, still fail the plan with Nelm's error. See
   [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#provider-configuration-and-cluster-access)
   ([#8](https://github.com/infrabay/terraform-provider-nelm/issues/8)).
 
