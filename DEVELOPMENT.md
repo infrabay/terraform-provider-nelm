@@ -163,12 +163,15 @@ One-time setup for the Terraform Registry:
    type), add its ASCII-armored public key in the Registry's publisher
    settings (Signing Keys), and store the private key and its passphrase as
    the `GPG_PRIVATE_KEY` and `PASSPHRASE` secrets.
-3. Keep those secrets in a `release` environment (deployment tags `v*`,
-   required reviewers) and uncomment `environment: release` in
-   `release.yml`, so that only a protected tag push can read them.
-4. Sign in to the Registry with GitHub and publish the provider from this
-   repository. The Registry adds a webhook that picks up every later
-   release.
+3. Keep those secrets in the `release` environment (deployment tags `v*`,
+   required reviewers) that `release.yml`'s `goreleaser` job runs in, so
+   that only a protected, approved tag push can read them. Protect `v*`
+   tags with a ruleset as well.
+4. Publish the provider from the HCP Terraform organization that owns the
+   `infrabay` namespace (Registry -> Public namespaces -> Publish ->
+   Provider); the Terraform Cloud GitHub App must have access to this
+   repository. Later tags are ingested automatically; if a version does not
+   appear, use Resync there.
 
 ## Nelm source reference
 

@@ -7,9 +7,9 @@ name: release
 #                     with the Terraform Registry publisher (Settings -> Signing
 #                     Keys). This is what signs the SHA256SUMS.
 #   PASSPHRASE      - passphrase for that GPG key.
-# Keep them in a 'release' environment (deployment tags v*, required
-# reviewers) and uncomment `environment: release` below, so that only a
-# protected tag push can read them.
+# They live in the 'release' environment (deployment tags v*, required
+# reviewer), so only a protected tag push that a maintainer approves can
+# read them.
 on:
   push:
     tags:
@@ -26,7 +26,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    # environment: release
+    environment: release
     permissions:
       contents: write
     steps:
