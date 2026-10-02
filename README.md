@@ -79,8 +79,10 @@ pre-1.0, so read the release notes before moving to a new minor version.
 ## Requirements
 
 - [Terraform](https://developer.hashicorp.com/terraform/downloads) 1.0 or
-  later (CI tests 1.15.8). Migrating from `helm_release` needs 1.7 or later
-  (`removed` and `import` blocks), or 1.8 or later for a `moved` block.
+  later (CI tests the release pinned in
+  [`test.yml`](.github/workflows/test.yml), kept current by Renovate).
+  Migrating from `helm_release` needs 1.7 or later (`removed` and `import`
+  blocks), or 1.8 or later for a `moved` block.
 - [Go](https://go.dev/dl/) (matching the `go` directive in `go.mod`) — only
   to build the provider from source.
 
