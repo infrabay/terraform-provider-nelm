@@ -16,8 +16,9 @@ version tag publishes a Registry release (see [Releasing](#releasing)).
 - Go 1.26 or newer (the `go` directive in `go.mod` is `1.26.0`; its
   `toolchain go1.27.1` line is what CI and release builds use, and what a
   local `go` auto-selects).
-- Terraform 1.15.8 (the version CI tests with; `terraform init` tolerates
-  dev-overridden providers, but we skip `init` anyway — see below).
+- Terraform: the release CI tests with (`terraform_version` in
+  `.github/workflows/test.yml`, kept current by Renovate). `terraform init`
+  tolerates dev-overridden providers, but we skip `init` anyway — see below.
 - helm CLI (used to author/lint/render `testdata/charts/basic`, and by the
   acceptance tests to install a plain-helm release for the import test).
 - A local Kubernetes cluster whose kubeconfig context lives in
@@ -40,7 +41,7 @@ binary, bypassing the registry and the provider lock file. Because
 `dev_overrides` providers are never resolved from a registry or written to
 `.terraform.lock.hcl`, **`terraform init` is not just optional but actively
 counter-productive here — skip it.** This has been verified against
-Terraform 1.15.8: `plan`/`apply`/`destroy`/`import` all work against
+Terraform 1.15 and 1.16: `plan`/`apply`/`destroy`/`import` all work against
 `examples/basic` with no `.terraform` directory and no lock file present at
 all.
 
@@ -132,7 +133,8 @@ live in `~/.kube/config` (where OrbStack and kind write it by default).
   frontmatter and layout rules for the hand-written `docs/`;
 - `acceptance`: the acceptance suite against a
   [kind](https://kind.sigs.k8s.io/) cluster (`kind-nelm-acc` context), with
-  Terraform 1.15.8 and the real helm CLI for the out-of-band import fixture.
+  the Terraform release pinned in `test.yml` and the real helm CLI for the
+  out-of-band import fixture.
 
 The tool versions are `*_VERSION` variables at the top of `test.yml`, which
 Renovate keeps current. To run the docs and vulnerability checks locally:
