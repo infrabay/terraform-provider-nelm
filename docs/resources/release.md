@@ -661,8 +661,10 @@ The plan also runs a dry-run server-side apply of every existing object,
 which the API server authorizes like a real `patch`. The credentials
 `terraform plan` runs with therefore need `patch` on every kind the chart
 renders, like the apply's: with a read-only plan identity the plan fails on
-the fix-up (`cannot patch`), or warns `blind apply` for each object it may
-not dry-run and plans it without the API server's validation. See
+the fix-up (`cannot patch`), and an object it may not dry-run is planned as
+a blind apply, with a `nelm_release: blind apply for <key>` warning carrying
+the API server's error: its planned value is still the chart's render, only
+without the API server's validation. See
 [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#provider-configuration-and-cluster-access).
 
 ### Fields added out of band
