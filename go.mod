@@ -2,7 +2,7 @@ module github.com/infrabay/terraform-provider-nelm
 
 go 1.26.0
 
-toolchain go1.27.1
+toolchain go1.27.2
 
 // NOTE for local development only: a `replace github.com/werf/nelm => ../nelm` directive
 // may be added here temporarily to iterate against the local nelm checkout, but it must
