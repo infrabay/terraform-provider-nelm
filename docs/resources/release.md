@@ -335,7 +335,14 @@ correctly:
   phantom diff. This projection is generic — it works for every resource
   kind, not a hand-maintained list — while still surfacing genuine drift:
   a field your chart *does* set whose live value changed stays in the
-  projection and diffs normally.
+  projection and diffs normally. A read of an object that the API server
+  answers with an internal error (a `500`, or any other 5xx without a
+  Kubernetes `Status` body), `503`, its own timeout (`504`) or
+  `429` is retried up to three more times, 0.5, 1 and 2 seconds apart,
+  within `timeouts.read`, before the refresh fails with
+  `Failed to read live resources`. These retries come on top of the
+  client's own retries of a response that carries `Retry-After`; a read cut
+  off by `kube_request_timeout` or `timeouts.read` is not retried.
 - Terraform's built-in map differ then compares the two maps entry by
   entry. Because the prior side is always the live cluster state, an
   out-of-band **change to a field your chart manages** (e.g. `kubectl
@@ -718,9 +725,11 @@ walks through both. Two field-ownership differences matter:
   makes the apply carry them out. The rename is a `metadata.managedFields`
   patch, conditional on the object's `resourceVersion` (no spec change, no
   rollout), and shares the apply's `create`/`update` timeout. Once done it
-  is a no-op that costs one GET per object per apply. An object whose patch
-  hits an unavailable admission webhook is skipped with a warning and
-  handed over by a later apply.
+  is a no-op that costs one GET per object per apply; a GET the API server
+  fails transiently is retried as on refresh (see above). An object whose
+  patch hits an unavailable admission webhook, or whose GET still hits an
+  unavailable conversion webhook after those retries, is skipped with a
+  warning and handed over by a later apply.
 - **`kubectl edit` hotfixes** survive `helm_release` upgrades but not
   Nelm's by default — see "Fields added out of band" above.
 

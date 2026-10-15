@@ -45,9 +45,11 @@ const helmProviderFieldManagerPrefix = "terraform-provider-helm"
 // release or object, a kind the cluster no longer serves, and an object
 // without such an entry are all no-ops, so this is idempotent and, once the
 // hand-over is done, costs a release read plus one GET per object. An object
-// whose patch hits an unavailable admission webhook is skipped, as nelm's own
-// managedFields fix does, reported in the returned list (one line per object)
-// and handed over by a later apply. timeout bounds the whole call.
+// whose patch hits an unavailable admission webhook, or whose GET still hits
+// an unavailable conversion webhook once getLive's retries run out, is
+// skipped, as nelm's own managedFields fix does, reported in the returned
+// list (one line per object) and handed over by a later apply. timeout
+// bounds the whole call.
 //
 // Callers run this at apply only, never while planning: it is a real write,
 // and a plan must not add one to the managedFields fix-up nelm's own plan
@@ -131,9 +133,12 @@ func handOverHelmProviderFieldManagers(ctx context.Context, mapper meta.RESTMapp
 // (field manager "helm"; it changes no field, so it adds no entry of its
 // own). The patch carries the resourceVersion it was computed from: a
 // concurrent write fails it with a Conflict, which the caller retries from a
-// fresh GET, instead of having that writer's own entry overwritten.
+// fresh GET, instead of having that writer's own entry overwritten. A GET
+// the API server fails transiently is retried as LiveObjects retries it
+// (getLive); that includes a conversion webhook's 500, so such an object is
+// skipped only after those retries. The PATCH is not retried.
 func handOverObject(ctx context.Context, client dynamic.ResourceInterface, name string) error {
-	obj, err := client.Get(ctx, name, metav1.GetOptions{})
+	obj, err := getLive(ctx, client, name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil

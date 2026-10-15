@@ -161,13 +161,68 @@ func (c *Client) IsNamespaced(gvk schema.GroupVersionKind) (bool, error) {
 	return mapping.Scope.Name() == meta.RESTScopeNameNamespace, nil
 }
 
+// liveGetAttempts and liveGetRetryDelay bound getLive's retries of a GET the
+// API server failed transiently: up to four attempts, 0.5s, 1s and 2s apart.
+// liveGetRetryDelay is a variable so that tests can shorten it.
+const liveGetAttempts = 4
+
+var liveGetRetryDelay = 500 * time.Millisecond
+
+// isTransientServerErr reports whether err is an API server failure that
+// the same GET may not hit again: an internal error (a 500, or a 5xx
+// without a Status body), a 503, a server-side timeout (504, ServerTimeout)
+// or a 429. GKE, for one, answers a request its IAM authorizer failed to
+// check with a 500 "the server is currently unable to handle the request".
+// client-go retries such a response itself only when it carries
+// Retry-After, which a failed authorizer's 500 does not. A request cut off
+// on the client side (kube_request_timeout, ctx) is not an API status and
+// is not retried.
+func isTransientServerErr(err error) bool {
+	return apierrors.IsInternalError(err) ||
+		apierrors.IsServiceUnavailable(err) ||
+		apierrors.IsServerTimeout(err) ||
+		apierrors.IsTimeout(err) ||
+		apierrors.IsTooManyRequests(err)
+}
+
+// getLive is resClient.Get(name), retried while it fails with a transient
+// server error (isTransientServerErr), at most liveGetAttempts times and
+// never past ctx. These retries come on top of client-go's own retries of a
+// response that carries Retry-After. When retries run out, or ctx ends a
+// wait between them, it returns the last error prefixed with the attempts
+// made (and what stopped them), still wrapping the API server's error (and
+// ctx's cause).
+func getLive(ctx context.Context, resClient dynamic.ResourceInterface, name string) (*unstructured.Unstructured, error) {
+	delay := liveGetRetryDelay
+
+	for attempt := 1; ; attempt++ {
+		obj, err := resClient.Get(ctx, name, metav1.GetOptions{})
+		if err == nil || !isTransientServerErr(err) {
+			return obj, err
+		}
+
+		if attempt == liveGetAttempts {
+			return nil, fmt.Errorf("after %d attempts: %w", attempt, err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("after %d of %d attempts, stopped by %w: %w", attempt, liveGetAttempts, context.Cause(ctx), err)
+		case <-time.After(delay):
+		}
+
+		delay *= 2
+	}
+}
+
 // LiveObjects fetches the current live cluster state for each ref via the
 // cached RESTMapper + dynamic client (Read builds the live side of the diff
 // from these, normalized through the same planconv.NormalizeUnstructured
 // pipeline as the planned side). A ref whose object no longer exists
 // (NotFound) is simply omitted from the result — an out-of-band deletion is
 // signaled by absence, not an error, and diffs as a re-create at the next
-// plan.
+// plan. A GET the API server fails transiently is retried (getLive), so a
+// single failed request does not fail the whole Read.
 func (c *Client) LiveObjects(ctx context.Context, refs []ResourceRef) (map[ResourceRef]*unstructured.Unstructured, error) {
 	factory, err := c.ensureKubeFactory(ctx)
 	if err != nil {
@@ -202,7 +257,7 @@ func (c *Client) LiveObjects(ctx context.Context, refs []ResourceRef) (map[Resou
 			resClient = factory.Dynamic().Resource(mapping.Resource)
 		}
 
-		obj, err := resClient.Get(ctx, ref.Name, metav1.GetOptions{})
+		obj, err := getLive(ctx, resClient, ref.Name)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				continue

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A refresh of a `nelm_release` no longer fails with
+  `Failed to read live resources`, nor an apply of an existing release with
+  `nelm_release: helm_release field-manager hand-over failed`, when the API
+  server fails a single read of one of the release's objects transiently,
+  for example GKE's
+  `an error on the server ("Internal Server Error: ...: the server is currently unable to handle the request")`
+  when its IAM authorizer is briefly unavailable. A read that the API server
+  answers with an internal error (a `500`, or any other 5xx without a
+  Kubernetes `Status` body), `503`, its own timeout (`504`) or
+  `429` is now retried up to three more times, 0.5, 1 and 2 seconds apart,
+  on top of the client's own retries of a response that carries
+  `Retry-After`, within `timeouts.read` on refresh and the apply's
+  `create`/`update` timeout for the hand-over. A read cut off by
+  `kube_request_timeout` or by those timeouts is not retried
+  ([#17](https://github.com/infrabay/terraform-provider-nelm/issues/17)).
+
 ## [0.1.1] - 2026-10-09
 
 ### Fixed

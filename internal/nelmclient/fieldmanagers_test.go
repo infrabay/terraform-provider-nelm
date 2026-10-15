@@ -259,6 +259,11 @@ type fakeAPIServer struct {
 
 	// blockGets makes GET wait until the client gives up on the request.
 	blockGets bool
+
+	// failGets, if set for a path, fails that many of its next GETs with the
+	// 500 kube-apiserver writes when its authorizer fails
+	// (writeAuthorizerErr).
+	failGets map[string]int
 }
 
 func newFakeAPIServer(t *testing.T) (*fakeAPIServer, dynamic.Interface) {
@@ -269,6 +274,7 @@ func newFakeAPIServer(t *testing.T) (*fakeAPIServer, dynamic.Interface) {
 		objects:     map[string]map[string]any{},
 		patches:     map[string]int{},
 		beforePatch: map[string]func(map[string]any) (int, string){},
+		failGets:    map[string]int{},
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(f.serve))
@@ -351,6 +357,13 @@ func (f *fakeAPIServer) serve(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
+		if n := f.failGets[r.URL.Path]; n > 0 {
+			f.failGets[r.URL.Path] = n - 1
+			writeAuthorizerErr(w, r)
+
+			return
+		}
+
 		if !ok {
 			writeStatus(w, http.StatusNotFound, metav1.StatusReasonNotFound, "not found")
 			return
@@ -594,6 +607,42 @@ func TestHandOverHelmProviderFieldManagers_ConflictRetried(t *testing.T) {
 	}
 	if _, n := findEntry(cm, tfHelm311, update, "v1"); n != 0 {
 		t.Fatalf("helm_release entry still present: %+v", cm)
+	}
+}
+
+// TestHandOverHelmProviderFieldManagers_TransientGetRetried asserts the
+// hand-over's GET is retried like LiveObjects' (getLive): a single 500 from
+// GKE's authorizer must not fail the apply before the install runs.
+func TestHandOverHelmProviderFieldManagers_TransientGetRetried(t *testing.T) {
+	ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	update := metav1.ManagedFieldsOperationUpdate
+
+	setLiveGetRetryDelay(t, time.Millisecond)
+
+	f, dyn := newFakeAPIServer(t)
+
+	f.add(cmPath, testObject(t, "v1", "ConfigMap", "app", "app",
+		mfEntry(tfHelm311, update, "v1", "", `{"f:data":{"f:FEATURE_X":{}}}`, ts),
+	))
+	f.failGets[cmPath] = 1
+
+	skipped, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, []ResourceRef{cmRef})
+	if err != nil || len(skipped) != 0 {
+		t.Fatalf("skipped=%v err=%v, want neither", skipped, err)
+	}
+
+	f.mu.Lock()
+	left := f.failGets[cmPath]
+	f.mu.Unlock()
+
+	if left != 0 {
+		t.Fatalf("%d injected GET failure(s) never reached the server", left)
+	}
+	if got := f.patchCount(cmPath); got != 1 {
+		t.Errorf("PATCH attempts = %d, want 1", got)
+	}
+	if _, n := findEntry(f.managedFields(cmPath), "helm", update, "v1"); n != 1 {
+		t.Fatalf(`want a "helm"/Update entry after the retried GET: %+v`, f.managedFields(cmPath))
 	}
 }
 
