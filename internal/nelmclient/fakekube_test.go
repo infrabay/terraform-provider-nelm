@@ -41,9 +41,22 @@ const (
 func fakeKubeConfig(t *testing.T) Config {
 	t.Helper()
 
+	return fakeKubeConfigWith(t, nil)
+}
+
+// fakeKubeConfigWith is fakeKubeConfig whose server first offers every
+// request to handle (when non-nil): handle either answers it and returns
+// true, or returns false to leave it to the default responses.
+func fakeKubeConfigWith(t *testing.T, handle func(w http.ResponseWriter, r *http.Request) bool) Config {
+	t.Helper()
+
 	isolateHome(t)
 
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if handle != nil && handle(w, r) {
+			return
+		}
+
 		var body string
 
 		switch {
