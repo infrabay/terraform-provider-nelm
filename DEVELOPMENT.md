@@ -14,8 +14,8 @@ version tag publishes a Registry release (see [Releasing](#releasing)).
 ## Prerequisites
 
 - Go 1.26 or newer (the `go` directive in `go.mod` is `1.26.0`; its
-  `toolchain go1.27.1` line is what CI and release builds use, and what a
-  local `go` auto-selects).
+  `toolchain` line, kept current by Renovate, is what CI and release builds
+  use, and what a local `go` auto-selects).
 - Terraform: the release CI tests with (`terraform_version` in
   `.github/workflows/test.yml`, kept current by Renovate). `terraform init`
   tolerates dev-overridden providers, but we skip `init` anyway — see below.
