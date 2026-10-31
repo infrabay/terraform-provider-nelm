@@ -1,0 +1,14 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-hook
+  annotations:
+    helm.sh/hook: post-install
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: hook
+          image: busybox:1.37
+          command: ["true"]

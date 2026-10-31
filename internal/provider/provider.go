@@ -5,6 +5,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -87,8 +88,9 @@ func (p *nelmProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp 
 					`A leading "~" is expanded and every file must exist. When unset (and kube_config_base64 ` +
 					`is unset), KUBE_CONFIG_PATHS or else KUBE_CONFIG_PATH is used; $KUBECONFIG is not read. ` +
 					`With none of them only an explicit kube_context falls back to "~/.kube/config": a ` +
-					`provider configuration that names no cluster at all is an error, never an implicit ` +
-					`current-context.`,
+					`provider configuration that names no cluster at all never gets an implicit ` +
+					`current-context. It can only render nelm_template offline, and every nelm_release ` +
+					`fails with "No Kubernetes connection configured".`,
 			},
 			"kube_config_base64": schema.StringAttribute{
 				Optional:    true,
@@ -180,16 +182,29 @@ func (p *nelmProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp 
 // Configure builds an nelmclient.Config from the provider block, performs
 // the one-time process-wide Nelm bootstrap (nelmclient.Init), and stores the
 // resulting *nelmclient.Client as ResourceData for every nelm_release
-// resource instance.
+// resource instance and as DataSourceData for every nelm_template.
+//
+// A configuration that names no cluster at all (see resolveKubeconfig) is
+// not a Configure error: an offline nelm_template needs no cluster, so it
+// gets the nelmclient.NewNoConnectionClient client, on which every
+// cluster-facing method fails with the "No Kubernetes connection configured"
+// explanation. nelm_release's own Configure turns that explanation into an
+// error, so a configuration with a release still fails closed, and nothing
+// ever falls back to ~/.kube/config's current-context. Every other invalid
+// configuration (the inline connection guards, an unusable kubeconfig path,
+// an unparsable kube_request_timeout) still fails here.
 //
 // A configuration that is not fully known at plan time (e.g. host taken from
-// a GKE cluster created in the same run) is not an error: Terraform
+// a GKE cluster created in the same run) is not an error either: Terraform
 // configures the provider again with the real values at apply. Until then
-// resources get the nelmclient.NewUnknownConfigClient placeholder, which
-// never reaches a cluster: ModifyPlan defers a new release's diff to apply,
-// and anything that needs an existing release's cluster fails with
-// nelmclient.ErrConfigUnknown. A client that supports deferred actions gets
-// resp.Deferred instead, and the framework then defers every resource.
+// resources and data sources get the nelmclient.NewUnknownConfigClient
+// placeholder, which never reaches a cluster: ModifyPlan defers a new
+// release's diff to apply, anything that needs an existing release's cluster
+// fails with nelmclient.ErrConfigUnknown, and an offline nelm_template renders
+// a local chart or one from a classic repository; an oci:// chart needs the
+// registries attribute to be known already. A client that
+// supports deferred actions gets resp.Deferred instead, and the framework
+// then defers every resource and data source.
 func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var model providerModel
 
@@ -206,7 +221,26 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 			resp.Deferred = &provider.Deferred{Reason: provider.DeferredReasonProviderConfigUnknown}
 		}
 
-		client := nelmclient.NewUnknownConfigClient()
+		// An offline nelm_template needs no cluster, only the static registry
+		// credentials, so they are kept when that attribute is already known;
+		// otherwise the placeholder refuses an offline render of an oci://
+		// chart rather than pull it with nelm's default ~/.docker/config.json.
+		// Local charts and classic repositories render either way (a local
+		// chart's dependencies are never downloaded, see
+		// nelmclient.Template).
+		regs, regsKnown, diags := registriesFromModel(ctx, model.Registries)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		// That offline render runs nelm, so it needs the bootstrap too.
+		if err := nelmclient.Init(ctx); err != nil {
+			resp.Diagnostics.AddError("Nelm Bootstrap Failed", err.Error())
+			return
+		}
+
+		client := nelmclient.NewUnknownConfigClient(regs, regsKnown)
 
 		resp.ResourceData = client
 		resp.DataSourceData = client
@@ -279,6 +313,9 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 		return
 	}
 
+	// noCluster is set when the configuration names no cluster at all.
+	var noCluster string
+
 	// Inline host/token/cluster_ca_certificate is a STANDALONE connection
 	// (like the kubernetes/helm providers): when host is set it fully replaces
 	// the kubeconfig source. We synthesize a complete kubeconfig and hand it to
@@ -300,37 +337,76 @@ func (p *nelmProvider) Configure(ctx context.Context, req provider.ConfigureRequ
 
 		cfg.KubeConfigBase64 = kubeconfig
 	} else {
-		resp.Diagnostics.Append(resolveKubeconfig(ctx, model, &cfg)...)
+		var diags diag.Diagnostics
+
+		noCluster, diags = resolveKubeconfig(ctx, model, &cfg)
+		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {
 			return
 		}
 	}
 
-	if !model.Registries.IsNull() {
-		var regs []registryAuthModel
-		resp.Diagnostics.Append(model.Registries.ElementsAs(ctx, &regs, false)...)
-		if resp.Diagnostics.HasError() {
-			return
-		}
-
-		for _, r := range regs {
-			cfg.Registries = append(cfg.Registries, nelmclient.RegistryAuth{
-				URL:      r.URL.ValueString(),
-				Username: r.Username.ValueString(),
-				Password: r.Password.ValueString(),
-			})
-		}
+	regs, _, diags := registriesFromModel(ctx, model.Registries)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
+	cfg.Registries = regs
+
+	// The no-connection client still renders offline, which runs nelm.
 	if err := nelmclient.Init(ctx); err != nil {
 		resp.Diagnostics.AddError("Nelm Bootstrap Failed", err.Error())
 		return
 	}
 
 	client := nelmclient.NewClient(cfg)
+	if noCluster != "" {
+		// cfg names no cluster: it must never reach nelm, whose defaults load
+		// ~/.kube/config's current-context. Only the registries are kept.
+		client = nelmclient.NewNoConnectionClient(cfg.Registries, errors.New(noCluster))
+	}
 
 	resp.ResourceData = client
 	resp.DataSourceData = client
+}
+
+// registriesFromModel decodes the registries attribute into the static OCI
+// credentials of nelmclient.Config (none when it is null). known is false,
+// and nothing is decoded, when the attribute is not fully known: the list
+// itself, or any element or field of it, is Unknown (only possible while the
+// provider configuration is not known at plan time).
+func registriesFromModel(ctx context.Context, list types.List) (regs []nelmclient.RegistryAuth, known bool, diags diag.Diagnostics) {
+	raw, err := list.ToTerraformValue(ctx)
+	if err != nil {
+		diags.AddAttributeError(path.Root("registries"), "Invalid registries", err.Error())
+		return nil, false, diags
+	}
+
+	if !raw.IsFullyKnown() {
+		return nil, false, diags
+	}
+
+	if list.IsNull() {
+		return nil, true, diags
+	}
+
+	var models []registryAuthModel
+
+	diags.Append(list.ElementsAs(ctx, &models, false)...)
+	if diags.HasError() {
+		return nil, false, diags
+	}
+
+	for _, r := range models {
+		regs = append(regs, nelmclient.RegistryAuth{
+			URL:      r.URL.ValueString(),
+			Username: r.Username.ValueString(),
+			Password: r.Password.ValueString(),
+		})
+	}
+
+	return regs, true, diags
 }
 
 // Environment variables that fill in the kubeconfig connection when the
@@ -354,19 +430,23 @@ const (
 // file and would land on http://localhost:8080 or another file's
 // current-context instead.
 //
-// It fails closed when nothing names a cluster. An empty provider block — or
-// the implicit empty default provider Terraform instantiates for a module
-// whose providers mapping was forgotten — must never fall through to nelm's
-// own default of ~/.kube/config's current-context, which on an operator's
-// machine may well be production. An explicit kube_context attribute does
-// name a cluster: it is looked up in ~/.kube/config, made explicit here so it
-// is validated like any other path. KUBE_CTX alone does not: like
-// hashicorp/helm, it only selects a context in a kubeconfig named otherwise,
-// so an ambiently exported KUBE_CTX cannot turn that empty default provider
-// into a connection either.
-func resolveKubeconfig(ctx context.Context, model providerModel, cfg *nelmclient.Config) diag.Diagnostics {
-	var diags diag.Diagnostics
-
+// It fails closed when nothing names a cluster, though not with an error
+// diagnostic: it returns noCluster, the actionable "No Kubernetes connection
+// configured" explanation, and Configure then hands out
+// nelmclient.NewNoConnectionClient instead of a client built from cfg. That
+// client still renders nelm_template offline, while every nelm_release fails
+// with the explanation. An empty provider block — or the implicit empty default
+// provider Terraform instantiates for a module whose providers mapping was
+// forgotten — must never fall through to nelm's own default of
+// ~/.kube/config's current-context, which on an operator's machine may well
+// be production. An explicit kube_context attribute does name a cluster: it
+// is looked up in ~/.kube/config, made explicit here so it is validated like
+// any other path. KUBE_CTX alone does not: like hashicorp/helm, it only
+// selects a context in a kubeconfig named otherwise, so an ambiently
+// exported KUBE_CTX cannot turn that empty default provider into a
+// connection either. Every other problem (an unusable path, no home
+// directory to expand "~" in) is an error diagnostic.
+func resolveKubeconfig(ctx context.Context, model providerModel, cfg *nelmclient.Config) (noCluster string, diags diag.Diagnostics) {
 	cfg.KubeContext = model.KubeContext.ValueString()
 	if model.KubeContext.IsNull() {
 		cfg.KubeContext = os.Getenv(envKubeContext)
@@ -376,7 +456,7 @@ func resolveKubeconfig(ctx context.Context, model providerModel, cfg *nelmclient
 	// KubeConfigPaths then), so there is nothing on disk to resolve.
 	cfg.KubeConfigBase64 = model.KubeConfigBase64.ValueString()
 	if cfg.KubeConfigBase64 != "" {
-		return diags
+		return "", diags
 	}
 
 	// source names where the paths came from; fromAttr marks the
@@ -389,7 +469,7 @@ func resolveKubeconfig(ctx context.Context, model providerModel, cfg *nelmclient
 	case !model.KubeConfigPaths.IsNull():
 		diags.Append(model.KubeConfigPaths.ElementsAs(ctx, &raw, false)...)
 		if diags.HasError() {
-			return diags
+			return "", diags
 		}
 
 		fromAttr, source = true, "kube_config_paths"
@@ -414,7 +494,7 @@ func resolveKubeconfig(ctx context.Context, model providerModel, cfg *nelmclient
 			if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, "~"+string(filepath.Separator)) {
 				if homeErr != nil {
 					diags.AddError("Cannot expand kubeconfig path", fmt.Sprintf("%q from %s: %s", p, source, homeErr))
-					return diags
+					return "", diags
 				}
 
 				p = filepath.Join(home, p[1:])
@@ -438,14 +518,12 @@ func resolveKubeconfig(ctx context.Context, model providerModel, cfg *nelmclient
 					"KUBE_CONFIG_PATH(S)."
 			}
 
-			diags.AddError("No Kubernetes connection configured", detail)
-
-			return diags
+			return detail, diags
 		}
 
 		if homeErr != nil {
 			diags.AddError("Cannot locate the default kubeconfig", homeErr.Error())
-			return diags
+			return "", diags
 		}
 
 		fromAttr, source = false, "the default kubeconfig (kube_context is set without kube_config_paths)"
@@ -465,12 +543,12 @@ func resolveKubeconfig(ctx context.Context, model providerModel, cfg *nelmclient
 			diags.AddError("Invalid kubeconfig path", detail)
 		}
 
-		return diags
+		return "", diags
 	}
 
 	cfg.KubeConfigPaths = paths
 
-	return diags
+	return "", diags
 }
 
 // kubeconfigFileErr reports why p cannot be a kubeconfig file (it cannot be
@@ -507,5 +585,7 @@ func (p *nelmProvider) Resources(_ context.Context) []func() resource.Resource {
 }
 
 func (p *nelmProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		NewTemplateDataSource,
+	}
 }

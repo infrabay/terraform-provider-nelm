@@ -20,6 +20,7 @@ require (
 	github.com/werf/nelm v1.27.2
 	k8s.io/apimachinery v0.29.3
 	k8s.io/client-go v0.29.3
+	sigs.k8s.io/yaml v1.4.0
 )
 
 require (
@@ -224,5 +225,4 @@ require (
 	sigs.k8s.io/kustomize/api v0.16.0 // indirect
 	sigs.k8s.io/kustomize/kyaml v0.16.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
-	sigs.k8s.io/yaml v1.4.0 // indirect
 )

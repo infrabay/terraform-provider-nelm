@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/werf/nelm/pkg/action"
 )
@@ -86,6 +87,97 @@ func IsClusterUnreachable(err error) bool {
 
 	return false
 }
+
+// missingKindPrefix starts apimachinery's missing-kind decode error
+// (runtime.NewMissingKindErr), which quotes the whole manifest it could not
+// decode: "Object 'Kind' is missing in '<manifest as JSON>'".
+const missingKindPrefix = "Object 'Kind' is missing in '"
+
+// missingKindWithheld replaces that error's text in a redacted message.
+const missingKindWithheld = "Object 'Kind' is missing in the rendered manifest (content withheld: it may contain Secret data)"
+
+// yamlSourceError is goccy/go-yaml's pretty error (SyntaxError, TypeError,
+// DuplicateKeyError, ...): Error() is FormatError(false, true), the message
+// with its position followed by the source lines around the bad token.
+type yamlSourceError interface {
+	FormatError(colored, inclSource bool) string
+}
+
+// redactManifestErr withholds the rendered manifest content a nelm render
+// error can quote, before the provider puts it in a diagnostic: a chart
+// renders Secret data like any other value, and a diagnostic is plan and CI
+// output that nelm_release's own resources attribute keeps Secret data out
+// of. Two errors on nelm's render path (pkg/chart/chart_render.go) quote
+// it: the decode of an object without a kind
+// (spec.NewResourceSpecFromManifest, for a template and a crds/ file alike),
+// which quotes the whole manifest, and goccy/go-yaml's parse of a rendered
+// template (renderedTemplatesToResourceSpecs), which prints up to three
+// source lines before and after the bad token. The first loses its quote,
+// the second its source lines; every wrapper's text (the template path, the
+// position, what is wrong) stays. The result carries the redacted message
+// and unwraps to err, so errors.Is and errors.As classify it exactly as err
+// (a timeout, a missing release, a lock conflict joined to the render
+// error); err itself is returned when there is nothing to redact. Only the
+// message is redacted: nothing may print an error unwrapped from the result.
+func redactManifestErr(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	msg := err.Error()
+	redacted := msg
+
+	// runtime.IsMissingKind matches the error itself, not a chain, so the
+	// walk visits every error of it.
+	var walk func(error)
+	walk = func(e error) {
+		if runtime.IsMissingKind(e) {
+			redacted = strings.ReplaceAll(redacted, e.Error(), missingKindWithheld)
+			return
+		}
+
+		if y, ok := e.(yamlSourceError); ok {
+			redacted = strings.ReplaceAll(redacted, e.Error(), y.FormatError(false, false))
+			return
+		}
+
+		switch u := e.(type) {
+		case interface{ Unwrap() error }:
+			if next := u.Unwrap(); next != nil {
+				walk(next)
+			}
+		case interface{ Unwrap() []error }:
+			for _, next := range u.Unwrap() {
+				walk(next)
+			}
+		}
+	}
+	walk(err)
+
+	// A wrapper that formatted the decode error with %v rather than %w hides
+	// it from the walk: its quote runs to the end of the message.
+	if i := strings.Index(redacted, missingKindPrefix); i >= 0 {
+		redacted = redacted[:i] + missingKindWithheld
+	}
+
+	if redacted == msg {
+		return err
+	}
+
+	return &redactedError{msg: redacted, err: err}
+}
+
+// redactedError is redactManifestErr's result: Error() is the redacted
+// message, and the error it redacts stays reachable for errors.Is and
+// errors.As only.
+type redactedError struct {
+	msg string
+	err error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+
+func (e *redactedError) Unwrap() error { return e.err }
 
 // liveConflictSignals are the phrases of nelm plan failures that are relative
 // to the objects CURRENTLY LIVE in the cluster rather than to the chart or

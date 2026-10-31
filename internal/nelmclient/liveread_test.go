@@ -463,3 +463,95 @@ func TestLiveObjects_RetryStopsAtContextDeadline(t *testing.T) {
 		t.Fatalf("GETs sent: %d, want 1", got)
 	}
 }
+
+// TestResetKindCache_DoesNotHoldKubeMu is the regression test for
+// ResetKindCache holding kubeMu while the RESTMapper's Reset waits for the
+// mapper's init lock, which a concurrent lookup holds for a whole discovery
+// round-trip: every other caller of ensureKubeFactory (History,
+// LiveObjects, IsNamespaced of nelm_release) then stalled behind that
+// discovery. A lookup here is held in discovery while ResetKindCache waits,
+// and ensureKubeFactory must still return the cached factory at once.
+func TestResetKindCache_DoesNotHoldKubeMu(t *testing.T) {
+	ctx := context.Background()
+
+	var (
+		blockOnce sync.Once
+		blocking  = make(chan struct{})
+		entered   = make(chan struct{})
+		release   = make(chan struct{})
+	)
+
+	c := NewClient(fakeKubeConfigWith(t, func(w http.ResponseWriter, r *http.Request) bool {
+		select {
+		case <-blocking:
+		default:
+			return false
+		}
+
+		if r.URL.Path == "/api" || r.URL.Path == "/apis" {
+			blockOnce.Do(func() { close(entered) })
+			<-release
+		}
+
+		return false
+	}))
+
+	if _, err := c.ensureKubeFactory(ctx); err != nil {
+		t.Fatalf("ensureKubeFactory: %v", err)
+	}
+
+	// Drop whatever discovery the factory construction left, so that the
+	// lookup below has to discover (and holds the mapper's init lock).
+	c.ResetKindCache()
+	close(blocking)
+
+	lookupDone := make(chan struct{})
+	go func() {
+		defer close(lookupDone)
+		_, _ = c.IsNamespaced(schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"})
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(10 * time.Second):
+		close(release)
+		t.Fatal("the lookup never reached discovery")
+	}
+
+	resetDone := make(chan struct{})
+	go func() {
+		defer close(resetDone)
+		c.ResetKindCache()
+	}()
+
+	// Give ResetKindCache time to start waiting for the mapper's lock.
+	time.Sleep(100 * time.Millisecond)
+
+	factoryDone := make(chan error, 1)
+	go func() {
+		_, err := c.ensureKubeFactory(ctx)
+		factoryDone <- err
+	}()
+
+	blocked := false
+
+	select {
+	case err := <-factoryDone:
+		if err != nil {
+			t.Errorf("ensureKubeFactory: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		blocked = true
+		t.Error("ensureKubeFactory blocked while ResetKindCache waited for a discovery: kubeMu is held across the mapper Reset")
+	}
+
+	close(release)
+	<-lookupDone
+	<-resetDone
+
+	if blocked {
+		if err := <-factoryDone; err != nil {
+			t.Errorf("ensureKubeFactory: %v", err)
+		}
+	}
+}

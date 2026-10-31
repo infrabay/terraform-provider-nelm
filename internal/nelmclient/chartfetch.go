@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -95,7 +96,7 @@ func fetchChart(ctx context.Context, opDir, chartRef, version string, repo commo
 		// crash the provider plugin, aborting every concurrent resource.
 		defer func() {
 			if r := recover(); r != nil {
-				done <- fetchResult{err: fmt.Errorf("recovered from a panic: %v", r)}
+				done <- fetchResult{err: fmt.Errorf("recovered from a panic: %v\n%s", r, debug.Stack())}
 			}
 		}()
 
