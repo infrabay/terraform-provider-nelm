@@ -1,11 +1,15 @@
 package nelmclient
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // loadFixtureErr reads a captured-live error-shape fixture (captured by
@@ -103,6 +107,117 @@ func TestIsLiveConflict(t *testing.T) {
 				t.Fatalf("IsLiveConflict(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+// yamlSourceErrStub stands in for goccy/go-yaml's pretty errors (the module
+// is only an indirect dependency): Error() includes the source lines,
+// FormatError(_, false) does not. TestRenderErrors_WithholdManifests covers
+// the real one.
+type yamlSourceErrStub struct{}
+
+func (yamlSourceErrStub) Error() string { return yamlSourceErrStub{}.FormatError(false, true) }
+
+func (yamlSourceErrStub) FormatError(_, inclSource bool) string {
+	msg := "[6:13] mapping value is not allowed in this context"
+	if inclSource {
+		msg += "\n   5 | stringData:\n>  6 |   password: aHVudGVyMg==: x\n                   ^\n"
+	}
+
+	return msg
+}
+
+// TestRedactManifestErr pins what redactManifestErr withholds from a render
+// error: the manifest a missing-kind decode error quotes, and the source
+// lines of a YAML error, on the chains nelm builds (pkg/chart/chart_render.go,
+// pkg/resource/spec/resource_spec.go) and when a wrapper hides the decode
+// error from the chain. Every wrapper's text stays; an error with nothing to
+// redact comes back as is.
+func TestRedactManifestErr(t *testing.T) {
+	const payload = "aHVudGVyMg=="
+
+	missingKind := runtime.NewMissingKindErr(`{"apiVersion":"v1","data":{"password":"` + payload + `"},"kind":null}`)
+	decode := fmt.Errorf("construct resource spec for %q: %w", "app/templates/secret.yaml",
+		fmt.Errorf("decode resource (file: %q): %w", "app/templates/secret.yaml", missingKind))
+	syntax := fmt.Errorf("parse YAML resource #1 for %q: %w", "app/templates/secret.yaml", yamlSourceErrStub{})
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "missing kind",
+			err:  fmt.Errorf("render chart: %w", decode),
+			want: `render chart: construct resource spec for "app/templates/secret.yaml": decode resource (file: "app/templates/secret.yaml"): ` + missingKindWithheld,
+		},
+		{
+			name: "missing kind behind %v",
+			err:  fmt.Errorf("render chart: %v", decode),
+			want: `render chart: construct resource spec for "app/templates/secret.yaml": decode resource (file: "app/templates/secret.yaml"): ` + missingKindWithheld,
+		},
+		{
+			name: "missing kind joined",
+			err:  errors.Join(decode, errors.New("another failure")),
+			want: `construct resource spec for "app/templates/secret.yaml": decode resource (file: "app/templates/secret.yaml"): ` + missingKindWithheld + "\nanother failure",
+		},
+		{
+			name: "YAML source lines",
+			err:  fmt.Errorf("render chart: %w", syntax),
+			want: `render chart: parse YAML resource #1 for "app/templates/secret.yaml": [6:13] mapping value is not allowed in this context`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := redactManifestErr(tt.err)
+
+			if got.Error() != tt.want {
+				t.Errorf("redactManifestErr:\n got %q\nwant %q", got.Error(), tt.want)
+			}
+
+			if strings.Contains(got.Error(), payload) {
+				t.Errorf("redactManifestErr kept the manifest content: %q", got.Error())
+			}
+		})
+	}
+
+	t.Run("nothing to redact", func(t *testing.T) {
+		err := fmt.Errorf("render chart: %w", context.DeadlineExceeded)
+
+		if got := redactManifestErr(err); got != err {
+			t.Errorf("redactManifestErr = %v, want the error itself", got)
+		}
+
+		if redactManifestErr(nil) != nil {
+			t.Error("redactManifestErr(nil) != nil")
+		}
+	})
+}
+
+// TestRedactManifestErr_KeepsClassification checks that a redacted error
+// still classifies like the error it redacts: a timeout, ErrConfigUnknown or
+// a goccy error joined to or wrapping the render error stays matchable with
+// errors.Is and errors.As, while its message withholds the manifest.
+func TestRedactManifestErr_KeepsClassification(t *testing.T) {
+	const payload = "aHVudGVyMg=="
+
+	missingKind := runtime.NewMissingKindErr(`{"data":{"password":"` + payload + `"}}`)
+	err := redactManifestErr(fmt.Errorf("render chart: %w", errors.Join(missingKind, context.DeadlineExceeded, ErrConfigUnknown)))
+
+	if strings.Contains(err.Error(), payload) {
+		t.Fatalf("redacted error still quotes the manifest: %q", err.Error())
+	}
+
+	for _, target := range []error{context.DeadlineExceeded, ErrConfigUnknown} {
+		if !errors.Is(err, target) {
+			t.Errorf("errors.Is(redacted, %v) = false, want true", target)
+		}
+	}
+
+	var stub yamlSourceErrStub
+	if !errors.As(redactManifestErr(fmt.Errorf("render chart: %w", yamlSourceErrStub{})), &stub) {
+		t.Error("errors.As(redacted, yamlSourceErrStub) = false, want true")
 	}
 }
 

@@ -67,8 +67,23 @@ type Client struct {
 	kubeMu      sync.Mutex
 	kubeFactory *kube.ClientFactory
 
+	// clusterErr, when non-nil, is returned by every cluster-facing method
+	// before it calls nelm: the client has no usable connection settings
+	// (NewUnknownConfigClient, NewNoConnectionClient), and a zero Config must
+	// never reach nelm, whose defaults load ~/.kube/config's current-context.
+	clusterErr error
+
 	// configUnknown marks the NewUnknownConfigClient placeholder.
 	configUnknown bool
+
+	// noConnection marks the NewNoConnectionClient client.
+	noConnection bool
+
+	// registriesUnknown marks a NewUnknownConfigClient placeholder whose
+	// provider registries were not known either: an offline Template of an
+	// oci:// chart then refuses too, rather than pulling with nelm's default
+	// ~/.docker/config.json instead of the configured credentials.
+	registriesUnknown bool
 }
 
 // NewClient constructs a Client bound to the given connection Config. It
@@ -79,20 +94,69 @@ func NewClient(cfg Config) *Client {
 }
 
 // NewUnknownConfigClient returns the placeholder Client the provider hands to
-// resources when its own configuration is not fully known at plan time (e.g.
-// host comes from a GKE cluster created in the same run). It has no
-// connection settings at all, so every cluster-facing method (Plan, Install,
-// Uninstall, Get, Render, LiveObjects, IsNamespaced) fails with
+// resources and data sources when its own configuration is not fully known at
+// plan time (e.g. host comes from a GKE cluster created in the same run). It
+// has no Kubernetes connection settings at all, so every cluster-facing
+// method (Plan, Install, Uninstall, Get, History, Render, a remote Template,
+// HandOverHelmProviderFieldManagers, LiveObjects, IsNamespaced) fails with
 // ErrConfigUnknown before doing anything: a zero Config must never reach
 // nelm, whose defaults would silently load ~/.kube/config's current-context.
-func NewUnknownConfigClient() *Client {
-	return &Client{configUnknown: true}
+//
+// registries are the provider's static OCI credentials when that attribute is
+// known (registriesKnown): an offline Template needs no cluster, and only an
+// oci:// chart needs them. When they are not known an offline Template of an
+// oci:// chart fails with ErrConfigUnknown too; a local chart or one from a
+// classic repository still renders.
+func NewUnknownConfigClient(registries []RegistryAuth, registriesKnown bool) *Client {
+	return &Client{
+		cfg:               Config{Registries: registries},
+		clusterErr:        ErrConfigUnknown,
+		configUnknown:     true,
+		registriesUnknown: !registriesKnown,
+	}
+}
+
+// errNoConnection is the error of a NewNoConnectionClient built with a nil
+// one.
+var errNoConnection = errors.New("no Kubernetes connection configured")
+
+// NewNoConnectionClient returns the Client the provider hands out when its
+// configuration names no cluster at all. Only an offline Template works:
+// every cluster-facing method fails with err (the actionable "no Kubernetes
+// connection configured" explanation) before calling nelm, and
+// nelm_release refuses to run at all (NoConnection). registries are the
+// provider's static OCI credentials, used by an offline Template.
+//
+// A nil err is replaced by errNoConnection: every guard tests clusterErr,
+// so a nil one would make this a client with a zero Config that every
+// method lets through to nelm, whose defaults load ~/.kube/config's
+// current-context.
+func NewNoConnectionClient(registries []RegistryAuth, err error) *Client {
+	if err == nil {
+		err = errNoConnection
+	}
+
+	return &Client{
+		cfg:          Config{Registries: registries},
+		clusterErr:   err,
+		noConnection: true,
+	}
 }
 
 // ConfigUnknown reports whether c is the NewUnknownConfigClient placeholder.
 // A nil Client (resource not yet configured) is not.
 func (c *Client) ConfigUnknown() bool {
 	return c != nil && c.configUnknown
+}
+
+// NoConnection returns the error a NewNoConnectionClient client was built
+// with, and nil for any other Client (a nil Client included).
+func (c *Client) NoConnection() error {
+	if c == nil || !c.noConnection {
+		return nil
+	}
+
+	return c.clusterErr
 }
 
 // toKubeConnectionOptions maps Config onto Nelm's common.KubeConnectionOptions,

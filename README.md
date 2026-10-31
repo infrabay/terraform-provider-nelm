@@ -8,7 +8,7 @@ alternative that manages Helm charts and deploys them to Kubernetes (and the
 deployment engine of [werf](https://github.com/werf/werf)), with a focus on
 Helm chart and release compatibility. The provider calls Nelm's Go library
 directly (no `helm` or `werf` CLI shell-out) to install, diff, and uninstall
-chart-based releases on a Kubernetes cluster.
+chart-based releases on a Kubernetes cluster, and to render charts.
 
 This is a community project. It is not affiliated with or endorsed by
 werf/Flant, HashiCorp or the Helm project; Terraform and Helm are trademarks
@@ -22,6 +22,13 @@ computed from Nelm's own plan engine, not just "this release will change".
 
 - **`nelm_release`** — manage a chart release like `helm_release`, but with a
   field-level plan diff surfaced through a computed `resources` map.
+- **`nelm_template`** — render a chart without installing it, like
+  `helm_template`: offline by default (no cluster needed), or against the
+  cluster's capabilities and `lookup` with `validate = true`.
+  Namespace-scoped objects come back with `metadata.namespace` set (the
+  release namespace where the template wrote none). Its outputs are not
+  sensitive: rendered `Secret`s and `set_sensitive` values are in cleartext
+  in the state.
 - **Drift detection** — out-of-band changes to fields the chart sets
   (`kubectl edit`/`scale`, `helm upgrade`/`rollback`, a controller mutating a
   chart-set field) show up on the next plan, and the next apply reverts them
@@ -42,8 +49,9 @@ computed from Nelm's own plan engine, not just "this release will change".
   or the `helm` provider's `KUBE_CONFIG_PATH(S)` / `KUBE_CTX` variables) or an
   inline `host` / `token` / `cluster_ca_certificate` (mirrors the
   `kubernetes`/`helm` providers), plus a `registries` block for private OCI
-  charts. A configuration that names no cluster is an error — never an
-  implicit `~/.kube/config` current-context.
+  charts. A configuration that names no cluster never falls back to
+  `~/.kube/config`'s current-context: every `nelm_release` then fails, and
+  only offline `nelm_template` renders work.
 
 ## Installation
 
@@ -91,7 +99,9 @@ pre-1.0, so read the release notes before moving to a new minor version.
 - [Provider configuration](docs/index.md), including a GKE + Google Artifact
   Registry example
 - [`nelm_release`](docs/resources/release.md)
-- [Migrating from `helm_release`](docs/guides/migrating-from-helm_release.md)
+- [`nelm_template`](docs/data-sources/template.md)
+- [Migrating from `helm_release`](docs/guides/migrating-from-helm_release.md),
+  with a section on moving from `helm_template` to `nelm_template`
 - [Known limitations](docs/guides/known-limitations.md)
 
 The Terraform Registry will render the same pages.

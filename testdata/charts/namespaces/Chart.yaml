@@ -1,0 +1,10 @@
+apiVersion: v2
+name: namespaces
+description: >-
+  Fixture chart for nelm_template's namespace handling: objects that set the
+  release namespace, set another namespace, or set none; a cluster-scoped
+  kind; a custom resource whose CRD ships in crds/; and a custom resource of
+  a kind the chart does not define. Not published anywhere.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

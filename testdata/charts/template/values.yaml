@@ -1,0 +1,4 @@
+message: "hello from the template test chart"
+
+secret:
+  password: "changeme"

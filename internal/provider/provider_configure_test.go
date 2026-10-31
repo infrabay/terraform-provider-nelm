@@ -1,16 +1,19 @@
 package provider
 
 // Offline unit tests for nelmProvider.Configure: which cluster a provider
-// configuration targets, how it fails closed, and what resources get while the
-// configuration is still Unknown. The "clusters" are local httptest servers;
+// configuration targets, how one that names no cluster fails closed, and what
+// resources and data sources get while the configuration is still Unknown.
+// The "clusters" are local httptest servers;
 // HOME, KUBECACHEDIR and every kubeconfig env var are pinned per test, so
 // neither the real ~/.kube/config nor its current-context is ever read.
 
 import (
 	"context"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,24 +32,42 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/infrabay/terraform-provider-nelm/internal/nelmclient"
 )
 
 // --- helpers ---------------------------------------------------------------
 
-// isolateKubeEnv points HOME (and so the default ~/.kube/config) and nelm's
-// discovery cache at fresh temp dirs and clears every env var that could
-// select a kubeconfig, returning the fake home directory.
+// isolateKubeEnv points the home directory (and so the default
+// ~/.kube/config) and nelm's discovery cache at fresh temp dirs and clears
+// every env var that could select a kubeconfig or the in-cluster config,
+// returning the fake home directory. The home directory is HOME and, for
+// Windows, USERPROFILE (os.UserHomeDir) with HOMEDRIVE/HOMEPATH cleared
+// (client-go's homedir.HomeDir tries them too), checked with os.UserHomeDir;
+// KUBERNETES_MASTER, read once at process start, cannot be cleared, so a
+// test process started with it fails here.
 func isolateKubeEnv(t *testing.T) string {
 	t.Helper()
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("KUBECACHEDIR", t.TempDir())
 
-	for _, k := range []string{"KUBECONFIG", envKubeConfigPaths, envKubeConfigPath, envKubeContext} {
+	for _, k := range []string{
+		"KUBECONFIG", envKubeConfigPaths, envKubeConfigPath, envKubeContext,
+		"HOMEDRIVE", "HOMEPATH", "KUBERNETES_SERVICE_HOST", "KUBERNETES_SERVICE_PORT",
+	} {
 		t.Setenv(k, "")
+	}
+
+	if got, err := os.UserHomeDir(); err != nil || got != home {
+		t.Fatalf("home directory not isolated: os.UserHomeDir() = %q, %v; want %q", got, err, home)
+	}
+
+	if server := clientcmd.ClusterDefaults.Server; server != "http://localhost:8080" {
+		t.Fatalf("KUBERNETES_MASTER is set in this test process (client-go's default server is %q); unset it", server)
 	}
 
 	return home
@@ -292,9 +313,11 @@ func pathPtr(p path.Path) *path.Path {
 
 // TestConfigure_NoConnectionSource_FailsClosed is the regression test: a
 // provider block that names no cluster used to configure successfully and
-// silently target ~/.kube/config's current-context (here a "production"
-// context, as a developer's machine may have) — and $KUBECONFIG did not change
-// that. Every such shape must now be a Configure error with no client.
+// silently target ~/.kube/config's current-context (here a "prod" fake, as a
+// developer's machine may have) — and $KUBECONFIG did not change that. Every
+// such shape now configures (an offline nelm_template needs no cluster) with
+// the no-connection client: it carries the actionable explanation, never
+// reaches a cluster, and nelm_release refuses it with that explanation.
 func TestConfigure_NoConnectionSource_FailsClosed(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -329,8 +352,9 @@ func TestConfigure_NoConnectionSource_FailsClosed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			home := isolateKubeEnv(t)
-			writeKubeconfig(t, filepath.Join(home, ".kube", "config"), "gke_prod", map[string]string{"gke_prod": "https://prod.invalid"})
-			writeKubeconfig(t, filepath.Join(home, "staging.yaml"), "gke_staging", map[string]string{"gke_staging": "https://staging.invalid"})
+			prod, staging := newFakeCluster(t), newFakeCluster(t)
+			writeKubeconfig(t, filepath.Join(home, ".kube", "config"), "gke_prod", map[string]string{"gke_prod": prod.srv.URL})
+			writeKubeconfig(t, filepath.Join(home, "staging.yaml"), "gke_staging", map[string]string{"gke_staging": staging.srv.URL})
 
 			for k, v := range tt.env {
 				t.Setenv(k, homePaths(home, k, v))
@@ -338,10 +362,112 @@ func TestConfigure_NoConnectionSource_FailsClosed(t *testing.T) {
 
 			resp := configure(t, tt.attrs, provider.ConfigureProviderClientCapabilities{})
 
-			requireError(t, resp.Diagnostics, "No Kubernetes connection configured", nil)
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("Configure: unexpected error diagnostics: %v", resp.Diagnostics)
+			}
 
-			if resp.ResourceData != nil {
-				t.Fatalf("ResourceData = %T, want nil on a failed Configure", resp.ResourceData)
+			c, ok := resp.ResourceData.(*nelmclient.Client)
+			if !ok {
+				t.Fatalf("ResourceData = %T, want *nelmclient.Client", resp.ResourceData)
+			}
+
+			if resp.DataSourceData != c {
+				t.Fatalf("DataSourceData = %#v, want the same client as ResourceData", resp.DataSourceData)
+			}
+
+			noConn := c.NoConnection()
+			if noConn == nil || c.ConfigUnknown() {
+				t.Fatalf("client NoConnection() = %v, ConfigUnknown() = %t, want the no-connection client", noConn, c.ConfigUnknown())
+			}
+
+			if !strings.Contains(noConn.Error(), "names no cluster") || !strings.Contains(noConn.Error(), "never falls back to ~/.kube/config") {
+				t.Fatalf("NoConnection() = %q, want the no-cluster explanation", noConn)
+			}
+
+			const kubeCtxNote = envKubeContext + " is set, but on its own it names no cluster"
+			if got, want := strings.Contains(noConn.Error(), kubeCtxNote), tt.env[envKubeContext] != ""; got != want {
+				t.Fatalf("NoConnection() = %q: mentions %s = %t, want %t", noConn, envKubeContext, got, want)
+			}
+
+			// A zero Config reaching nelm would read prod (the release,
+			// absent there, would be dropped from state).
+			if _, err := c.Get(context.Background(), "app", "default", "secret", 30*time.Second); !errors.Is(err, noConn) {
+				t.Fatalf("Get: err = %v, want the no-connection error", err)
+			}
+
+			r := &releaseResource{}
+			var cresp resource.ConfigureResponse
+			r.Configure(context.Background(), resource.ConfigureRequest{ProviderData: resp.ResourceData}, &cresp)
+
+			requireError(t, cresp.Diagnostics, "No Kubernetes connection configured", nil)
+
+			if got := cresp.Diagnostics.Errors()[0].Detail(); got != noConn.Error() {
+				t.Fatalf("nelm_release Configure detail = %q, want the provider's explanation %q", got, noConn)
+			}
+
+			if got := append(prod.hits(), staging.hits()...); len(got) != 0 {
+				t.Fatalf("a cluster was contacted: %v", got)
+			}
+		})
+	}
+}
+
+// TestReleaseResourceConfigure: nelm_release refuses the no-connection client
+// in its own Configure, so every operation on a release fails as it did when
+// the provider's Configure failed, while the framework's early calls (no
+// provider data yet) and every other client stay error-free.
+func TestReleaseResourceConfigure(t *testing.T) {
+	noConn := errors.New("the provider configuration names no cluster (test)")
+
+	tests := []struct {
+		name         string
+		providerData any
+		wantErr      string // error summary; "" means success
+		wantClient   bool   // r.client is set
+	}{
+		{name: "no provider data yet"},
+		{
+			name:         "no-connection client",
+			providerData: nelmclient.NewNoConnectionClient(nil, noConn),
+			wantErr:      "No Kubernetes connection configured",
+		},
+		{
+			name:         "configured client",
+			providerData: nelmclient.NewClient(nelmclient.Config{KubeContext: "ctx"}),
+			wantClient:   true,
+		},
+		{
+			// ModifyPlan handles the placeholder (a new release defers).
+			name:         "unknown-config placeholder",
+			providerData: nelmclient.NewUnknownConfigClient(nil, false),
+			wantClient:   true,
+		},
+		{
+			name:         "wrong provider data type",
+			providerData: "not a client",
+			wantErr:      "Unexpected Resource Configure Type",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &releaseResource{}
+
+			var resp resource.ConfigureResponse
+			r.Configure(context.Background(), resource.ConfigureRequest{ProviderData: tt.providerData}, &resp)
+
+			if tt.wantErr != "" {
+				requireError(t, resp.Diagnostics, tt.wantErr, nil)
+			} else if resp.Diagnostics.HasError() {
+				t.Fatalf("Configure: unexpected error diagnostics: %v", resp.Diagnostics)
+			}
+
+			if tt.wantErr == "No Kubernetes connection configured" && resp.Diagnostics.Errors()[0].Detail() != noConn.Error() {
+				t.Fatalf("error detail = %q, want %q", resp.Diagnostics.Errors()[0].Detail(), noConn)
+			}
+
+			if got := r.client != nil; got != tt.wantClient {
+				t.Fatalf("client set = %t, want %t", got, tt.wantClient)
 			}
 		})
 	}
@@ -367,11 +493,12 @@ func TestResolveKubeconfig(t *testing.T) {
 		env       map[string]string // see homePaths
 		noDefault bool              // no ~/.kube/config in the fake home
 
-		wantPaths   []string // relative to the fake home
-		wantContext string
-		wantBase64  string
-		wantErr     string // error summary; "" means success
-		wantErrAt   *path.Path
+		wantPaths     []string // relative to the fake home
+		wantContext   string
+		wantBase64    string
+		wantNoCluster string // part of the noCluster explanation; "" means a cluster is named
+		wantErr       string // error summary; "" means success
+		wantErrAt     *path.Path
 	}{
 		{
 			name:      "KUBE_CONFIG_PATH seeds kube_config_paths",
@@ -424,9 +551,10 @@ func TestResolveKubeconfig(t *testing.T) {
 		{
 			// Unlike the kube_context attribute, an env var may be exported
 			// ambiently; hashicorp/helm ignores KUBE_CTX without a path too.
-			name:    "KUBE_CTX alone names no cluster",
-			env:     map[string]string{envKubeContext: "gke_dev"},
-			wantErr: "No Kubernetes connection configured",
+			name:          "KUBE_CTX alone names no cluster",
+			env:           map[string]string{envKubeContext: "gke_dev"},
+			wantContext:   "gke_dev",
+			wantNoCluster: envKubeContext + " is set, but on its own it names no cluster",
 		},
 		{
 			name:        "KUBE_CTX selects the context in kube_config_base64",
@@ -467,8 +595,8 @@ func TestResolveKubeconfig(t *testing.T) {
 			wantErr:   "Invalid kubeconfig path",
 		},
 		{
-			name:    "nothing configured",
-			wantErr: "No Kubernetes connection configured",
+			name:          "nothing configured",
+			wantNoCluster: "The nelm provider configuration names no cluster: set host + token",
 		},
 	}
 
@@ -490,7 +618,7 @@ func TestResolveKubeconfig(t *testing.T) {
 
 			var cfg nelmclient.Config
 
-			diags := resolveKubeconfig(context.Background(), tt.model, &cfg)
+			noCluster, diags := resolveKubeconfig(context.Background(), tt.model, &cfg)
 
 			if tt.wantErr != "" {
 				requireError(t, diags, tt.wantErr, tt.wantErrAt)
@@ -499,6 +627,15 @@ func TestResolveKubeconfig(t *testing.T) {
 
 			if diags.HasError() {
 				t.Fatalf("resolveKubeconfig: unexpected error diagnostics: %v", diags)
+			}
+
+			// Naming no cluster is not an error diagnostic: Configure hands
+			// out the no-connection client with this explanation instead.
+			switch {
+			case tt.wantNoCluster == "" && noCluster != "":
+				t.Fatalf("noCluster = %q, want a named cluster", noCluster)
+			case !strings.Contains(noCluster, tt.wantNoCluster):
+				t.Fatalf("noCluster = %q, want it to contain %q", noCluster, tt.wantNoCluster)
 			}
 
 			var wantPaths []string
@@ -524,11 +661,21 @@ func TestResolveKubeconfig(t *testing.T) {
 // --- The configured client really talks to the configured cluster -----------
 
 // TestConfigure_TargetsConfiguredCluster drives Configure and then a real nelm
-// release read (nelmclient.Get) against two fake API servers: "prod" is the
-// current-context of ~/.kube/config, "staging" is what the provider
-// configuration names. Before the fix, the env-seeded cases read prod (and the
-// release, absent there, would have been dropped from state).
+// release read (nelmclient.Get) and a remote render (nelmclient.Template with
+// Remote, nelm_template's validate = true) against two fake API servers:
+// "prod" is the current-context of ~/.kube/config, "staging" is what the
+// provider configuration names. Before the fix, the env-seeded cases read
+// prod (and the release, absent there, would have been dropped from state).
+// The remote render sets up its own kube connection, so it is checked on its
+// own: one that ignored the configured connection would read discovery and
+// every lookup from prod. Its error is ignored (the fake serves no
+// discovery); only where its requests went matters.
 func TestConfigure_TargetsConfiguredCluster(t *testing.T) {
+	chart, err := filepath.Abs("../../testdata/charts/basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	tests := []struct {
 		name  string
 		attrs func(staging *fakeCluster) map[string]tftypes.Value
@@ -594,6 +741,17 @@ func TestConfigure_TargetsConfiguredCluster(t *testing.T) {
 			_, err := c.Get(context.Background(), "app", "default", "secret", 30*time.Second)
 			if !nelmclient.IsReleaseNotFound(err) {
 				t.Fatalf("Get: err = %v, want release-not-found from the staging fake", err)
+			}
+
+			// Counted from here, so a remote Template that failed before
+			// sending a single request does not pass on Get's requests.
+			before := len(staging.hits())
+
+			_, _ = c.Template(context.Background(), nelmclient.ReleaseSpec{Name: "app", Namespace: "default", Chart: chart},
+				nelmclient.TemplateOptions{Remote: true}, 30*time.Second)
+
+			if len(staging.hits()) == before {
+				t.Fatal("a remote Template never contacted the configured cluster (staging)")
 			}
 
 			if got := prod.hits(); len(got) != 0 {
@@ -681,6 +839,170 @@ func TestConfigure_UnknownConfig_ReturnsPlaceholder(t *testing.T) {
 	}
 }
 
+// TestConfigure_UnknownConfig_Registries: the placeholder keeps the static
+// registry credentials when that attribute is already known. While the
+// cluster is created in the same run, an offline nelm_template of a local
+// chart renders whatever the registries (it needs none); one of an oci://
+// chart is refused with nelmclient.ErrConfigUnknown only when they are not
+// known, rather than pulled with nelm's default ~/.docker/config.json instead
+// of the configured credentials. With them known it is pulled, here from a
+// closed local port, so it fails, but not with ErrConfigUnknown.
+func TestConfigure_UnknownConfig_Registries(t *testing.T) {
+	unknownString := tftypes.NewValue(tftypes.String, tftypes.UnknownValue)
+
+	chart, err := filepath.Abs("../../testdata/charts/basic")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	ociChart := "oci://" + ln.Addr().String() + "/charts/app"
+	_ = ln.Close()
+
+	registryType := tftypes.Object{AttributeTypes: map[string]tftypes.Type{
+		"url": tftypes.String, "username": tftypes.String, "password": tftypes.String,
+	}}
+	registriesType := tftypes.List{ElementType: registryType}
+
+	registry := func(password tftypes.Value) tftypes.Value {
+		return tftypes.NewValue(registryType, map[string]tftypes.Value{
+			"url": str("oci://example.invalid"), "username": str("u"), "password": password,
+		})
+	}
+
+	tests := []struct {
+		name       string
+		registries tftypes.Value // nil: the attribute is null
+		wantKnown  bool
+	}{
+		{name: "registries null", wantKnown: true},
+		{name: "registries known", registries: tftypes.NewValue(registriesType, []tftypes.Value{registry(str("p"))}), wantKnown: true},
+		{name: "registries list unknown", registries: tftypes.NewValue(registriesType, tftypes.UnknownValue)},
+		{name: "registry element unknown", registries: tftypes.NewValue(registriesType, []tftypes.Value{tftypes.NewValue(registryType, tftypes.UnknownValue)})},
+		{name: "registry password unknown", registries: tftypes.NewValue(registriesType, []tftypes.Value{registry(str("p")), registry(unknownString)})},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ambient := ambientCluster(t)
+
+			// The GKE cluster is created in the same run.
+			attrs := map[string]tftypes.Value{"host": unknownString, "token": unknownString}
+			if tt.registries.Type() != nil {
+				attrs["registries"] = tt.registries
+			}
+
+			resp := configure(t, attrs, provider.ConfigureProviderClientCapabilities{})
+
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("Configure: unexpected error diagnostics: %v", resp.Diagnostics)
+			}
+
+			c, ok := resp.DataSourceData.(*nelmclient.Client)
+			if !ok || !c.ConfigUnknown() || c.NoConnection() != nil {
+				t.Fatalf("DataSourceData = %#v, want the unknown-config placeholder client", resp.DataSourceData)
+			}
+
+			ctx := context.Background()
+
+			objs, err := c.Template(ctx, nelmclient.ReleaseSpec{Name: "app", Namespace: "default", Chart: chart},
+				nelmclient.TemplateOptions{}, time.Minute)
+			if err != nil {
+				t.Fatalf("offline Template of a local chart: %v", err)
+			}
+
+			if len(objs) == 0 {
+				t.Fatal("offline Template of a local chart rendered no objects")
+			}
+
+			// With the registries null a pull would use the real
+			// ~/.docker/config.json (nelm resolves its path at process
+			// start, before HOME is isolated), so that case stops here.
+			if tt.registries.Type() != nil {
+				_, err = c.Template(ctx, nelmclient.ReleaseSpec{Name: "app", Namespace: "default", Chart: ociChart, Version: "1.0.0"},
+					nelmclient.TemplateOptions{}, 30*time.Second)
+
+				switch {
+				case tt.wantKnown && errors.Is(err, nelmclient.ErrConfigUnknown):
+					t.Fatalf("offline Template of an oci:// chart refused although the registries are known: %v", err)
+				case !tt.wantKnown && !errors.Is(err, nelmclient.ErrConfigUnknown):
+					t.Fatalf("offline Template of an oci:// chart: err = %v, want nelmclient.ErrConfigUnknown", err)
+				}
+			}
+
+			if got := ambient.hits(); len(got) != 0 {
+				t.Fatalf("~/.kube/config's current-context was contacted: %v", got)
+			}
+		})
+	}
+}
+
+func TestRegistriesFromModel(t *testing.T) {
+	ctx := context.Background()
+
+	objType := types.ObjectType{AttrTypes: map[string]attr.Type{
+		"url": types.StringType, "username": types.StringType, "password": types.StringType,
+	}}
+
+	registry := func(url string, password types.String) attr.Value {
+		return types.ObjectValueMust(objType.AttrTypes, map[string]attr.Value{
+			"url": types.StringValue(url), "username": types.StringValue("u"), "password": password,
+		})
+	}
+
+	tests := []struct {
+		name      string
+		list      types.List
+		want      []nelmclient.RegistryAuth
+		wantKnown bool
+	}{
+		{name: "null", list: types.ListNull(objType), wantKnown: true},
+		{
+			name: "known",
+			list: types.ListValueMust(objType, []attr.Value{
+				registry("oci://a.invalid", types.StringValue("pa")),
+				registry("oci://b.invalid", types.StringValue("pb")),
+			}),
+			want: []nelmclient.RegistryAuth{
+				{URL: "oci://a.invalid", Username: "u", Password: "pa"},
+				{URL: "oci://b.invalid", Username: "u", Password: "pb"},
+			},
+			wantKnown: true,
+		},
+		{name: "list unknown", list: types.ListUnknown(objType)},
+		{name: "element unknown", list: types.ListValueMust(objType, []attr.Value{types.ObjectUnknown(objType.AttrTypes)})},
+		{
+			name: "one field unknown",
+			list: types.ListValueMust(objType, []attr.Value{
+				registry("oci://a.invalid", types.StringValue("pa")),
+				registry("oci://b.invalid", types.StringUnknown()),
+			}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, known, diags := registriesFromModel(ctx, tt.list)
+
+			if diags.HasError() {
+				t.Fatalf("unexpected error diagnostics: %v", diags)
+			}
+
+			if known != tt.wantKnown {
+				t.Fatalf("known = %t, want %t", known, tt.wantKnown)
+			}
+
+			if fmt.Sprint(got) != fmt.Sprint(tt.want) {
+				t.Fatalf("registries = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestModifyPlan_UnknownProviderConfig covers the resource side of an Unknown
 // provider configuration: a NEW release degrades to an Unknown diff with a
 // warning (apply computes it with the real configuration), while a release
@@ -691,7 +1013,7 @@ func TestModifyPlan_UnknownProviderConfig(t *testing.T) {
 
 	ctx := context.Background()
 	plan := buildPlan(t, ctx, baseTestReleaseModel())
-	r := &releaseResource{client: nelmclient.NewUnknownConfigClient()}
+	r := &releaseResource{client: nelmclient.NewUnknownConfigClient(nil, true)}
 
 	t.Cleanup(func() {
 		if got := ambient.hits(); len(got) != 0 {
@@ -756,7 +1078,7 @@ func TestRead_UnknownProviderConfig_KeepsState(t *testing.T) {
 	plan := buildPlan(t, ctx, baseTestReleaseModel())
 	state := tfsdk.State(plan)
 
-	r := &releaseResource{client: nelmclient.NewUnknownConfigClient()}
+	r := &releaseResource{client: nelmclient.NewUnknownConfigClient(nil, true)}
 	resp := &resource.ReadResponse{State: state}
 
 	r.Read(ctx, resource.ReadRequest{State: state}, resp)

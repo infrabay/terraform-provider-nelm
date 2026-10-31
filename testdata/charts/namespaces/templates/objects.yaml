@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-release-ns
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-no-ns
+data:
+  a: b
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-other-ns
+  namespace: other
+data:
+  a: b
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-cluster
+rules: []
+---
+apiVersion: example.com/v1
+kind: Gadget
+metadata:
+  name: {{ .Release.Name }}-gadget
+  namespace: {{ .Release.Namespace }}
+spec: {}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Release.Name }}-monitor
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector: {}
+  endpoints: []

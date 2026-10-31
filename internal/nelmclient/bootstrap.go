@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/werf/nelm/pkg/featgate"
+	helmloader "github.com/werf/nelm/pkg/helm/pkg/chart/loader"
 	"github.com/werf/nelm/pkg/log"
 )
 
@@ -28,6 +29,11 @@ var (
 //     its own per-op subdirectory (removed by that action; see actions.go),
 //     avoiding the temp-dir leak that results from never setting
 //     TempDirPath. The root itself is removed by Shutdown.
+//  4. helmloader.NoChartLockWarning cleared — nelm's chart loader
+//     fmt.Println's it for every chart that declares dependencies but has
+//     neither Chart.lock nor requirements.lock, and inside a plugin process os.Stdout is a pipe
+//     Terraform core logs at WARN. nelm's own ReleaseGet and ReleaseList
+//     clear it the same way, but only once one of them has run.
 //
 // Init is idempotent: the underlying setup runs exactly once via sync.Once,
 // no matter how many times or from how many goroutines Init is called. It
@@ -41,6 +47,8 @@ func Init(ctx context.Context) error {
 		})
 
 		pinGates()
+
+		helmloader.NoChartLockWarning = ""
 
 		dir, err := os.MkdirTemp("", "tf-nelm-*")
 		if err != nil {

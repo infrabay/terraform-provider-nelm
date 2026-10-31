@@ -33,8 +33,8 @@ const defaultFactoryBuildTimeout = 30 * time.Second
 // single attempt is time-bounded (see below) so a half-open API server cannot
 // wedge every resource in the process behind this mutex.
 func (c *Client) ensureKubeFactory(ctx context.Context) (*kube.ClientFactory, error) {
-	if c.configUnknown {
-		return nil, ErrConfigUnknown
+	if c.clusterErr != nil {
+		return nil, c.clusterErr
 	}
 
 	c.kubeMu.Lock()
@@ -159,6 +159,34 @@ func (c *Client) IsNamespaced(gvk schema.GroupVersionKind) (bool, error) {
 	}
 
 	return mapping.Scope.Name() == meta.RESTScopeNameNamespace, nil
+}
+
+// ResetKindCache drops the discovery the cached RESTMapper answers from (in
+// memory, and the on-disk discovery cache behind it), so that the next
+// IsNamespaced or LiveObjects lookup discovers the cluster's kinds again.
+// The mapper lives as long as the Client, and client-go re-discovers on a
+// miss only while its discovery came from another process's disk cache, so
+// without a reset a kind whose CRD was installed after the first lookup can
+// stay unserved for the rest of the process. nelm_template's Read calls it
+// once per validate = true render, before scoping that render's objects.
+// It sends no request (the next lookup pays one discovery round-trip) and is
+// a no-op while no factory has been built, so on the placeholder clients,
+// which never build one.
+//
+// kubeMu guards only the read of the cached factory, never the Reset: the
+// mapper's Reset waits for its own init lock, which a concurrent lookup
+// holds for a whole discovery round-trip, and holding kubeMu meanwhile would
+// stall every other caller of ensureKubeFactory (History, LiveObjects,
+// IsNamespaced) behind that discovery. client-go synchronizes the Reset
+// with concurrent lookups itself.
+func (c *Client) ResetKindCache() {
+	c.kubeMu.Lock()
+	factory := c.kubeFactory
+	c.kubeMu.Unlock()
+
+	if factory != nil {
+		factory.Mapper().Reset()
+	}
 }
 
 // liveGetAttempts and liveGetRetryDelay bound getLive's retries of a GET the

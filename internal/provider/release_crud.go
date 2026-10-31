@@ -67,6 +67,22 @@ func (r *releaseResource) Configure(_ context.Context, req resource.ConfigureReq
 		return
 	}
 
+	// A provider configuration that names no cluster configures successfully
+	// (an offline nelm_template needs none), but a release always needs its
+	// cluster: fail here, so every operation on one fails as it did when the
+	// provider's own Configure failed. The framework (v1.19.0
+	// internal/fwserver) calls this before ValidateResourceConfig (which
+	// Terraform sends the configured provider again while planning),
+	// ReadResource, PlanResourceChange, ApplyResourceChange (create, update
+	// and delete), ImportResourceState, UpgradeResourceIdentity and a real
+	// UpgradeResourceState (not its same-version passthrough); not before
+	// MoveResourceState, which release_move.go answers from the source state
+	// alone.
+	if err := client.NoConnection(); err != nil {
+		resp.Diagnostics.AddError("No Kubernetes connection configured", err.Error())
+		return
+	}
+
 	r.client = client
 }
 

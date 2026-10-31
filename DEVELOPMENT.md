@@ -110,7 +110,19 @@ additionally hard-fails (`t.Fatal`) unless that context exists in
 or `localhost` — a deliberate triple guard (explicit env pin with no default +
 context existence + explicit `kube_config_paths` and `kube_context` in every
 test's provider config) so acceptance tests can never accidentally run
-against a real cloud cluster. The guard, the
+against a real cloud cluster. The one exception is the offline
+`nelm_template` tests in `internal/provider/template_datasource_acc_test.go`,
+which use an empty `provider "nelm" {}` block by design (a configuration
+that names no cluster is what they test) and never contact a cluster: they
+clear `KUBE_CONFIG_PATH`, `KUBE_CONFIG_PATHS` and `KUBE_CTX`, point `HOME`
+and `KUBECACHEDIR` at empty temporary directories (so a regression that
+let the provider fall back to Nelm's default kubeconfig would find none,
+never `~/.kube/config`'s current-context), and rely on the no-connection
+client refusing every cluster-facing call, which
+`TestConfigure_NoConnectionSource_FailsClosed` and
+`TestTemplateRead_ClusterRefusals` pin offline. (A `terraform` on `PATH`
+that is a version-manager shim needing `HOME` then needs
+`TF_ACC_TERRAFORM_PATH` set to the real binary.) The guard, the
 provider and the `kubectl`/`helm` fixture helpers all read that one file
 (`--kubeconfig` is passed explicitly), so an ambient `$KUBECONFIG` cannot make
 them disagree about which cluster a context names; the context must therefore

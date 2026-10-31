@@ -1,0 +1,13 @@
+apiVersion: v2
+name: template
+description: >-
+  Fixture chart for the nelm_template data source: a standalone CRD (crds/),
+  hooks (one a helm test), a subchart, a Secret and a ConfigMap that echoes
+  the capabilities and release state the templates see. Not published
+  anywhere.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+dependencies:
+  - name: sub
+    version: 0.1.0

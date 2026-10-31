@@ -1067,21 +1067,27 @@ namespace Nelm created, delete it manually once no release is left in it.
 ### Values precedence
 
 When multiple `values` documents and `set`/`set_sensitive` entries are
-given, later ones win over earlier ones, key by key:
+given, later ones win over earlier ones, key by key, except across `set`
+types:
 
 1. Each `values` list element is treated as its own values file, applied
    in list order (later elements override earlier ones on overlapping
    keys).
-2. `set` entries are applied next, in list order, each one after the
-   fully-merged `values` result.
-3. `set_sensitive` entries take precedence over both `values` and `set`
-   on any overlapping key. If the **same** value name appears in both
-   `set` and `set_sensitive`, the `set` entry is dropped so the
-   `set_sensitive` value wins — regardless of the two entries' `type`s.
-   (This is enforced by the provider: Nelm merges the underlying
-   `--set`/`--set-string`/`--set-literal`/`--set-json` categories in a
-   fixed order rather than the order they were written, so simply
-   "applying `set_sensitive` last" would not otherwise guarantee it wins.)
+2. `set` and `set_sensitive` entries are applied next, over the
+   fully-merged `values` result, grouped by `type`: Nelm applies the
+   underlying `--set-json`, `--set`, `--set-string` and `--set-literal`
+   categories in that fixed order, so every `"json"` entry first, then
+   `""`/`"auto"`, then `"string"`, then `"literal"`. Entries of one `type`
+   are applied in list order, `set`'s before `set_sensitive`'s; across
+   types the fixed order decides, not the list position. With
+   `set = [{ name = "a", value = "1", type = "string" }, { name = "a", value = "2" }]`
+   `a` is `"1"`: the earlier `"string"` entry is applied after the later
+   `"auto"` one.
+3. If the **same** value name appears in both `set` and `set_sensitive`,
+   the `set` entry is dropped so the `set_sensitive` value wins —
+   regardless of the two entries' `type`s. (This is enforced by the
+   provider: because of the fixed order in step 2, simply "applying
+   `set_sensitive` last" would not otherwise guarantee it wins.)
 
 ### Chart references
 

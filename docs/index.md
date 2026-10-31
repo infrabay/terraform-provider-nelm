@@ -1,7 +1,7 @@
 ---
 page_title: "Provider: Nelm"
 description: |-
-  The Nelm provider manages Helm chart releases on Kubernetes through the Nelm Go library, with a per-object plan diff that shows configuration changes and out-of-band drift.
+  The Nelm provider manages Helm chart releases on Kubernetes through the Nelm Go library, with a per-object plan diff that shows configuration changes and out-of-band drift, and renders charts like helm_template.
 ---
 
 # Nelm Provider
@@ -11,9 +11,9 @@ through the [Nelm](https://github.com/werf/nelm) Go library — not the `helm`
 CLI, and not the werf CLI. It calls Nelm's `action` package directly
 in-process (`action.ReleasePlanInstall` and `action.ChartRender` for diffs,
 `action.ReleaseInstall` for apply, `action.ReleaseUninstall` for destroy,
-`action.ReleaseGet` for refresh), so every plan and apply speaks Nelm's
-own rendering, ordering, and resource-tracking logic rather than shelling
-out.
+`action.ReleaseGet` for refresh, `action.ChartRender` again for the
+`nelm_template` data source), so every plan and apply speaks Nelm's own
+rendering, ordering, and resource-tracking logic rather than shelling out.
 
 This is a community project. It is not affiliated with or endorsed by
 werf/Flant, HashiCorp or the Helm project; Terraform and Helm are trademarks
@@ -51,12 +51,15 @@ lists the other differences from `helm_release` and the provider's known
 limitations, with workarounds; read it before migrating production
 releases.
 
-v1 of this provider ships exactly one resource, `nelm_release`. There is no
-`nelm_release` data source and no chart-repository data source in v1, and
-nothing like the `helm` provider's `helm_template` data source: keep
-`hashicorp/helm` in configurations that render charts with
-`data "helm_template"`. The two providers can be used side by side, and
-migrating `helm_release`s does not require removing the `helm` provider.
+The provider has one resource, `nelm_release`, and one data source,
+[`nelm_template`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/data-sources/template.md),
+which renders a chart without installing it, like the `helm` provider's
+`helm_template`: offline by default, so it needs no cluster, or against the
+provider's cluster with `validate = true`. Its outputs hold rendered
+`Secret`s and `set_sensitive` values in cleartext. There is no
+`nelm_release` data source and no chart-repository data source. The `nelm`
+and `helm` providers can be used side by side, and migrating `helm_release`s
+does not require removing the `helm` provider.
 
 ## Example Usage
 
@@ -262,9 +265,13 @@ resolves the connection in this order:
    shape from the example above. The `KUBE_CTX` variable alone is **not**
    enough (as with the `helm` provider): an exported variable can be
    ambient, so it only picks the context in a kubeconfig from 2 or 3.
-5. **Nothing set: `Configure` fails with "No Kubernetes connection
-   configured".** The provider never falls back to `~/.kube/config`'s
-   current-context.
+5. **Nothing set: no cluster.** The provider never falls back to
+   `~/.kube/config`'s current-context. Such a configuration is not an error
+   by itself: `nelm_template` renders offline without a cluster. Every
+   `nelm_release` fails with "No Kubernetes connection configured" (reported
+   once for each `nelm_release` instance, at refresh for one in state and at
+   validation or plan for a new one), and so does a `nelm_template` with
+   `validate = true`.
 
 The environment variables are the ones the `hashicorp/helm` and
 `hashicorp/kubernetes` providers read, so a pipeline that exported them for
@@ -285,8 +292,10 @@ implicitly either; inside a pod, pass `host`, `token` and
 > makes Terraform instantiate an implicit, empty default `nelm` provider —
 > silently plan and apply against whatever cluster the operator's `kubectl`
 > pointed at (possibly production), and a refresh there drops every release
-> it does not find from state. Such configurations now fail at `Configure`;
-> name the cluster explicitly as above.
+> it does not find from state. Every `nelm_release` of such a configuration
+> now fails with "No Kubernetes connection configured"; name the cluster
+> explicitly as above. Up to v0.1.2 the provider's `Configure` itself
+> failed, which also ruled out offline `nelm_template` renders.
 
 ### Provider configuration known only at apply
 
@@ -305,6 +314,12 @@ In that case:
   cluster change first (`terraform apply -target=...`), or — HashiCorp's own
   recommendation — keep the cluster and the releases on it in separate root
   modules.
+
+A `nelm_template` data source read during that plan renders offline as
+usual; with `validate = true`, or for an `oci://` chart while the
+provider's `registries` attribute is not known yet, the read fails. See
+the data source's
+[Provider configuration known only at apply](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/data-sources/template.md#provider-configuration-known-only-at-apply).
 
 The provider never contacts any cluster while its configuration is unknown.
 Data sources whose inputs are known and that have no such `depends_on` (e.g.
@@ -334,6 +349,10 @@ update fails. See
 [Namespace lifecycle](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#namespace-lifecycle)
 and
 [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#provider-configuration-and-cluster-access).
+
+`nelm_template` needs no cluster access unless `validate = true`; then it
+only reads: discovery, the server version, and whatever objects the
+chart's `lookup` calls read. It never reads the release's storage Secrets.
 
 ## Nelm feature gates
 

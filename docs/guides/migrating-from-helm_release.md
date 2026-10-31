@@ -2,7 +2,7 @@
 page_title: "Migrating from helm_release"
 subcategory: ""
 description: |-
-  Hand releases managed by hashicorp/helm's helm_release over to nelm_release without uninstalling or reinstalling them.
+  Hand releases managed by hashicorp/helm's helm_release over to nelm_release without uninstalling or reinstalling them, and replace helm_template data sources with nelm_template.
 ---
 
 # Migrating from `helm_release`
@@ -12,7 +12,8 @@ description: |-
 `hashicorp/helm`'s `helm_release` to `nelm_release` is a **state handover**:
 Terraform stops managing the `helm_release` and starts managing the very same
 Helm release as a `nelm_release`. Nothing is uninstalled and nothing is
-reinstalled.
+reinstalled. `helm_template` data sources are replaced separately; see
+[Migrating from `helm_template`](#migrating-from-helm_template).
 
 > **Warning: do not just rename the resource type — it uninstalls the
 > release.** Changing `resource "helm_release" "x"` to
@@ -67,6 +68,17 @@ charts with Nelm, so a few chart patterns behave differently from
   charts with many CRDs. Move large releases one per change, and review the
   full plan rather than a size-capped pull-request comment (see
   [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#plan-size)).
+- **Dependencies that are not vendored** (a local chart directory): when its
+  `Chart.lock` (or `requirements.lock`) lists a dependency from an
+  `https://` or `oci://` repository and `charts/` has no
+  `<name>-<version>.tgz` archive for it (or only one the chart's
+  `.helmignore` excludes), Nelm's chart loader downloads it on each
+  machine (each CI run without a warm `~/.werf` cache), updating every
+  repository in your Helm configuration and writing progress output to the
+  Terraform log, where `helm_release` fails without
+  `dependency_update = true`. Vendor the archives
+  (`helm dependency build`) first (see
+  [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#chart-versions-and-crds)).
 
 ## The one-apply recipe
 
@@ -122,8 +134,9 @@ Then:
      `helm_release` last applied; fix the configuration first.
 2. `terraform apply`.
 3. Delete the `removed` and `import` blocks (they are one-shot), and drop
-   `hashicorp/helm` from `required_providers` once no `helm_release` (and no
-   `helm_template` data source, which `nelm` has no counterpart of) is left.
+   `hashicorp/helm` from `required_providers` once no `helm_release` and no
+   `helm_template` data source is left (see
+   [Migrating from `helm_template`](#migrating-from-helm_template)).
 
 ### Resources in modules
 
@@ -400,3 +413,151 @@ kept. Decide before the first plan; see
   has a `pending-*` revision: a `helm` command (or another apply) is still
   running against it, or one was interrupted. See
   [Pending releases](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#pending-releases-helms-release-lock).
+
+## Migrating from `helm_template`
+
+`nelm_template` renders a chart without installing it, like `helm_template`.
+A data source has no state to hand over: change `data "helm_template"` to
+`data "nelm_template"`, adjust the attributes as in the table below, and
+rewrite the references (`data.helm_template.app.manifests` becomes
+`data.nelm_template.app.manifests`). No `moved`, `import` or `removed`
+block is involved, and nothing changes in the cluster by itself.
+
+```hcl
+# Was: data "helm_template" "app" { ... } with the same arguments.
+data "nelm_template" "app" {
+  name       = "app"
+  namespace  = "app"
+  repository = "https://charts.example.com"
+  chart      = "app"
+  version    = "1.2.3"
+
+  values = [file("${path.module}/values.yaml")]
+
+  kube_version = "1.31.0"
+}
+```
+
+An offline render (the default) needs no cluster, so a configuration that
+only renders charts can use an empty `provider "nelm" {}` block; with
+`validate = true`, configure the provider for the cluster as in
+[Provider configuration](#provider-configuration). Every module that
+declares a `nelm_template` needs `nelm = { source = "infrabay/nelm" }` in
+its `required_providers`, as for `nelm_release` (see
+[Resources in modules](#resources-in-modules)).
+
+The outputs keep their names and `manifests` its keys, but Nelm writes the
+YAML differently from Helm, and namespace-scoped objects gain the release
+namespace where the template wrote none (see
+[Behavioral differences](#behavioral-differences)): a resource that
+consumes `manifest`, `manifests` or `crds` — a manifest applied with
+another provider, a file written with `local_file`, a commit to a GitOps
+repository — plans a one-time update after the switch. Review those changes
+in the first plan.
+
+### `helm_template` attribute mapping
+
+| `helm_template` | `nelm_template` | Notes |
+|---|---|---|
+| `name`, `namespace` | `name`, `namespace` | `namespace` defaults to `"default"`; `HELM_NAMESPACE` is not read. |
+| `chart`, `repository`, `version` | `chart`, `repository`, `version` | As in `nelm_release`: both OCI forms, `oci://` credentials from the provider's `registries`. Pin `version`: the chart is resolved and downloaded again at every read. |
+| `values` | `values` | Same list of YAML documents. |
+| `set`, `set_sensitive` | `set`, `set_sensitive` | Same `{ name, value, type }` objects; `type` also accepts `"json"`. Lists: entries of one `type` are applied in list order, but Nelm applies the types in a fixed order (`json`, `auto`, `string`, `literal`), so an earlier `type = "string"` entry overrides a later same-name `auto` one. `set_sensitive` wins over `set` on a name conflict. See [Values precedence](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#values-precedence). |
+| `set_list`, `set_wo` | — | Express them in `values` (or `set` with `type = "json"`). |
+| `kube_version` | `kube_version` | Offline only: an error together with `validate = true`, where `helm_template` ignores it. Unset, it is Nelm's default (`1.20.0` in Nelm 1.27), the same as `helm_template`'s; set it to the target cluster's version. |
+| `api_versions` | `api_versions` | Also added with `validate = true`, where `helm_template` ignores them. |
+| `include_crds` | `include_crds` | |
+| `skip_tests` | `skip_tests` | Same test hooks (`helm.sh/hook` `test` or `test-success`, case-insensitive like Helm). |
+| `show_only` | `show_only` | Same patterns against the path relative to the chart root (matched with Go's `path.Match`, so `*` never crosses a `/` on Windows either), empty entries ignored, and the same `Template Not Found` error for a pattern that matches nothing. |
+| `validate` | `validate` | Only the cluster's capabilities and `lookup`; no OpenAPI validation — see [Behavioral differences](#behavioral-differences). |
+| `timeout` (seconds), `timeouts = { read = ... }` | `timeouts { read = ... }` | A block, written without `=`; defaults to 5m (`helm_template`'s `timeouts.read` defaults to 20m). It bounds the whole render, the chart download included; a render that runs past it fails the read and finishes in the background. |
+| `id` (`<name>`) | `id` (`<namespace>/<name>`) | Rewire references that use the id. A resource that uses it as a replacement trigger (`terraform_data`'s `triggers_replace`, `null_resource`'s `triggers`) is replaced once. |
+| `manifest`, `manifests` | `manifest`, `manifests` | Same structure (`---`, `# Source: <chart>/<path>`, YAML; `manifests` keyed by the path relative to the chart root), Nelm's YAML, and the release namespace on every namespace-scoped object. |
+| `crds` | `crds` | One element per object of the `crds/` directories, re-serialized, where `helm_template` returns each `crds/` file's text. |
+| `notes`, `is_upgrade`, and the attributes below | — | See [Unsupported `helm_template` attributes](#unsupported-helm_template-attributes). |
+
+### Unsupported `helm_template` attributes
+
+- `notes`, `render_subchart_notes` — Nelm's chart render does not return
+  the chart's `NOTES.txt`, so there is nothing to export.
+- `is_upgrade` — every render is a first install (`.Release.IsUpgrade`
+  false, `.Release.Revision` 1), with `validate = true` too, which is also
+  what `helm_template` renders.
+- `disable_webhooks` — in `helm_template` it leaves every hook out of
+  `manifest`. Hooks are always rendered here; `skip_tests` leaves out test
+  hooks, and `show_only` selects templates.
+- `disable_openapi_validation` — `nelm_template` never validates against
+  OpenAPI schemas, not even with `validate = true`.
+- `skip_crds` — it only skips installing CRDs, which a render never does,
+  so it does not change `helm_template`'s output either; `include_crds`
+  decides whether CRDs are in `manifest`.
+- `atomic`, `wait`, `replace`, `create_namespace`, `description`,
+  `reset_values`, `reuse_values` — settings of an install or upgrade, which
+  a render does not run.
+- `dependency_update` — not offered: `nelm_template` always behaves like
+  `helm_template` with its default `dependency_update = false`. A local
+  chart is rendered only with the dependencies vendored in its `charts/`
+  directory (archive or unpacked chart): nothing is ever built or
+  downloaded from its lock files; a dependency `charts/` lacks fails the read
+  with `Missing chart dependencies`, as with `helm_template`. Vendor them
+  first (`helm dependency build`); see the data source's
+  [Chart dependencies](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/data-sources/template.md#chart-dependencies).
+- `devel` — set `version` to a constraint that admits pre-releases, e.g.
+  `">0.0.0-0"`.
+- `verify`, `keyring`, `pass_credentials`, `postrender`,
+  `repository_username`/`repository_password`/
+  `repository_ca_file`/`repository_cert_file`/`repository_key_file` — not
+  supported, as for `nelm_release`. Credentials for `oci://` charts come
+  from the provider's `registries` block.
+- `set_list`, `set_wo` — see the table above.
+
+### Behavioral differences
+
+- **Namespace-scoped objects carry a namespace.** `helm_template`
+  returns the template's text, so an object has `metadata.namespace` only
+  where its template writes one. Nelm, for its part, removes
+  `metadata.namespace` wherever it equals the release namespace, which
+  would leave objects written with `namespace: {{ .Release.Namespace }}`
+  without one and send them to the consumer's default namespace.
+  `nelm_template` therefore sets the release `namespace` on every
+  namespace-scoped object that has none, hooks included and `crds/` objects
+  excepted: an object whose template writes no namespace now carries the
+  release namespace too, exactly where a `nelm_release` would create it.
+  This is deliberate. Offline, a custom resource whose CRD is not in the
+  chart (a `ServiceMonitor`, say) cannot be scoped and keeps no namespace,
+  with a warning naming its kind; render with `validate = true`, or set its
+  namespace where you apply it. See the data source's
+  [Namespaces](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/data-sources/template.md#namespaces).
+- **The YAML is Nelm's, not the template's.** Nelm parses every object and
+  writes it back out: keys sorted, comments dropped, empty
+  `metadata.labels: {}` and `metadata.annotations: {}` added where the
+  chart renders none, labels and annotations whose value is not a string
+  dropped, a `Secret`'s `stringData` folded into base64 `data` (a
+  `yamldecode(...).stringData` reference breaks), `List` objects replaced by
+  their items. The objects come as the `crds/` objects (with
+  `include_crds`), then hooks, then the rest, where `helm_template` puts the
+  hooks last, and each group is sorted alphabetically by kind and name, not
+  in Helm's install order (a `Namespace` comes after the `Deployment` in
+  it), so a consumer that applies `manifest` as is cannot rely on the order
+  for dependencies. See the data source's
+  [Output format](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/data-sources/template.md#output-format).
+- **No notes.** There is no `notes` attribute.
+- **Every render is a first install, as with `helm_template`.**
+  `.Release.IsInstall` is true, `.Release.IsUpgrade` false and
+  `.Release.Revision` 1, whatever is installed, with `validate = true` too;
+  there is no `is_upgrade` to override that.
+- **`validate` means a render against the cluster, not validation.**
+  `helm_template`'s `validate = true` runs Helm's install dry run against
+  the cluster: the templates see its capabilities, and the rendered objects
+  are checked against its OpenAPI schemas. `nelm_template`'s renders with
+  the cluster's real capabilities and `lookup` against its live objects,
+  and checks nothing: an object the API server would reject (a misspelled
+  field included) renders without an error, and fails only where it is
+  applied. It reads no release history and only needs read access to
+  discovery and to what `lookup` reads (see the data source's
+  [Offline rendering and `validate`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/data-sources/template.md#offline-rendering-and-validate)).
+- **Cleartext outputs, as before.** `manifest`, `manifests` and `crds` are
+  not sensitive, as with `helm_template`: rendered `Secret`s and
+  `set_sensitive` values are in the state and in anything derived from
+  them. `nelm_release`'s redaction does not apply to `nelm_template`; see
+  [Secret data in state](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/data-sources/template.md#secret-data-in-state).

@@ -2,7 +2,7 @@
 page_title: "Known limitations"
 subcategory: ""
 description: |-
-  Known limitations of nelm_release, and the differences from helm_release that matter when migrating, with their workarounds.
+  Known limitations of nelm_release and nelm_template, and the differences from helm_release and helm_template that matter when migrating, with their workarounds.
 ---
 
 # Known limitations
@@ -12,7 +12,9 @@ limitations and the differences from `hashicorp/helm`'s `helm_release` that
 matter in production, each with its impact and a workaround where there is
 one. Read it together with
 [Migrating from `helm_release`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md)
-before moving production releases.
+before moving production releases. The `nelm_template` data source's
+limitations and its differences from `helm_template` are in
+[`nelm_template`](#nelm_template) at the end.
 
 ## Provider configuration and cluster access
 
@@ -31,8 +33,12 @@ before moving production releases.
   implicitly.** The kubeconfig comes from `kube_config_paths` /
   `KUBE_CONFIG_PATH(S)` (or `~/.kube/config` for an explicit
   `kube_context` attribute — `KUBE_CTX` alone is not enough, as with the
-  `helm` provider); a configuration that names no cluster is an error by
-  design. Inside a pod, pass `host` / `token` /
+  `helm` provider); with a configuration that names no cluster, every
+  `nelm_release` fails with "No Kubernetes connection configured" by design
+  (only offline `nelm_template` renders work). The error is reported for
+  each `nelm_release` instance, at refresh for one in state and at
+  validation or plan for a new one, so a root module with 40 releases
+  prints it 40 times. Inside a pod, pass `host` / `token` /
   `cluster_ca_certificate` explicitly.
 
 - **A token from a data source is not refreshed during a run.** A `token`
@@ -317,6 +323,57 @@ before moving production releases.
   chart's render, which includes `crds/`; the first refresh after the apply
   drops them again. Cosmetic.
 
+- **Dependencies that are not vendored are downloaded by Nelm's chart
+  loader.** For a local chart directory with a `Chart.lock` or
+  `requirements.lock`, every dependency the lock lists from an `https://`
+  or `oci://` repository must be vendored as `charts/<name>-<version>.tgz`
+  (an unpacked `charts/<name>/` directory does not count, nor does an
+  archive the chart's `.helmignore` excludes: the loader never reads it).
+  Otherwise Nelm's chart loader builds the missing dependencies itself
+  when a `nelm_release` plan or apply loads the chart and finds no cached
+  build for that lock file under
+  `~/.werf/local_cache` (so on a CI runner without a warm cache, at every
+  run): it updates the index of
+  every repository in the Helm configuration of the user running Terraform
+  (`repositories.yaml`, or `HELM_REPOSITORY_CONFIG`), downloads over the
+  network (`oci://` dependencies with the provider's `registries`
+  credentials, or Docker's `~/.docker/config.json` without them), caches
+  the result under `~/.werf` (reused, without checking the repositories
+  again, until the lock file changes) and in Helm's repository cache,
+  writes Helm's progress messages to the provider's standard output (which
+  Terraform logs), and does not stop at the operation's timeout (the
+  operation fails then, but the build goes on in the background).
+  `helm_release` and `helm_template` fail instead (`Missing chart
+  dependencies`) unless `dependency_update = true`. Run
+  `helm dependency build` and commit the archives, or use a packaged chart
+  (a `.tgz`, or one from a repository or registry), whose dependencies Nelm
+  never builds. Without either lock file nothing is downloaded, and a
+  dependency missing from `charts/` fails the render. `nelm_template`
+  never downloads a dependency: it has Nelm load the chart without
+  building its dependencies and requires every one in `charts/`, as
+  `helm_template` does.
+
+- **Every chart render reads Docker's configuration.** Nelm builds its
+  registry client for every render and install, local charts included,
+  and that client parses two Docker-format files eagerly, even when it
+  then pulls nothing: the provider's per-operation registry configuration
+  when `registries` is set, `~/.docker/config.json` (under the `HOME` the
+  provider started with) when it is not; and Docker's own configuration,
+  `$DOCKER_CONFIG/config.json` or `~/.docker/config.json`. A malformed
+  file among them fails every `nelm_release` plan and apply and every
+  `nelm_template` read with a registry client error. Fix the file:
+  pointing `DOCKER_CONFIG` elsewhere avoids `~/.docker/config.json` only
+  when the provider's `registries` is set. Upstream in Nelm.
+
+- **Charts with werf secret values are out of scope.** A chart that carries
+  `secret-values.yaml` or a `secret/` directory makes Nelm ask for a werf
+  secret key, which it looks for in `WERF_SECRET_KEY`, in
+  `.werf_secret_key` in Terraform's working directory and in
+  `~/.werf/global_secret_key`. Without one, every render, plan and install
+  of the chart fails (`required encryption key not found`); with one, the
+  outcome depends on the environment of the machine that runs Terraform.
+  The provider has no attribute for a secret key.
+
 ## Release lifecycle
 
 - **`create_before_destroy` cannot replace a release under the same name.**
@@ -553,13 +610,17 @@ and
 
 ## Values precedence
 
-- **Ordering across `set` types is not preserved.** nelm merges the underlying
-  `--set` / `--set-string` / `--set-literal` / `--set-json` categories in a
-  fixed order, not in the order entries appear in a single `set` list. So two
-  entries with the *same name* but different `type` in one list do not honor
-  list order (the later category wins, not the later list position). The
-  provider does guarantee that `set_sensitive` wins over `set` on a name
-  conflict. Avoid same-name-different-type entries in a single list.
+- **Ordering across `set` types is not preserved.** nelm applies the
+  underlying categories in a fixed order — `--set-json` (`type = "json"`),
+  then `--set` (`""`/`"auto"`), then `--set-string`, then `--set-literal` —
+  and keeps list order only within one category. So of two entries with the
+  *same name* but different `type` in one list (`set`, or `set_sensitive`
+  alone), the one whose category comes later wins, whatever their list
+  positions: an earlier `type = "string"` entry overrides a later `auto`
+  one. The provider does guarantee that `set_sensitive` wins over `set` on
+  a name conflict (it drops the `set` entry), in `nelm_release` and
+  `nelm_template` alike. Avoid same-name-different-type entries in a single
+  list.
 
 - **Diagnostics scrub `set_sensitive` values as Nelm parses them, not every
   fragment.** Errors and warnings are scrubbed of each value as written, the
@@ -587,7 +648,13 @@ and
   same goes for a remote chart download cut off by its timeout: Helm's
   download code takes no context, so the abandoned download keeps running
   in the background — for an OCI pull, whose registry client has no HTTP
-  timeout, until the registry answers or drops the connection.
+  timeout, until the registry answers or drops the connection. And for a
+  chart render (`nelm_release`'s plan-time renders, `nelm_template`'s
+  read): Nelm's `ChartRender` takes no timeout and its chart loading and
+  template engine no context, so the provider runs it in a goroutine of
+  its own and fails the operation when the timeout fires, leaving the
+  render to finish in the background (a template that loops for long keeps
+  a CPU busy until it is done).
 
 - **A killed or crashed provider leaves its 0700 temp root behind.** Each
   provider process removes its `tf-nelm-*` temp root when Terraform shuts
@@ -596,7 +663,116 @@ and
   can leave values/plan-artifact files (0600, inside the 0700 root) until
   the OS temp cleaner runs.
 
-- **A nelm global (`loader.NoChartLockWarning`) is written by ReleaseGet
-  without synchronization**, so highly-parallel `Read` + chart-loading is a
-  data race whose only visible effect today is nondeterministic suppression
-  of a chart-dependency warning. Upstream in nelm.
+- **A nelm global (`loader.NoChartLockWarning`) is written by `ReleaseGet`
+  and `ReleaseList` without synchronization**, so highly-parallel `Read` +
+  chart-loading is a data race (Go's race detector reports it). It has no
+  visible effect in this provider: the provider clears the same variable at
+  startup, before any chart load, so nelm's `Cannot automatically download
+  chart dependencies without Chart.lock or requirements.lock.` line (which
+  only ever fired for local chart directories) is never printed, and a
+  dependency that is actually missing from `charts/` still fails the
+  operation with nelm's `found in Chart.yaml, but missing in charts/
+  directory` error. Upstream in nelm.
+
+## `nelm_template`
+
+See the [data source docs](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/data-sources/template.md)
+and the migration guide's
+[`helm_template` section](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md#migrating-from-helm_template).
+
+- **The outputs hold Secret data and `set_sensitive` values in
+  cleartext.** `manifest`, `manifests` and `crds` are not sensitive (as with
+  `helm_template`, and so that `for_each` over `manifests` works), and none
+  of `nelm_release`'s redaction applies: every rendered `Secret` (its
+  `data`, base64-encoded) and every value the chart renders, `set_sensitive`
+  ones included, are stored in the state and printed wherever a value
+  derived from them is printed — an output of `manifest` included, unless
+  it is marked `sensitive = true`. Use an encrypted state backend, mark such
+  outputs sensitive, and leave templates that render secrets out with
+  `show_only` where they are not needed.
+
+- **No `notes`.** Nelm's chart render does not return the chart's
+  `NOTES.txt`; `helm_template`'s `notes` and `render_subchart_notes` have no
+  counterpart.
+
+- **Namespace-scoped objects carry the release namespace; `helm_template`
+  leaves that to the template.** Nelm removes `metadata.namespace` where it
+  equals the release namespace, so the data source puts the release
+  `namespace` back on every namespace-scoped object that has none, hooks
+  included and `crds/` objects excepted — also on objects whose template
+  writes no namespace, which `helm_template` returns without one. This is
+  deliberate: it is where a `nelm_release` creates them. Offline, a kind's
+  scope comes from a built-in table of Kubernetes' own kinds and from the
+  CRDs in the render; a custom resource whose CRD is in neither (a
+  `ServiceMonitor` from a chart without the Prometheus Operator CRDs) keeps
+  no namespace, and the read warns once, listing such kinds. Render with
+  `validate = true`, which asks the cluster, or set their namespace where
+  the documents are applied. See
+  [Namespaces](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/data-sources/template.md#namespaces).
+
+- **The YAML is re-serialized by Nelm.** Each object is printed as
+  `nelm chart render` prints it, not as the template wrote it: keys sorted,
+  comments dropped, empty `metadata.labels: {}` and
+  `metadata.annotations: {}` added, labels and annotations whose value is
+  not a string dropped, a `Secret`'s `stringData` folded into `data`, hooks
+  before the other objects, the objects sorted alphabetically by kind and
+  name rather than in Helm's install order (a `Namespace` after the
+  `Deployment` in it: do not rely on the order when applying `manifest`),
+  and `crds` one element per object rather than one per `crds/` file.
+  Switching from `helm_template` therefore changes the text every consumer
+  of the outputs sees once.
+
+- **Every render is a first install.** The release history is never read,
+  with `validate = true` either: `.Release.IsUpgrade` is always false and
+  `.Release.Revision` always 1, as with `helm_template`, and there is no
+  `is_upgrade` attribute. A chart that branches on them renders its
+  first-install variant.
+
+- **`validate` is not OpenAPI validation.** `validate = true` renders with
+  the cluster's capabilities and live `lookup` results, but does not check
+  the rendered objects against the API server, unlike `helm_template`'s
+  `validate`: an invalid object renders without an error and fails only
+  where it is applied.
+
+- **An offline render assumes Kubernetes 1.20 unless `kube_version` is
+  set.** Nelm's offline default is `1.20.0`, the same as `helm_template`'s:
+  a chart whose `kubeVersion` constraint requires a newer cluster fails to
+  render, and a chart that picks API versions by Kubernetes version renders
+  the old ones. Set `kube_version` (and `api_versions` for the CRDs the
+  chart checks for) to match the target cluster.
+
+- **A provider configuration that is unknown at plan time.** An offline
+  render still works; only an `oci://` chart also needs the provider's
+  `registries` to be known. A `validate = true` render, or the render of an
+  `oci://` chart while `registries` is unknown, fails the plan. Apply the
+  change the provider configuration depends on first, render offline, or
+  make the data source `depends_on` the cluster so that it is read during
+  apply. With Terraform's deferred actions enabled, every `nelm_template`
+  read is deferred while the provider configuration is unknown, offline
+  renders included.
+
+- **The chart is rendered, and a remote chart downloaded, at every plan.**
+  Terraform reads data sources on every plan and refresh, so the chart
+  repository or registry must be reachable each time, and an unpinned
+  `version` follows the newest chart.
+
+- **Templates that render a new value every time change the outputs at every
+  plan.** `randAlphaNum`, `uuidv4`, `now`, `genCA` and the like render
+  differently at each read (and, with `validate = true`, so does a `lookup`
+  whose objects change), so every resource that consumes `manifest` or
+  `manifests` plans a change on every run. `nelm_release` detects such
+  objects by rendering twice; a data source cannot. Render offline, pass
+  generated values in through `values` (e.g. from a `random_password`
+  resource), use `lifecycle { ignore_changes }` on the consumer, or install
+  the chart with `nelm_release`.
+
+- **A render cut off by `timeouts.read` keeps running in the background.**
+  `timeouts.read` bounds the whole render, the remote-chart download
+  included, and fails the read when it expires, but Nelm cannot stop a
+  render once started: a slow template, the loading of a large chart or,
+  with `validate = true`, cluster calls that get no answer go on until they
+  finish (see
+  [Timeouts / nelm internals](#timeouts--nelm-internals)). With
+  `validate = true`, the API discovery that tells namespace-scoped kinds
+  apart after the render is bounded only by the provider's
+  `kube_request_timeout`.

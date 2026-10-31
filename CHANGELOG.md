@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `nelm_template` data source: renders a chart with Nelm's
+  `action.ChartRender` (what `nelm chart render` runs) without installing
+  it, the counterpart of `hashicorp/helm`'s `helm_template`. It takes
+  `nelm_release`'s chart and values inputs (`name`, `namespace`, `chart`,
+  `repository`, `version`, `values`, `set`, `set_sensitive`) plus
+  `kube_version`, `api_versions`, `include_crds`, `skip_tests`, `show_only`
+  and `validate`, and exports `manifest`, `manifests` and `crds` (the
+  objects of the charts' `crds/` directories) in the format
+  `nelm chart render` prints. The render is offline by default and never
+  contacts a cluster; `validate = true` renders against the provider's
+  cluster for its capabilities and `lookup` only. Like `helm_template`,
+  every render is a first install (`.Release.IsUpgrade` false,
+  `.Release.Revision` 1), `validate = true` included, and `validate` does
+  not check the objects against the cluster's OpenAPI schemas. Unlike
+  `helm_template`, every namespace-scoped object carries a
+  `metadata.namespace`, the release namespace where the template wrote
+  none (Nelm itself drops a namespace equal to the release namespace), with
+  a warning for custom resource kinds whose scope cannot be told offline.
+  The outputs are not sensitive, as with `helm_template`: rendered
+  `Secret`s and `set_sensitive` values are in cleartext in the state. There
+  is no `notes` or `is_upgrade` attribute. Like `helm_template` without
+  `dependency_update`, a local chart is rendered only with the dependencies
+  vendored in its `charts/` directory: the data source never builds or
+  downloads a dependency from its lock files, and fails with `Missing chart
+  dependencies` for one `charts/` lacks. See the
+  [data source docs](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/data-sources/template.md)
+  and
+  [Migrating from `helm_template`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/migrating-from-helm_release.md#migrating-from-helm_template).
+
+### Changed
+
+- A provider configuration that names no cluster is no longer an error by
+  itself, so an offline `nelm_template` works with `provider "nelm" {}`.
+  Every `nelm_release` of such a configuration still fails, with the same
+  `No Kubernetes connection configured` error (now reported for each
+  `nelm_release` instance — at refresh for one in state, at validation or
+  plan for a new one — instead of once by the provider), and so does a
+  `nelm_template` with `validate = true`. The provider still never falls
+  back to `~/.kube/config`'s current-context.
+
+### Fixed
+
+- `timeouts.read` now bounds the chart renders of a `nelm_release` plan, as
+  documented: a render that runs past it (a slow template, a dependency
+  build, a cluster that does not answer) fails the plan with a timeout
+  error instead of holding it until the render finishes, which it then does
+  in the background.
+- The error of a `nelm_release` plan or apply that fails on a chart's
+  rendered output no longer quotes that output, which can hold `Secret`
+  data that `resources` keeps redacted: for a template that renders an
+  object without a `kind`, it quoted the whole object
+  (`Object 'Kind' is missing in '...'`), and for rendered YAML that does
+  not parse, up to three lines on either side of the bad line. The error
+  still names the template and what is wrong.
+
 ## [0.1.2] - 2026-10-15
 
 ### Fixed

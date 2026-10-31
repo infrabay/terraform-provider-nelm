@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-template
+data:
+  message: {{ .Values.message | quote }}
+  kubeVersion: {{ .Capabilities.KubeVersion.Version | quote }}
+  hasWidgetAPI: {{ .Capabilities.APIVersions.Has "example.com/v1" | quote }}
+  isUpgrade: {{ .Release.IsUpgrade | quote }}
+  revision: {{ .Release.Revision | quote }}
