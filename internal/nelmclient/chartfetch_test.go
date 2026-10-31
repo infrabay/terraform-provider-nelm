@@ -376,7 +376,7 @@ func TestRender_OCIRepositoryIsPulledAsOneReference(t *testing.T) {
 // TestFetchChart_HelmPanicIsAnError checks a panic in helm's download code
 // comes back as an error instead of crashing the process: fetchChart runs the
 // download on its own goroutine, where nothing else would recover it. In nelm
-// v1.26.2 through v1.27.2 the registry client nil-derefs on a plain-HTTP OCI
+// v1.26.2 through v1.29.0 the registry client nil-derefs on a plain-HTTP OCI
 // pull (its ClientOptPlainHTTP assumes a custom HTTP client), which makes a
 // real one; if nelm fixes that, the pull just fails to connect and this still
 // holds.

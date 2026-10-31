@@ -342,7 +342,7 @@ func (c *Client) Uninstall(ctx context.Context, name, namespace, storageDriver s
 		// nelm off the provider's stdout, this avoids a data race inside the
 		// printer (Start goroutine vs Stop) that the race detector flags on the
 		// fast uninstall of a small release (observed at nelm v1.26.2 pkg/track,
-		// unchanged through v1.27.2).
+		// unchanged through v1.29.0).
 		TrackingOptions: common.TrackingOptions{
 			NoProgressTablePrint: true,
 		},

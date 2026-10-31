@@ -48,6 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plan for a new one — instead of once by the provider), and so does a
   `nelm_template` with `validate = true`. The provider still never falls
   back to `~/.kube/config`'s current-context.
+- Built on Nelm v1.29.0 (was v1.27.2), Nelm's current stable channel. Its
+  new feature gates (`adopt-deckhouse-controller-fields`,
+  `case-insensitive-condition-tracking`) stay off, like every Nelm gate
+  but remote charts: their `NELM_FEAT_*` variables have no effect. See
+  [Nelm feature gates](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/index.md#nelm-feature-gates).
 
 ### Fixed
 
@@ -63,6 +68,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`Object 'Kind' is missing in '...'`), and for rendered YAML that does
   not parse, up to three lines on either side of the bad line. The error
   still names the template and what is wrong.
+
+### Security
+
+- Built with Go 1.27.3, which distrusts compromised intermediate
+  certificates in `crypto/x509` (GO-2026-6809, CVE-2026-111943).
 
 ## [0.1.2] - 2026-10-15
 
