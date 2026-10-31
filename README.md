@@ -64,7 +64,7 @@ terraform {
   required_providers {
     nelm = {
       source  = "infrabay/nelm"
-      version = "~> 0.1"
+      version = "~> 0.2"
     }
   }
 }
