@@ -87,6 +87,17 @@ jobs:
       # x/crypto/openpgp) have no fix in the module lines nelm pins, so a
       # plain `govulncheck ./...` would fail every run without saying which
       # findings are actionable.
+      #
+      # no_fix_osv holds the OSV IDs (|-separated) whose fixed version deletes
+      # the vulnerable package instead of patching it, so no upgrade fixes
+      # them while nelm imports that package. They are matched by ID, so a new
+      # advisory against the same package still fails the job.
+      # - GO-2026-5932 (x/crypto/openpgp is unmaintained): the x/crypto
+      #   version it lists as fixed removes golang.org/x/crypto/openpgp, which
+      #   the Helm provenance code inside nelm (pkg/helm/pkg/provenance)
+      #   imports. Drop it once nelm no longer imports x/crypto/openpgp
+      #   (`go list -deps ./... | grep -E '^golang.org/x/crypto/openpgp(/|$)'`
+      #   lists nothing).
       - name: govulncheck
         shell: bash
         run: |
@@ -94,7 +105,8 @@ jobs:
           jq -r 'select(.finding.trace[0].function != null) | .finding
             | "\(.osv) \(.trace[0].module)@\(.trace[0].version) fixed in: \(.fixed_version // "none")"' \
             govulncheck.json | sort -u | tee reachable.txt
-          if grep -v 'fixed in: none$' reachable.txt; then
+          no_fix_osv='GO-2026-5932'
+          if grep -v 'fixed in: none$' reachable.txt | grep -Ev "^(${no_fix_osv}) "; then
             echo "::error::reachable vulnerabilities with a fixed version (above): upgrade those modules"
             exit 1
           fi
