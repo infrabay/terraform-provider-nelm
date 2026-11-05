@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Built on Nelm v1.30.4 (was v1.29.0), Nelm's current stable channel.
+  Planning an update of a large release is faster: Nelm reads and dry-runs
+  the release's objects in parallel again (up to 30 at a time, Nelm's
+  default) instead of one at a time. Readiness tracking no longer fails
+  when the provider may not list or watch a namespace's events: Nelm warns
+  and goes on without them. A failed release deletion no longer panics.
+  Nelm v1.30 adds no feature gates, and how it classifies changes and takes
+  over field managers is unchanged.
+
 ## [0.2.0] - 2026-10-31
 
 ### Added
