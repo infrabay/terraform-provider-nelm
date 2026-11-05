@@ -17,7 +17,7 @@ require (
 	github.com/samber/lo v1.53.0
 	github.com/wI2L/jsondiff v0.7.1
 	github.com/werf/logboek v0.7.1
-	github.com/werf/nelm v1.29.0
+	github.com/werf/nelm v1.30.4
 	k8s.io/apimachinery v0.29.3
 	k8s.io/client-go v0.29.3
 	sigs.k8s.io/yaml v1.4.0
@@ -176,7 +176,7 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/werf/common-go v0.0.0-20251113140850-a1a98e909e9b // indirect
-	github.com/werf/kubedog v0.13.1-0.20260811104953-26a7ce74643f // indirect
+	github.com/werf/kubedog v0.13.1-0.20260912145640-ad1e8a134607 // indirect
 	github.com/werf/lockgate v0.1.1 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
