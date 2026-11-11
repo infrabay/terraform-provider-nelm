@@ -113,7 +113,7 @@ jobs:
       # terraform binary on PATH (it downloads the latest one otherwise).
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
-          terraform_version: 'v1.17.1'
+          terraform_version: 'v1.17.2'
           terraform_wrapper: false
       # Frontmatter, directory layout and file names of docs/ as the Terraform
       # Registry expects them. The pages are hand-written, so nothing is
@@ -135,11 +135,11 @@ jobs:
       # which breaks the test harness's CLI parsing.
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
-          terraform_version: 'v1.17.1'
+          terraform_version: 'v1.17.2'
           terraform_wrapper: false
       # The import scenario shells out to the real helm CLI to create an
       # out-of-band release (storage-format compatibility is the point).
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5
       # A local kind cluster whose kubeconfig context is kind-nelm-acc with
       # server https://127.0.0.1:<port> — which is exactly what the suite's
       # local-endpoint safety guard (testAccPreCheck) requires.
