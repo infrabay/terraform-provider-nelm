@@ -26,8 +26,47 @@ env:
   TFPLUGINDOCS_VERSION: v0.25.0
 
 jobs:
+  # Decides whether a pull request changes anything but documentation (the
+  # hand-written docs/ and the top-level Markdown files). Such a pull request
+  # runs only the docs job, and the code jobs show as skipped. Pushes to main
+  # and release tags (release.yml calls this workflow, with the caller's
+  # event) always run every job.
+  changes:
+    name: changed files
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: github.event_name == 'pull_request'
+        with:
+          # The merge commit GitHub tests and both its parents.
+          fetch-depth: 2
+          persist-credentials: false
+      - id: diff
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # HEAD^1 is the base branch the merge commit merges into, so this
+          # lists exactly what the pull request changes against it. An empty
+          # list counts as code, to be safe.
+          git diff --name-only HEAD^1 HEAD | tee changed.txt
+          if [ ! -s changed.txt ] || grep -qvE '^docs/|^[^/]+\.md$' changed.txt; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: build & unit tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -56,6 +95,8 @@ jobs:
 
   lint:
     name: golangci-lint
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -73,6 +114,8 @@ jobs:
 
   govulncheck:
     name: govulncheck
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -134,6 +177,8 @@ jobs:
 
   acceptance:
     name: acceptance tests (kind)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:

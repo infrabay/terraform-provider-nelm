@@ -150,6 +150,13 @@ live in `~/.kube/config` (where OrbStack and kind write it by default).
   the Terraform release pinned in `test.yml` and the real helm CLI for the
   out-of-band import fixture.
 
+A pull request that changes only `docs/` and top-level Markdown files
+(`CHANGELOG.md`, `CONTRACTS.md`, ...) runs only `docs`: the `changes` job
+compares the pull request's merge commit with its base, and `build`, `lint`,
+`govulncheck` and `acceptance` show as skipped. Pushes to `main` and release
+tags always run every job, and a pull request that changes only `README.md`
+runs nothing.
+
 The tool versions are `*_VERSION` variables at the top of `test.yml`, which
 Renovate keeps current. To run the docs and vulnerability checks locally:
 
