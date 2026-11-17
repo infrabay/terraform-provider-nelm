@@ -16,6 +16,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
@@ -426,7 +427,15 @@ func (f *fakeAPIServer) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		metadata["managedFields"] = patch.Metadata["managedFields"]
+		mf := patch.Metadata["managedFields"]
+		// Like a real API server, [{}] clears the list.
+		if l, ok := mf.([]any); ok && len(l) == 1 {
+			if e, ok := l[0].(map[string]any); ok && len(e) == 0 {
+				mf = []any{}
+			}
+		}
+
+		metadata["managedFields"] = mf
 		bumpResourceVersion(metadata)
 
 		writeObject(w, obj)
@@ -473,6 +482,7 @@ func testObject(t *testing.T, apiVersion, kind, namespace, name string, entries 
 func testMapper() meta.RESTMapper {
 	mapper := meta.NewDefaultRESTMapper(nil)
 	mapper.Add(schema.GroupVersionKind{Version: "v1", Kind: "ConfigMap"}, meta.RESTScopeNamespace)
+	mapper.Add(schema.GroupVersionKind{Version: "v1", Kind: "ServiceAccount"}, meta.RESTScopeNamespace)
 	mapper.Add(schema.GroupVersionKind{Group: "rbac.authorization.k8s.io", Version: "v1", Kind: "ClusterRole"}, meta.RESTScopeRoot)
 
 	return mapper
@@ -520,7 +530,7 @@ func TestHandOverHelmProviderFieldManagers(t *testing.T) {
 		{Group: "example.com", Version: "v1", Kind: "Widget", Namespace: "app", Name: "unserved"},
 	}
 
-	skipped, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, refs)
+	skipped, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, refs, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -557,7 +567,7 @@ func TestHandOverHelmProviderFieldManagers(t *testing.T) {
 	}
 
 	// Idempotent: nothing left to hand over, so nothing is patched again.
-	if _, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, refs); err != nil {
+	if _, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, refs, nil); err != nil {
 		t.Fatalf("second run: %v", err)
 	}
 	if got := f.patchCount(cmPath) + f.patchCount(crPath) + f.patchCount(plainCMPath); got != 2 {
@@ -589,7 +599,7 @@ func TestHandOverHelmProviderFieldManagers_ConflictRetried(t *testing.T) {
 		return 0, ""
 	}
 
-	skipped, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, []ResourceRef{cmRef})
+	skipped, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, []ResourceRef{cmRef}, nil)
 	if err != nil || len(skipped) != 0 {
 		t.Fatalf("skipped=%v err=%v, want neither", skipped, err)
 	}
@@ -626,7 +636,7 @@ func TestHandOverHelmProviderFieldManagers_TransientGetRetried(t *testing.T) {
 	))
 	f.failGets[cmPath] = 1
 
-	skipped, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, []ResourceRef{cmRef})
+	skipped, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, []ResourceRef{cmRef}, nil)
 	if err != nil || len(skipped) != 0 {
 		t.Fatalf("skipped=%v err=%v, want neither", skipped, err)
 	}
@@ -668,7 +678,7 @@ func TestHandOverHelmProviderFieldManagers_WebhookUnavailableSkipped(t *testing.
 			`failed to call webhook: Post "https://webhook.example.svc:443/validate": dial tcp 10.0.0.1:443: connect: connection refused`
 	}
 
-	skipped, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, []ResourceRef{cmRef, crRef})
+	skipped, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, []ResourceRef{cmRef, crRef}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -700,7 +710,7 @@ func TestHandOverHelmProviderFieldManagers_OtherErrorsFail(t *testing.T) {
 		return http.StatusForbidden, `configmaps "app" is forbidden: User "ci" cannot patch resource "configmaps"`
 	}
 
-	_, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, []ResourceRef{cmRef})
+	_, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, []ResourceRef{cmRef}, nil)
 	if err == nil {
 		t.Fatal("expected an error for a forbidden patch")
 	}
@@ -720,12 +730,174 @@ func TestHandOverHelmProviderFieldManagers_BoundedByContext(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, err := handOverHelmProviderFieldManagers(ctx, testMapper(), dyn, []ResourceRef{cmRef})
+	_, err := handOverHelmProviderFieldManagers(ctx, testMapper(), dyn, []ResourceRef{cmRef}, nil)
 
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
 	}
 	if elapsed := time.Since(start); elapsed > 10*time.Second {
 		t.Fatalf("hand-over not bounded by its context: took %s", elapsed)
+	}
+}
+
+// TestIsIdentityOnly pins which manifests leave a server-side apply nothing to
+// own: identity fields only, empty values counting as unset.
+func TestIsIdentityOnly(t *testing.T) {
+	sa := func(extra map[string]any, metadata map[string]any) map[string]any {
+		md := map[string]any{"name": "exporter", "namespace": "monitoring"}
+		for k, v := range metadata {
+			md[k] = v
+		}
+
+		obj := map[string]any{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": md}
+		for k, v := range extra {
+			obj[k] = v
+		}
+
+		return obj
+	}
+
+	for _, tc := range []struct {
+		name string
+		obj  map[string]any
+		want bool
+	}{
+		{"name and namespace only (cadvisor chart 2.3.3)", sa(nil, nil), true},
+		{"no namespace", map[string]any{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": map[string]any{"name": "exporter"}}, true},
+		{"empty labels, annotations and secrets", sa(map[string]any{"secrets": []any{}}, map[string]any{"labels": map[string]any{}, "annotations": nil}), true},
+		{"a label", sa(nil, map[string]any{"labels": map[string]any{"app": "exporter"}}), false},
+		{"an annotation", sa(nil, map[string]any{"annotations": map[string]any{"a": "b"}}), false},
+		{"automountServiceAccountToken false", sa(map[string]any{"automountServiceAccountToken": false}, nil), false},
+		{"configmap data", map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "metadata": map[string]any{"name": "c"}, "data": map[string]any{"k": "v"}}, false},
+		{"configmap with empty data", map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "metadata": map[string]any{"name": "c"}, "data": map[string]any{}}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isIdentityOnly(tc.obj); got != tc.want {
+				t.Errorf("isIdentityOnly() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDropHelmUpdateEntries asserts only the main-resource Update entries of
+// the Helm managers go; nelm's Apply entry, subresource entries and other
+// managers stay.
+func TestDropHelmUpdateEntries(t *testing.T) {
+	ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	update, apply := metav1.ManagedFieldsOperationUpdate, metav1.ManagedFieldsOperationApply
+
+	entries := []metav1.ManagedFieldsEntry{
+		mfEntry(tfHelm311, update, "v1", "", `{"f:metadata":{"f:labels":{}}}`, ts),
+		mfEntry("helm", update, "v1", "", `{"f:metadata":{"f:annotations":{}}}`, ts),
+		mfEntry("helm", apply, "v1", "", `{}`, ts),
+		mfEntry(tfHelm302, update, "v1", "status", `{"f:status":{}}`, ts),
+		mfEntry("kube-controller-manager", update, "v1", "", `{"f:secrets":{}}`, ts),
+	}
+
+	out, changed := dropHelmUpdateEntries(entries)
+	if !changed {
+		t.Fatal("changed = false, want true")
+	}
+	if len(out) != 3 {
+		t.Fatalf("got %d entries, want 3 (helm/Apply, the status entry, kube-controller-manager): %+v", len(out), out)
+	}
+	if _, n := findEntry(out, "helm", update, "v1"); n != 0 {
+		t.Errorf(`"helm"/Update not dropped: %+v`, out)
+	}
+	if _, n := findEntry(out, "helm", apply, "v1"); n != 1 {
+		t.Errorf(`"helm"/Apply must stay: %+v`, out)
+	}
+	if len(entries) != 5 {
+		t.Errorf("input modified: %+v", entries)
+	}
+
+	kept := []metav1.ManagedFieldsEntry{mfEntry("kube-controller-manager", update, "v1", "", `{}`, ts)}
+	if _, changed := dropHelmUpdateEntries(kept); changed {
+		t.Error("changed = true with no Helm entry")
+	}
+}
+
+// TestHandOverHelmProviderFieldManagers_IdentityOnly is the regression test for
+// nelm failing the first install after the hand-over with "find apply managed
+// fields entry in dry-run result" on an object whose manifest is identity only
+// (cadvisor chart 2.3.3's ServiceAccount): such an object loses its Helm
+// Update entries instead of having them renamed to "helm"/Update, the list is
+// cleared when nothing else is left, other managers survive, and an ordinary
+// object of the same release is still renamed.
+func TestHandOverHelmProviderFieldManagers_IdentityOnly(t *testing.T) {
+	ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	update := metav1.ManagedFieldsOperationUpdate
+
+	const (
+		saPath      = "/api/v1/namespaces/app/serviceaccounts/exporter"
+		sharedPath  = "/api/v1/namespaces/app/serviceaccounts/shared"
+		helmCLIPath = "/api/v1/namespaces/app/serviceaccounts/cli"
+	)
+
+	saRef := ResourceRef{Version: "v1", Kind: "ServiceAccount", Namespace: "app", Name: "exporter"}
+	sharedRef := ResourceRef{Version: "v1", Kind: "ServiceAccount", Namespace: "app", Name: "shared"}
+	helmCLIRef := ResourceRef{Version: "v1", Kind: "ServiceAccount", Namespace: "app", Name: "cli"}
+
+	f, dyn := newFakeAPIServer(t)
+
+	f.add(saPath, testObject(t, "v1", "ServiceAccount", "app", "exporter",
+		mfEntry(tfHelm311, update, "v1", "", `{"f:metadata":{"f:labels":{"f:app.kubernetes.io/managed-by":{}}}}`, ts),
+	))
+	f.add(sharedPath, testObject(t, "v1", "ServiceAccount", "app", "shared",
+		mfEntry(tfHelm311, update, "v1", "", `{"f:metadata":{"f:labels":{}}}`, ts),
+		mfEntry("kube-controller-manager", update, "v1", "", `{"f:secrets":{}}`, ts),
+	))
+	f.add(helmCLIPath, testObject(t, "v1", "ServiceAccount", "app", "cli",
+		mfEntry("helm", update, "v1", "", `{"f:metadata":{"f:labels":{}}}`, ts),
+	))
+	f.add(cmPath, testObject(t, "v1", "ConfigMap", "app", "app",
+		mfEntry(tfHelm311, update, "v1", "", `{"f:data":{"f:A":{}}}`, ts),
+	))
+
+	manifest := func(name, namespace string) *unstructured.Unstructured {
+		md := map[string]any{"name": name}
+		if namespace != "" {
+			md["namespace"] = namespace
+		}
+
+		return &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": md}}
+	}
+
+	identityOnly := newIdentityOnlyObjects([]*unstructured.Unstructured{
+		manifest("exporter", "app"),
+		manifest("shared", ""),
+		manifest("cli", "app"),
+		{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap", "metadata": map[string]any{"name": "app"}, "data": map[string]any{"A": "1"}}},
+	})
+
+	refs := []ResourceRef{saRef, sharedRef, helmCLIRef, cmRef}
+
+	if _, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, refs, identityOnly); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if mf := f.managedFields(saPath); len(mf) != 0 {
+		t.Errorf("identity-only ServiceAccount: managedFields = %+v, want cleared", mf)
+	}
+	if mf := f.managedFields(helmCLIPath); len(mf) != 0 {
+		t.Errorf(`identity-only ServiceAccount with a Helm CLI "helm"/Update entry: managedFields = %+v, want cleared`, mf)
+	}
+
+	shared := f.managedFields(sharedPath)
+	if len(shared) != 1 || shared[0].Manager != "kube-controller-manager" {
+		t.Errorf("identity-only ServiceAccount with another manager: managedFields = %+v, want only kube-controller-manager", shared)
+	}
+
+	if _, n := findEntry(f.managedFields(cmPath), "helm", update, "v1"); n != 1 {
+		t.Errorf(`ordinary ConfigMap: want its entry renamed to "helm"/Update: %+v`, f.managedFields(cmPath))
+	}
+
+	// Idempotent: nothing left to drop or rename.
+	before := f.patchCount(saPath) + f.patchCount(sharedPath) + f.patchCount(helmCLIPath) + f.patchCount(cmPath)
+	if _, err := handOverHelmProviderFieldManagers(context.Background(), testMapper(), dyn, refs, identityOnly); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if after := f.patchCount(saPath) + f.patchCount(sharedPath) + f.patchCount(helmCLIPath) + f.patchCount(cmPath); after != before {
+		t.Errorf("second run patched again: %d patches, want %d", after, before)
 	}
 }

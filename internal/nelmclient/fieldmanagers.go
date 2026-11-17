@@ -10,6 +10,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
@@ -51,6 +52,23 @@ const helmProviderFieldManagerPrefix = "terraform-provider-helm"
 // list (one line per object) and handed over by a later apply. timeout
 // bounds the whole call.
 //
+// An object whose stored manifest is identity only (newIdentityOnlyObjects) is
+// handled differently: its Helm entries ("terraform-provider-helm*" and
+// "helm", main-resource Update) are dropped instead of renamed. nelm's own
+// fix-up dry-runs that manifest under server-side apply to rebuild its
+// "helm"/Apply entry, and an apply that owns no field leaves none, so nelm
+// (through at least v1.30.4) fails the whole plan or install with "find apply
+// managed fields entry in dry-run result". Without a "helm"/Update entry nelm
+// skips that fix-up and simply takes the object over; there is nothing to
+// prune on an object whose manifest sets no field.
+//
+// This is a workaround for https://github.com/werf/nelm/issues/831. Once the
+// nelm version the provider builds on treats a dry-run result without an
+// Apply entry as an empty field set, remove it (newIdentityOnlyObjects,
+// identityOnlyObjects, isIdentityOnly, dropHelmUpdateEntries and the
+// dropHelmEntries branch of handOverObject), together with its tests and the
+// known-limitations entry.
+//
 // Callers run this at apply only, never while planning: it is a real write,
 // and a plan must not add one to the managedFields fix-up nelm's own plan
 // already performs.
@@ -75,13 +93,14 @@ func (c *Client) HandOverHelmProviderFieldManagers(ctx context.Context, name, na
 		return nil, err
 	}
 
-	return handOverHelmProviderFieldManagers(ctx, factory.Mapper(), factory.Dynamic(), info.Resources)
+	return handOverHelmProviderFieldManagers(ctx, factory.Mapper(), factory.Dynamic(), info.Resources,
+		newIdentityOnlyObjects(info.Manifests))
 }
 
 // handOverHelmProviderFieldManagers is HandOverHelmProviderFieldManagers'
 // cluster-facing body. It takes the RESTMapper and dynamic client explicitly
 // so it can be unit tested against a fake API server.
-func handOverHelmProviderFieldManagers(ctx context.Context, mapper meta.RESTMapper, dyn dynamic.Interface, refs []ResourceRef) ([]string, error) {
+func handOverHelmProviderFieldManagers(ctx context.Context, mapper meta.RESTMapper, dyn dynamic.Interface, refs []ResourceRef, identityOnly identityOnlyObjects) ([]string, error) {
 	var skipped []string
 
 	for _, ref := range refs {
@@ -111,8 +130,11 @@ func handOverHelmProviderFieldManagers(ctx context.Context, mapper meta.RESTMapp
 			resClient = dyn.Resource(mapping.Resource)
 		}
 
+		// Workaround for werf/nelm#831; see HandOverHelmProviderFieldManagers.
+		dropHelmEntries := identityOnly.has(ref)
+
 		err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			return handOverObject(ctx, resClient, ref.Name)
+			return handOverObject(ctx, resClient, ref.Name, dropHelmEntries)
 		})
 		if err != nil {
 			if kube.IsWebhookErr(err) {
@@ -137,7 +159,13 @@ func handOverHelmProviderFieldManagers(ctx context.Context, mapper meta.RESTMapp
 // the API server fails transiently is retried as LiveObjects retries it
 // (getLive); that includes a conversion webhook's 500, so such an object is
 // skipped only after those retries. The PATCH is not retried.
-func handOverObject(ctx context.Context, client dynamic.ResourceInterface, name string) error {
+//
+// With dropHelmEntries (an identity-only object, see
+// HandOverHelmProviderFieldManagers) the Helm entries are dropped instead
+// (dropHelmUpdateEntries); when none are left, the patch sends
+// managedFields [{}], the API server's way to clear the list (an empty list is
+// ignored).
+func handOverObject(ctx context.Context, client dynamic.ResourceInterface, name string, dropHelmEntries bool) error {
 	obj, err := getLive(ctx, client, name)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -147,14 +175,32 @@ func handOverObject(ctx context.Context, client dynamic.ResourceInterface, name 
 		return fmt.Errorf("get: %w", err)
 	}
 
-	entries, changed, err := handOverHelmProviderEntries(obj.GetManagedFields())
-	if err != nil || !changed {
-		return err
+	var (
+		entries []metav1.ManagedFieldsEntry
+		changed bool
+	)
+
+	if dropHelmEntries {
+		entries, changed = dropHelmUpdateEntries(obj.GetManagedFields())
+	} else {
+		entries, changed, err = handOverHelmProviderEntries(obj.GetManagedFields())
+		if err != nil {
+			return err
+		}
+	}
+
+	if !changed {
+		return nil
+	}
+
+	var managedFields any = entries
+	if len(entries) == 0 {
+		managedFields = []map[string]any{{}}
 	}
 
 	patch, err := json.Marshal(map[string]any{
 		"metadata": map[string]any{
-			"managedFields":   entries,
+			"managedFields":   managedFields,
 			"resourceVersion": obj.GetResourceVersion(),
 		},
 	})
@@ -243,4 +289,115 @@ func fieldsJSON(f *metav1.FieldsV1) []byte {
 	}
 
 	return f.Raw
+}
+
+// dropHelmUpdateEntries returns entries without the main-resource Update
+// entries of the Helm managers: "terraform-provider-helm*" (helm_release) and
+// "helm" (the Helm 3 CLI, or a helm_release entry an earlier hand-over
+// renamed). Apply and subresource entries, and every other manager, are kept.
+// changed is false, with entries returned as-is, when nothing is dropped.
+// entries itself is never modified.
+func dropHelmUpdateEntries(entries []metav1.ManagedFieldsEntry) (out []metav1.ManagedFieldsEntry, changed bool) {
+	out = make([]metav1.ManagedFieldsEntry, 0, len(entries))
+
+	for _, e := range entries {
+		if e.Subresource == "" && e.Operation == metav1.ManagedFieldsOperationUpdate &&
+			(strings.HasPrefix(e.Manager, helmProviderFieldManagerPrefix) || e.Manager == common.DefaultFieldManager) {
+			changed = true
+
+			continue
+		}
+
+		out = append(out, e)
+	}
+
+	if !changed {
+		return entries, false
+	}
+
+	return out, true
+}
+
+// identityOnlyObjects indexes the stored release's identity-only manifests
+// (isIdentityOnly) by group, kind and name, each with the namespaces it was
+// rendered for ("" when the manifest names none).
+type identityOnlyObjects map[schema.GroupKind]map[string][]string
+
+// newIdentityOnlyObjects collects the identity-only objects of a stored
+// release's manifests.
+func newIdentityOnlyObjects(manifests []*unstructured.Unstructured) identityOnlyObjects {
+	out := identityOnlyObjects{}
+
+	for _, m := range manifests {
+		if m == nil || !isIdentityOnly(m.Object) {
+			continue
+		}
+
+		gk := m.GroupVersionKind().GroupKind()
+		if out[gk] == nil {
+			out[gk] = map[string][]string{}
+		}
+
+		out[gk][m.GetName()] = append(out[gk][m.GetName()], m.GetNamespace())
+	}
+
+	return out
+}
+
+// has reports whether ref is one of the identity-only objects. A manifest
+// without a namespace matches any: Helm renders namespaced objects into the
+// release namespace, and a cluster-scoped ref has none.
+func (o identityOnlyObjects) has(ref ResourceRef) bool {
+	for _, ns := range o[schema.GroupKind{Group: ref.Group, Kind: ref.Kind}][ref.Name] {
+		if ns == "" || ns == ref.Namespace {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isIdentityOnly reports whether a manifest sets nothing but its identity:
+// apiVersion, kind, metadata.name and metadata.namespace, with empty values
+// (null, "", {} and []) counting as unset. Server-side apply records none of
+// those as owned, so applying such a manifest leaves its manager no
+// managedFields entry.
+func isIdentityOnly(obj map[string]any) bool {
+	for k, v := range obj {
+		switch k {
+		case "apiVersion", "kind":
+		case "metadata":
+			md, ok := v.(map[string]any)
+			if !ok {
+				return isEmptyManifestValue(v)
+			}
+
+			for mk, mv := range md {
+				if mk != "name" && mk != "namespace" && !isEmptyManifestValue(mv) {
+					return false
+				}
+			}
+		default:
+			if !isEmptyManifestValue(v) {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func isEmptyManifestValue(v any) bool {
+	switch x := v.(type) {
+	case nil:
+		return true
+	case string:
+		return x == ""
+	case map[string]any:
+		return len(x) == 0
+	case []any:
+		return len(x) == 0
+	default:
+		return false
+	}
 }
