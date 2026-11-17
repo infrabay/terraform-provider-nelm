@@ -51,6 +51,9 @@
         "nelm-channel"
       ],
       "automerge": false,
+      "prBodyNotes": [
+        "⚠️ Check [werf/nelm#831](https://github.com/werf/nelm/issues/831): if this nelm version includes its fix, remove the identity-only hand-over workaround (see `HandOverHelmProviderFieldManagers` in `internal/nelmclient/fieldmanagers.go`) and its entry in `docs/guides/known-limitations.md`."
+      ],
       "postUpgradeTasks": {
         "commands": [
           "go mod tidy"
