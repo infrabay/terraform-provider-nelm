@@ -52,7 +52,8 @@
       ],
       "automerge": false,
       "prBodyNotes": [
-        "⚠️ Check [werf/nelm#831](https://github.com/werf/nelm/issues/831): if this nelm version includes its fix, remove the identity-only hand-over workaround (see `HandOverHelmProviderFieldManagers` in `internal/nelmclient/fieldmanagers.go`) and its entry in `docs/guides/known-limitations.md`."
+        "⚠️ Check [werf/nelm#831](https://github.com/werf/nelm/issues/831): if this nelm version includes its fix, remove the identity-only hand-over workaround (see `HandOverHelmProviderFieldManagers` in `internal/nelmclient/fieldmanagers.go`) and its entry in `docs/guides/known-limitations.md`.",
+        "ℹ️ [werf/nelm#746](https://github.com/werf/nelm/issues/746) is fixed in nelm v1.31.2: once this bump is v1.31.2 or later, `readPlanArtifact` in `internal/nelmclient/planartifact.go` can be replaced with nelm's `plan.ReadPlanArtifact`."
       ],
       "postUpgradeTasks": {
         "commands": [
