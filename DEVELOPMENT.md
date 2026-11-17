@@ -130,13 +130,11 @@ live in `~/.kube/config` (where OrbStack and kind write it by default).
 
 ## Continuous integration
 
-`.github/workflows/test.yml` runs on every pull request, every push to
-`main`, and for every release tag (`release.yml` calls it):
+`.github/workflows/test.yml` runs on pull requests and pushes to `main`
+(except those that change only `README.md`), and for every release tag
+(`release.yml` calls it):
 
-- `build`: gofmt, `go vet`, `go build`, the unit tests with `-race`, and a
-  check that no tracked file contains a workstation path (a home directory
-  under `/Users/...` or `/home/...`, or a session scratch path under
-  `/private/tmp/...`);
+- `build`: gofmt, `go vet`, `go build` and the unit tests with `-race`;
 - `lint`: golangci-lint, pinned to the version `./gates.sh` is run with;
 - `govulncheck`: lists the vulnerabilities the code can reach and fails on
   those with a fixed version (the ones reachable through Nelm's dependencies
@@ -144,7 +142,10 @@ live in `~/.kube/config` (where OrbStack and kind write it by default).
   `golang.org/x/crypto/openpgp` package Nelm's Helm imports; `test.yml`
   exempts it by ID);
 - `docs`: `tfplugindocs validate --provider-name nelm`, the Registry's
-  frontmatter and layout rules for the hand-written `docs/`;
+  frontmatter and layout rules for the hand-written `docs/`, and a check
+  that no tracked file contains a workstation path (a home directory under
+  `/Users/...` or `/home/...`, or a session scratch path under
+  `/private/tmp/...`);
 - `acceptance`: the acceptance suite against a
   [kind](https://kind.sigs.k8s.io/) cluster (`kind-nelm-acc` context), with
   the Terraform release pinned in `test.yml` and the real helm CLI for the
@@ -152,10 +153,10 @@ live in `~/.kube/config` (where OrbStack and kind write it by default).
 
 A pull request that changes only `docs/` and top-level Markdown files
 (`CHANGELOG.md`, `CONTRACTS.md`, ...) runs only `docs`: the `changes` job
-compares the pull request's merge commit with its base, and `build`, `lint`,
-`govulncheck` and `acceptance` show as skipped. Pushes to `main` and release
-tags always run every job, and a pull request that changes only `README.md`
-runs nothing.
+compares the pull request's merge commit with its base (a file moved into
+`docs/` counts by its old path too), and `build`, `lint`, `govulncheck` and
+`acceptance` show as skipped. Pushes to `main` and release tags always run
+every job.
 
 The tool versions are `*_VERSION` variables at the top of `test.yml`, which
 Renovate keeps current. To run the docs and vulnerability checks locally:

@@ -30,7 +30,8 @@ jobs:
   # hand-written docs/ and the top-level Markdown files). Such a pull request
   # runs only the docs job, and the code jobs show as skipped. Pushes to main
   # and release tags (release.yml calls this workflow, with the caller's
-  # event) always run every job.
+  # event) always run every job. The code jobs fail closed: they run unless
+  # this job positively reports a docs-only change.
   changes:
     name: changed files
     runs-on: ubuntu-26.04
@@ -54,9 +55,13 @@ jobs:
             exit 0
           fi
           # HEAD^1 is the base branch the merge commit merges into, so this
-          # lists exactly what the pull request changes against it. An empty
-          # list counts as code, to be safe.
-          git diff --name-only HEAD^1 HEAD | tee changed.txt
+          # lists exactly what the pull request changes against it.
+          # --no-renames lists both paths of a moved file, so moving code into
+          # docs/ still counts as code. An empty list counts as code, to be
+          # safe. The list is printed indented so that a file name can never
+          # be read as a workflow command.
+          git diff --name-only --no-renames HEAD^1 HEAD > changed.txt
+          sed 's/^/  /' changed.txt
           if [ ! -s changed.txt ] || grep -qvE '^docs/|^[^/]+\.md$' changed.txt; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
@@ -66,7 +71,7 @@ jobs:
   build:
     name: build & unit tests
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -84,19 +89,11 @@ jobs:
       - run: go build -v ./...
       # Acceptance tests (TF_ACC) need a live cluster and self-skip here.
       - run: go test -race -count=1 ./...
-      # Committed files end up on the Registry and in release archives; keep
-      # home directories and session scratch paths out of them.
-      - name: No workstation paths
-        run: |
-          if git grep -nE '/Users/[A-Za-z]|/home/[A-Za-z]|/private/tmp/[A-Za-z]'; then
-            echo "::error::tracked files contain workstation paths (above)"
-            exit 1
-          fi
 
   lint:
     name: golangci-lint
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -115,7 +112,7 @@ jobs:
   govulncheck:
     name: govulncheck
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
@@ -160,6 +157,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # Committed files end up on the Registry and in release archives; keep
+      # home directories and session scratch paths out of them. It lives in
+      # this job because docs runs on every pull request, docs-only included.
+      - name: No workstation paths
+        run: |
+          if git grep -nE '/Users/[A-Za-z]|/home/[A-Za-z]|/private/tmp/[A-Za-z]'; then
+            echo "::error::tracked files contain workstation paths (above)"
+            exit 1
+          fi
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: 'go.mod'
@@ -178,7 +184,7 @@ jobs:
   acceptance:
     name: acceptance tests (kind)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
