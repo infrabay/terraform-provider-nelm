@@ -124,14 +124,16 @@ Then:
 1. Run `terraform plan` and check it before anything else:
    - `helm_release.app will no longer be managed by Terraform`
      — and **no** `destroy` of anything.
-   - `nelm_release.app will be imported` and `updated in-place`
-     (never `must be replaced`). The update is expected: `chart` cannot be
+   - `nelm_release.app will be updated in-place` with
+     `(imported from "app/app")` (never `must be replaced`). The update is
+     expected: `chart` cannot be
      recovered from Helm's release storage, so it is null right after the
      import, and the first apply runs `nelm install` (see
      [What the first apply does](#what-the-first-apply-does)).
-   - The `resources` diff should show no changes to your objects. A diff
-     there means the new configuration does not render what the
-     `helm_release` last applied; fix the configuration first.
+   - The `resources` diff should show no changes to your objects, apart
+     from [empty values](#empty-values-in-the-diff). Any other diff there
+     means the new configuration does not render what the `helm_release`
+     last applied; fix the configuration first.
 2. `terraform apply`.
 3. Delete the `removed` and `import` blocks (they are one-shot), and drop
    `hashicorp/helm` from `required_providers` once no `helm_release` and no
@@ -197,7 +199,9 @@ in the [table](#attribute-mapping) below; `release_storage_driver` becomes
 `metadata` and `resources` from the cluster. Unlike after an import,
 `chart` is known, so when the `nelm_release` configuration reproduces the
 `helm_release` inputs the plan can be empty: no install, no new revision, no
-hooks.
+hooks. A chart that renders an empty value the API server does not store
+still makes it an in-place update; see
+[Empty values in the diff](#empty-values-in-the-diff).
 
 The move leaves `timeouts` null (`helm_release`'s `timeout` is not carried
 over) and `release_history_limit` null when `max_history` was `0`, and it
@@ -211,11 +215,22 @@ runs `nelm install` as after an import (see
 [What the first apply does](#what-the-first-apply-does)). So does anything
 else that differs.
 
-Check the plan the same way: `has moved to`, no destroy, never
-`must be replaced`. In a shared module, put the `moved` block inside the
-module, next to the new resource: it applies to every instance of the
-module. Keep `hashicorp/helm` installed for this apply too — the moved object
-still names it in the state.
+Check the plan the same way: `has moved to` (or, when the release is
+updated, `will be updated in-place` with `(moved from helm_release.app)`),
+no destroy, never `must be replaced`. In a shared module, put the `moved`
+block inside the module, next to the new resource: it applies to every
+instance of the module. Keep `hashicorp/helm` installed for this apply
+too — the moved object still names it in the state.
+
+**Remove the `moved` block only after every root module that uses it has
+applied it** — every environment, and every root module that calls a
+shared module. A root module whose state still holds `helm_release.app`
+and that plans without the block plans a destroy of `helm_release.app` and
+a create of `nelm_release.app`: the uninstall the warning at the top of
+this page describes. Keeping the block longer is harmless — once the state
+holds `nelm_release.app` it plans nothing, and it does not need
+`hashicorp/helm` installed — until `helm_release.app` is declared again:
+delete it when [moving the release back](#moving-a-release-back-to-helm_release).
 
 ## Values: carry them over verbatim
 
@@ -252,6 +267,33 @@ is printed wherever the chart renders it outside a `Secret` (a container
 `env` value, a `ConfigMap`). Pass such a value through `set_sensitive`
 instead; the chart renders the same objects either way. See
 [Sensitive values in non-`Secret` resources](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#sensitive-values-in-non-secret-resources).
+
+### Empty values in the diff
+
+Some charts render empty values that the API server does not store —
+`annotations: null`, `nodeSelector: {}`, `tolerations: []`. Until Nelm has
+installed the release once, an object with such a value shows a change in
+the handover plan, and a `moved` handover becomes an in-place update whose
+apply runs `nelm install` (a new revision, hooks run). The `resources` diff
+either adds the empty value (`+ nodeSelector = {}`, `+ annotations = null`)
+or, where the live object has that field from a controller, looks like its
+removal:
+
+```
+~ metadata = {
+    - annotations = {
+        - "deployment.kubernetes.io/revision" = "1"
+      }
+```
+
+for a template with `annotations: null`. The install does not remove fields
+a controller set and does not change the object's spec (no new
+`generation`, no restarted pods); only field ownership moves, as in every
+handover (see [Field managers](#field-managers), also for fields added with
+`kubectl edit`). From the next plan on, the release plans nothing. Such a
+diff needs no configuration change. Any other diff does: a non-empty value
+added or changed, or the removal of something the chart rendered under
+`helm_release` (see the values above).
 
 ## Attribute mapping
 
@@ -321,7 +363,8 @@ alone names no cluster, and `HELM_DRIVER` is not read at all (set
 
 The first apply after the import is an in-place update (after a `moved`
 block, only if the configuration differs from what the move carried over —
-a `timeouts` block or a new `release_history_limit` is enough), and it runs
+a `timeouts` block or a new `release_history_limit` is enough — or if the
+chart renders [empty values](#empty-values-in-the-diff)), and it runs
 `nelm install` for real. Expect a new release revision, and expect **hooks
 to run**: a hook without a `helm.sh/hook-delete-policy` (or with
 `before-hook-creation`) is re-created, so `pre-upgrade`/`post-upgrade` Jobs
@@ -393,8 +436,53 @@ kept. Decide before the first plan; see
   revision finished; pick rollback targets by REVISION, CHART and APP
   VERSION (see [Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#release-history)).
 - **Nelm leaves a lock ConfigMap**, `werf-synchronization`, in each release
-  namespace. If you move a release back to `helm_release`, delete it once no
-  `nelm_release` is left in that namespace.
+  namespace. If you [move a release back](#moving-a-release-back-to-helm_release)
+  to `helm_release`, delete it once no `nelm_release` is left in that
+  namespace.
+
+## Moving a release back to `helm_release`
+
+**Do not revert the migration.** A revert leaves `helm_release.app` in the
+configuration and `nelm_release.app` in the state, so Terraform plans a
+destroy of `nelm_release.app` — an uninstall of the release — and a create
+of `helm_release.app`. A `moved` block in this direction does not work
+either: `hashicorp/helm` accepts no move from `nelm_release`, and the plan
+fails with `Unable to Move Resource State`. Hand the release back the way
+the [one-apply recipe](#the-one-apply-recipe) took it over, in one change.
+If the migration's `moved` block is still there, delete it in the same
+change: with `helm_release.app` declared again, the plan otherwise fails
+with `Moved object still exists`.
+
+```hcl
+removed {
+  from = nelm_release.app
+
+  lifecycle {
+    destroy = false
+  }
+}
+
+import {
+  to = helm_release.app
+  id = "app/app" # "<namespace>/<release name>"
+}
+
+resource "helm_release" "app" {
+  # The configuration the release had before the migration.
+}
+```
+
+The plan must show `nelm_release.app will no longer be managed by
+Terraform`, `helm_release.app will be updated in-place` with
+`(imported from "app/app")`, and no destroy. The update is expected: what
+`hashicorp/helm` reads at import does not match the configuration (the
+`chart` reference, for one), so the apply runs `helm upgrade` and writes a
+new revision: hooks run again, and with the same chart and values no object
+changes. Keep `infrabay/nelm` in `required_providers`, and its
+`provider "nelm"` block, for this apply. Then delete the `removed` and
+`import` blocks, and the `werf-synchronization` ConfigMap once no
+`nelm_release` is left in that namespace (see
+[After the migration](#after-the-migration)).
 
 ## If something goes wrong
 
@@ -403,6 +491,13 @@ kept. Decide before the first plan; see
 - **The apply fails with `nelm release <ns>/<name> already exists`.** The
   `import` block is missing or names a different address, so Terraform tried
   to create the release. Nothing was changed; add the import.
+- **An apply that hands over several releases fails for one of them**
+  (e.g. `nelm_release install failed (partial state persisted)`). The
+  handover itself is already in the state, for the releases that succeeded
+  and for the failed one, which the next plan shows as an in-place update
+  of `nelm_release.x`. Fix the cause and apply again; do not revert the
+  change or remove the `moved` blocks (see
+  [Moving a release back](#moving-a-release-back-to-helm_release)).
 - **Every plan shows the same object of a migrated release changing, or the
   apply fails with `Provider produced inconsistent final plan`.** The chart
   renders something different on every plan in a way the provider cannot
