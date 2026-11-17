@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-17
+
 ### Changed
 
 - Built on Nelm v1.30.4 (was v1.29.0), Nelm's current stable channel.
@@ -160,7 +162,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release.
 
-[Unreleased]: https://github.com/infrabay/terraform-provider-nelm/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/infrabay/terraform-provider-nelm/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/infrabay/terraform-provider-nelm/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/infrabay/terraform-provider-nelm/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/infrabay/terraform-provider-nelm/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/infrabay/terraform-provider-nelm/compare/v0.1.0...v0.1.1
