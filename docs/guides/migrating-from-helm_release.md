@@ -368,7 +368,12 @@ CLI's, so Nelm takes the fields over and prunes what the chart no longer
 renders; see
 [Migrating from `helm_release`](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/resources/release.md#migrating-from-helm_release)
 in the resource docs. An object whose hand-over hits an unavailable admission
-webhook is skipped with a warning and handed over by a later apply. Keep the
+webhook is skipped with a warning and handed over by a later apply. An object
+whose manifest sets nothing but its name and namespace (a `ServiceAccount`
+without labels, for example) loses those entries instead of having them
+renamed, because Nelm cannot rebuild ownership of an object that has no
+fields to own (see
+[Known limitations](https://github.com/infrabay/terraform-provider-nelm/blob/main/docs/guides/known-limitations.md#field-ownership)). Keep the
 first `nelm_release` apply rendering exactly what `helm_release` last applied
 (see [Values](#values-carry-them-over-verbatim)) and make removals
 afterwards anyway: the handover apply then changes nothing but ownership.

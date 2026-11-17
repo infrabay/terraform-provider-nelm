@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Nelm v1.30 adds no feature gates, and how it classifies changes and takes
   over field managers is unchanged.
 
+### Fixed
+
+- The first apply after moving a release from `helm_release` no longer fails
+  with `find apply managed fields entry in dry-run result` when one of its
+  objects sets nothing but its name and namespace (for example the
+  `ServiceAccount` of the `cadvisor` chart before 2.4.3). nelm rebuilds
+  Helm's field ownership from a dry-run apply of the previous manifest, and
+  such a manifest owns no field, so nelm found no entry and failed the
+  install. The field-manager hand-over now drops the `terraform-provider-helm_*`
+  and `helm` Update entries of such an object instead of renaming them, so
+  nelm takes it over directly. A release installed by the Helm 3 CLI still
+  needs that object's `managedFields` cleared once; see Known limitations.
+
 ### Security
 
 - Built with Go 1.27.4 (was 1.27.3) for GO-2026-6859 in the standard

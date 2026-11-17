@@ -608,6 +608,23 @@ and
   surface, so fields the chart stopped rendering since that revision may
   stay live, and no diff shows them.
 
+- **An object whose manifest sets nothing but its name and namespace breaks
+  nelm's Helm 3 hand-over.** nelm (through at least v1.30.4) rebuilds `helm`'s
+  ownership from a server-side dry-run apply of the previous manifest, and an
+  apply of identity fields owns nothing, so the dry-run returns no `helm`
+  Apply entry and nelm fails the whole plan or install with `find apply
+  managed fields entry in dry-run result`. A `ServiceAccount` with no labels
+  is the usual case (the `cadvisor` chart before 2.4.3). The provider's
+  hand-over drops the `terraform-provider-helm_*` and `helm` Update entries
+  of such an object instead of renaming them, so a release coming from
+  `helm_release` is not affected. A release installed by the Helm 3 CLI
+  already carries a `helm` Update entry, and nelm's plan fails before the
+  provider can act: clear that object's `managedFields` once, e.g. `kubectl
+  -n <namespace> patch serviceaccount <name> --type=merge -p
+  '{"metadata":{"managedFields":[{}]}}'`. An object with nothing to own has
+  nothing to prune, so nothing is lost. Tracked upstream in
+  [werf/nelm#831](https://github.com/werf/nelm/issues/831).
+
 ## Values precedence
 
 - **Ordering across `set` types is not preserved.** nelm applies the

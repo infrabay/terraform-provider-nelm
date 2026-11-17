@@ -47,6 +47,11 @@ type planArtifactData struct {
 // plans such an object as a "blind apply" whose change carries the error in
 // Reason. So everything but deployType and data.changes is skipped without
 // being decoded into nelm's types, and unknown fields are ignored.
+//
+// nelm fixed the round trip in v1.31.2 (https://github.com/werf/nelm/issues/746).
+// Once the provider builds on a stable nelm v1.31.2 or later, this reader can
+// be replaced with plan.ReadPlanArtifact; keep the tests that feed it an
+// artifact with a dry-run apply error.
 func readPlanArtifact(path string) (*PlanResult, error) {
 	file, err := os.Open(path)
 	if err != nil {
