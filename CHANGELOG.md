@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Nelm v1.30 adds no feature gates, and how it classifies changes and takes
   over field managers is unchanged.
 
+### Security
+
+- Built with Go 1.27.4 (was 1.27.3) for GO-2026-6859 in the standard
+  library, and with `github.com/klauspost/compress` v1.20.2 (was v1.20.1,
+  reached through Nelm's Helm registry client and containerd) for
+  GO-2026-6865.
+
 ## [0.2.0] - 2026-10-31
 
 ### Added
