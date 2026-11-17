@@ -140,7 +140,9 @@ live in `~/.kube/config` (where OrbStack and kind write it by default).
 - `lint`: golangci-lint, pinned to the version `./gates.sh` is run with;
 - `govulncheck`: lists the vulnerabilities the code can reach and fails on
   those with a fixed version (the ones reachable through Nelm's dependencies
-  today have none);
+  today have none, except GO-2026-5932, whose "fix" deletes the
+  `golang.org/x/crypto/openpgp` package Nelm's Helm imports; `test.yml`
+  exempts it by ID);
 - `docs`: `tfplugindocs validate --provider-name nelm`, the Registry's
   frontmatter and layout rules for the hand-written `docs/`;
 - `acceptance`: the acceptance suite against a
